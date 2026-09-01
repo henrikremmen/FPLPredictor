@@ -1,0 +1,1 @@
+https://github.com/vaastav/Fantasy-Premier-League brukt som basis for å bygge modellen 

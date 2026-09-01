@@ -1,0 +1,504 @@
+feature_name,source_column,feature_group,transformation,timing,safe_for_prediction,notes
+name,name,identifier_metadata,raw/renamed,IDENTIFIER,REVIEW,"Use for grouping, joins, or reporting; not as an unexamined numeric feature"
+assists,assists,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+attempted_passes,attempted_passes,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+big_chances_created,big_chances_created,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+big_chances_missed,big_chances_missed,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+bonus,bonus,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+bps,bps,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+clean_sheets,clean_sheets,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+clearances_blocks_interceptions,clearances_blocks_interceptions,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+completed_passes,completed_passes,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+creativity,creativity,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+dribbles,dribbles,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+ea_index,ea_index,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+player_id,element,identifier_metadata,raw/renamed,IDENTIFIER,REVIEW,"Renamed from element; Use for grouping, joins, or reporting; not as an unexamined numeric feature"
+errors_leading_to_goal,errors_leading_to_goal,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+errors_leading_to_goal_attempt,errors_leading_to_goal_attempt,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+fixture,fixture,identifier_metadata,raw/renamed,IDENTIFIER,REVIEW,"Use for grouping, joins, or reporting; not as an unexamined numeric feature"
+fouls,fouls,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+goals_conceded,goals_conceded,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+goals_scored,goals_scored,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+ict_index,ict_index,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+id,id,identifier_metadata,raw/renamed,IDENTIFIER,REVIEW,"Use for grouping, joins, or reporting; not as an unexamined numeric feature"
+influence,influence,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+key_passes,key_passes,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+kickoff_time,kickoff_time,identifier_metadata,raw/renamed,IDENTIFIER,REVIEW,"Use for grouping, joins, or reporting; not as an unexamined numeric feature"
+kickoff_time_formatted,kickoff_time_formatted,identifier_metadata,raw/renamed,IDENTIFIER,REVIEW,"Use for grouping, joins, or reporting; not as an unexamined numeric feature"
+loaned_in,loaned_in,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+loaned_out,loaned_out,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+minutes,minutes,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+offside,offside,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+open_play_crosses,open_play_crosses,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+opponent_team,opponent_team,identifier_metadata,raw/renamed,IDENTIFIER,REVIEW,"Use for grouping, joins, or reporting; not as an unexamined numeric feature"
+own_goals,own_goals,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+penalties_conceded,penalties_conceded,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+penalties_missed,penalties_missed,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+penalties_saved,penalties_saved,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+recoveries,recoveries,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+red_cards,red_cards,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+round,round,identifier_metadata,raw/renamed,IDENTIFIER,REVIEW,"Use for grouping, joins, or reporting; not as an unexamined numeric feature"
+saves,saves,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+selected,selected,market,raw snapshot,UNKNOWN,REVIEW,Exact pre/post-deadline collection timing is not guaranteed
+tackled,tackled,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+tackles,tackles,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+target_missed,target_missed,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+team_a_score,team_a_score,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+team_h_score,team_h_score,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+threat,threat,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+total_points,total_points,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+transfers_balance,transfers_balance,market,raw snapshot,UNKNOWN,REVIEW,Exact pre/post-deadline collection timing is not guaranteed
+transfers_in,transfers_in,market,raw snapshot,UNKNOWN,REVIEW,Exact pre/post-deadline collection timing is not guaranteed
+transfers_out,transfers_out,market,raw snapshot,UNKNOWN,REVIEW,Exact pre/post-deadline collection timing is not guaranteed
+value,value,market,raw snapshot,UNKNOWN,REVIEW,Exact pre/post-deadline collection timing is not guaranteed
+was_home,was_home,identifier_metadata,raw/renamed,IDENTIFIER,REVIEW,"Use for grouping, joins, or reporting; not as an unexamined numeric feature"
+winning_goals,winning_goals,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+yellow_cards,yellow_cards,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+GW,GW,identifier_metadata,raw/renamed,IDENTIFIER,REVIEW,"Use for grouping, joins, or reporting; not as an unexamined numeric feature"
+season,season_x,identifier_metadata,raw/renamed,IDENTIFIER,REVIEW,"Renamed from season_x; Use for grouping, joins, or reporting; not as an unexamined numeric feature"
+position,position,identifier_metadata,raw/renamed,IDENTIFIER,REVIEW,"Use for grouping, joins, or reporting; not as an unexamined numeric feature"
+team,team,identifier_metadata,raw/renamed,IDENTIFIER,REVIEW,"Use for grouping, joins, or reporting; not as an unexamined numeric feature"
+xP,xP,fpl_expected_points,raw,UNKNOWN,UNSAFE_LEAKAGE,README warns scraper may record ep_this after the match
+expected_assists,expected_assists,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+expected_goal_involvements,expected_goal_involvements,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+expected_goals,expected_goals,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+expected_goals_conceded,expected_goals_conceded,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+starts,starts,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+mng_clean_sheets,mng_clean_sheets,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Assistant Manager scoring component in 2024/25; match-result-derived
+mng_draw,mng_draw,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Assistant Manager scoring component in 2024/25; match-result-derived
+mng_goals_scored,mng_goals_scored,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Assistant Manager scoring component in 2024/25; match-result-derived
+mng_loss,mng_loss,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Assistant Manager scoring component in 2024/25; match-result-derived
+mng_underdog_draw,mng_underdog_draw,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Assistant Manager scoring component in 2024/25; match-result-derived
+mng_underdog_win,mng_underdog_win,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Assistant Manager scoring component in 2024/25; match-result-derived
+mng_win,mng_win,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Assistant Manager scoring component in 2024/25; match-result-derived
+modified,modified,market,raw snapshot,UNKNOWN,REVIEW,Exact pre/post-deadline collection timing is not guaranteed
+defensive_contribution,defensive_contribution,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,"FPL API match-level defensive-contribution count, present from 2025/26"
+derived_team_id,derived_team_id,identifier_metadata,raw/renamed,IDENTIFIER,REVIEW,"Use for grouping, joins, or reporting; not as an unexamined numeric feature"
+opp_team_name,opp_team_name,identifier_metadata,raw/renamed,IDENTIFIER,REVIEW,"Use for grouping, joins, or reporting; not as an unexamined numeric feature"
+points,points,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+team_goals_scored,team_goals_scored,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+team_goals_conceded,team_goals_conceded,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+team_goals_diff,team_goals_diff,current_fixture_outcome,raw,POST_MATCH,UNSAFE_LEAKAGE,Current fixture outcome; preserve but never use directly as predictor
+points_before_match,points_before_match,team,raw pre-match cumulative,PRE_MATCH,SAFE,Validated against prior team fixture in expanded source
+team_goals_scored_before_match,team_goals_scored_before_match,team,raw pre-match cumulative,PRE_MATCH,SAFE,Validated against prior team fixture in expanded source
+team_goals_conceded_before_match,team_goals_conceded_before_match,team,raw pre-match cumulative,PRE_MATCH,SAFE,Validated against prior team fixture in expanded source
+team_goals_diff_before_match,team_goals_diff_before_match,team,raw pre-match cumulative,PRE_MATCH,SAFE,Validated against prior team fixture in expanded source
+price_m,price_m,market,raw snapshot,UNKNOWN,REVIEW,Exact pre/post-deadline collection timing is not guaranteed
+target_points,total_points,target,copy,POST_MATCH,UNSAFE_LEAKAGE,Model target
+minutes_last1,minutes,playing_time,shift(1),HISTORICAL_SHIFTED,SAFE,
+games_available_last3,fixture,sample_size,"count of prior fixture observations, capped at 3",HISTORICAL_SHIFTED,SAFE,
+minutes_last3,minutes,playing_time,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+minutes_avg3,minutes,playing_time,minutes_last3 / games_available_last3,HISTORICAL_SHIFTED,SAFE,
+starts_last3,starts,playing_time,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+start_rate3,"starts,fixture",playing_time,starts_last3 / games_available_last3,HISTORICAL_SHIFTED,SAFE,
+games_60plus_last3,minutes,playing_time,"shift(1), rolling(3).sum(minutes >= 60)",HISTORICAL_SHIFTED,SAFE,
+games_80plus_last3,minutes,playing_time,"shift(1), rolling(3).sum(minutes >= 80)",HISTORICAL_SHIFTED,SAFE,
+games_available_last5,fixture,sample_size,"count of prior fixture observations, capped at 5",HISTORICAL_SHIFTED,SAFE,
+minutes_last5,minutes,playing_time,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+minutes_avg5,minutes,playing_time,minutes_last5 / games_available_last5,HISTORICAL_SHIFTED,SAFE,
+starts_last5,starts,playing_time,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+start_rate5,"starts,fixture",playing_time,starts_last5 / games_available_last5,HISTORICAL_SHIFTED,SAFE,
+games_60plus_last5,minutes,playing_time,"shift(1), rolling(5).sum(minutes >= 60)",HISTORICAL_SHIFTED,SAFE,
+games_80plus_last5,minutes,playing_time,"shift(1), rolling(5).sum(minutes >= 80)",HISTORICAL_SHIFTED,SAFE,
+games_available_last10,fixture,sample_size,"count of prior fixture observations, capped at 10",HISTORICAL_SHIFTED,SAFE,
+minutes_last10,minutes,playing_time,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+minutes_avg10,minutes,playing_time,minutes_last10 / games_available_last10,HISTORICAL_SHIFTED,SAFE,
+starts_last10,starts,playing_time,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+start_rate10,"starts,fixture",playing_time,starts_last10 / games_available_last10,HISTORICAL_SHIFTED,SAFE,
+games_60plus_last10,minutes,playing_time,"shift(1), rolling(10).sum(minutes >= 60)",HISTORICAL_SHIFTED,SAFE,
+games_80plus_last10,minutes,playing_time,"shift(1), rolling(10).sum(minutes >= 80)",HISTORICAL_SHIFTED,SAFE,
+games_played_season_before,minutes,sample_size,"shift(1), season expanding sum(minutes > 0)",HISTORICAL_SHIFTED,SAFE,
+minutes_season_before,minutes,playing_time,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+starts_season_before,starts,playing_time,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+start_rate_season_before,"starts,fixture",playing_time,starts_season_before / prior fixture observations,HISTORICAL_SHIFTED,SAFE,
+goals_last3,goals_scored,attacking,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+goals_last5,goals_scored,attacking,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+goals_last10,goals_scored,attacking,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+goals_season_before,goals_scored,attacking,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+assists_last3,assists,attacking,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+assists_last5,assists,attacking,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+assists_last10,assists,attacking,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+assists_season_before,assists,attacking,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+xG_last3,expected_goals,attacking,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+xG_last5,expected_goals,attacking,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+xG_last10,expected_goals,attacking,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+xG_season_before,expected_goals,attacking,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+xA_last3,expected_assists,attacking,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+xA_last5,expected_assists,attacking,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+xA_last10,expected_assists,attacking,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+xA_season_before,expected_assists,attacking,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+xGI_last3,expected_goal_involvements,attacking,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+xGI_last5,expected_goal_involvements,attacking,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+xGI_last10,expected_goal_involvements,attacking,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+xGI_season_before,expected_goal_involvements,attacking,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+big_chances_created_last3,big_chances_created,attacking,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+big_chances_created_last5,big_chances_created,attacking,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+big_chances_created_last10,big_chances_created,attacking,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+big_chances_created_season_before,big_chances_created,attacking,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+big_chances_missed_last3,big_chances_missed,attacking,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+big_chances_missed_last5,big_chances_missed,attacking,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+big_chances_missed_last10,big_chances_missed,attacking,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+big_chances_missed_season_before,big_chances_missed,attacking,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+key_passes_last3,key_passes,attacking,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+key_passes_last5,key_passes,attacking,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+key_passes_last10,key_passes,attacking,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+key_passes_season_before,key_passes,attacking,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+target_missed_last3,target_missed,attacking,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+target_missed_last5,target_missed,attacking,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+target_missed_last10,target_missed,attacking,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+target_missed_season_before,target_missed,attacking,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+crosses_last3,open_play_crosses,attacking,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+crosses_last5,open_play_crosses,attacking,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+crosses_last10,open_play_crosses,attacking,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+crosses_season_before,open_play_crosses,attacking,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+dribbles_last3,dribbles,attacking,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+dribbles_last5,dribbles,attacking,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+dribbles_last10,dribbles,attacking,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+dribbles_season_before,dribbles,attacking,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+offsides_last3,offside,attacking,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+offsides_last5,offside,attacking,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+offsides_last10,offside,attacking,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+offsides_season_before,offside,attacking,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+threat_last3,threat,ict,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+threat_avg3,threat,ict,threat_last3 / games_available_last3,HISTORICAL_SHIFTED,SAFE,
+threat_last5,threat,ict,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+threat_avg5,threat,ict,threat_last5 / games_available_last5,HISTORICAL_SHIFTED,SAFE,
+threat_last10,threat,ict,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+threat_avg10,threat,ict,threat_last10 / games_available_last10,HISTORICAL_SHIFTED,SAFE,
+threat_season_before,threat,ict,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+creativity_last3,creativity,ict,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+creativity_avg3,creativity,ict,creativity_last3 / games_available_last3,HISTORICAL_SHIFTED,SAFE,
+creativity_last5,creativity,ict,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+creativity_avg5,creativity,ict,creativity_last5 / games_available_last5,HISTORICAL_SHIFTED,SAFE,
+creativity_last10,creativity,ict,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+creativity_avg10,creativity,ict,creativity_last10 / games_available_last10,HISTORICAL_SHIFTED,SAFE,
+creativity_season_before,creativity,ict,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+influence_last3,influence,ict,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+influence_avg3,influence,ict,influence_last3 / games_available_last3,HISTORICAL_SHIFTED,SAFE,
+influence_last5,influence,ict,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+influence_avg5,influence,ict,influence_last5 / games_available_last5,HISTORICAL_SHIFTED,SAFE,
+influence_last10,influence,ict,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+influence_avg10,influence,ict,influence_last10 / games_available_last10,HISTORICAL_SHIFTED,SAFE,
+influence_season_before,influence,ict,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+ict_last3,ict_index,ict,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+ict_avg3,ict_index,ict,ict_last3 / games_available_last3,HISTORICAL_SHIFTED,SAFE,
+ict_last5,ict_index,ict,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+ict_avg5,ict_index,ict,ict_last5 / games_available_last5,HISTORICAL_SHIFTED,SAFE,
+ict_last10,ict_index,ict,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+ict_avg10,ict_index,ict,ict_last10 / games_available_last10,HISTORICAL_SHIFTED,SAFE,
+ict_season_before,ict_index,ict,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+points_last3,total_points,fpl_performance,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+points_avg3,total_points,fpl_performance,points_last3 / games_available_last3,HISTORICAL_SHIFTED,SAFE,
+points_last5,total_points,fpl_performance,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+points_avg5,total_points,fpl_performance,points_last5 / games_available_last5,HISTORICAL_SHIFTED,SAFE,
+points_last10,total_points,fpl_performance,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+points_avg10,total_points,fpl_performance,points_last10 / games_available_last10,HISTORICAL_SHIFTED,SAFE,
+points_season_before,total_points,fpl_performance,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+bonus_last3,bonus,fpl_performance,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+bonus_avg3,bonus,fpl_performance,bonus_last3 / games_available_last3,HISTORICAL_SHIFTED,SAFE,
+bonus_last5,bonus,fpl_performance,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+bonus_avg5,bonus,fpl_performance,bonus_last5 / games_available_last5,HISTORICAL_SHIFTED,SAFE,
+bonus_last10,bonus,fpl_performance,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+bonus_avg10,bonus,fpl_performance,bonus_last10 / games_available_last10,HISTORICAL_SHIFTED,SAFE,
+bonus_season_before,bonus,fpl_performance,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+bps_last3,bps,fpl_performance,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+bps_avg3,bps,fpl_performance,bps_last3 / games_available_last3,HISTORICAL_SHIFTED,SAFE,
+bps_last5,bps,fpl_performance,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+bps_avg5,bps,fpl_performance,bps_last5 / games_available_last5,HISTORICAL_SHIFTED,SAFE,
+bps_last10,bps,fpl_performance,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+bps_avg10,bps,fpl_performance,bps_last10 / games_available_last10,HISTORICAL_SHIFTED,SAFE,
+bps_season_before,bps,fpl_performance,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+goals90_last3,"goals_scored,minutes",attacking,90 * sum(prior 3 goals_scored) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+goals90_last5,"goals_scored,minutes",attacking,90 * sum(prior 5 goals_scored) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+goals90_last10,"goals_scored,minutes",attacking,90 * sum(prior 10 goals_scored) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+assists90_last3,"assists,minutes",attacking,90 * sum(prior 3 assists) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+assists90_last5,"assists,minutes",attacking,90 * sum(prior 5 assists) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+assists90_last10,"assists,minutes",attacking,90 * sum(prior 10 assists) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+xG90_last3,"expected_goals,minutes",attacking,90 * sum(prior 3 expected_goals) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+xG90_last5,"expected_goals,minutes",attacking,90 * sum(prior 5 expected_goals) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+xG90_last10,"expected_goals,minutes",attacking,90 * sum(prior 10 expected_goals) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+xA90_last3,"expected_assists,minutes",attacking,90 * sum(prior 3 expected_assists) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+xA90_last5,"expected_assists,minutes",attacking,90 * sum(prior 5 expected_assists) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+xA90_last10,"expected_assists,minutes",attacking,90 * sum(prior 10 expected_assists) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+xGI90_last3,"expected_goal_involvements,minutes",attacking,90 * sum(prior 3 expected_goal_involvements) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+xGI90_last5,"expected_goal_involvements,minutes",attacking,90 * sum(prior 5 expected_goal_involvements) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+xGI90_last10,"expected_goal_involvements,minutes",attacking,90 * sum(prior 10 expected_goal_involvements) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+key_passes90_last3,"key_passes,minutes",attacking,90 * sum(prior 3 key_passes) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+key_passes90_last5,"key_passes,minutes",attacking,90 * sum(prior 5 key_passes) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+key_passes90_last10,"key_passes,minutes",attacking,90 * sum(prior 10 key_passes) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+big_chances_created90_last3,"big_chances_created,minutes",attacking,90 * sum(prior 3 big_chances_created) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+big_chances_created90_last5,"big_chances_created,minutes",attacking,90 * sum(prior 5 big_chances_created) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+big_chances_created90_last10,"big_chances_created,minutes",attacking,90 * sum(prior 10 big_chances_created) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+threat90_last3,"threat,minutes",ict,90 * sum(prior 3 threat) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+threat90_last5,"threat,minutes",ict,90 * sum(prior 5 threat) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+threat90_last10,"threat,minutes",ict,90 * sum(prior 10 threat) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+creativity90_last3,"creativity,minutes",ict,90 * sum(prior 3 creativity) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+creativity90_last5,"creativity,minutes",ict,90 * sum(prior 5 creativity) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+creativity90_last10,"creativity,minutes",ict,90 * sum(prior 10 creativity) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+influence90_last3,"influence,minutes",ict,90 * sum(prior 3 influence) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+influence90_last5,"influence,minutes",ict,90 * sum(prior 5 influence) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+influence90_last10,"influence,minutes",ict,90 * sum(prior 10 influence) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+ict90_last3,"ict_index,minutes",ict,90 * sum(prior 3 ict_index) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+ict90_last5,"ict_index,minutes",ict,90 * sum(prior 5 ict_index) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+ict90_last10,"ict_index,minutes",ict,90 * sum(prior 10 ict_index) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+points90_last3,"total_points,minutes",fpl_performance,90 * sum(prior 3 total_points) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+points90_last5,"total_points,minutes",fpl_performance,90 * sum(prior 5 total_points) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+points90_last10,"total_points,minutes",fpl_performance,90 * sum(prior 10 total_points) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+bonus90_last3,"bonus,minutes",fpl_performance,90 * sum(prior 3 bonus) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+bonus90_last5,"bonus,minutes",fpl_performance,90 * sum(prior 5 bonus) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+bonus90_last10,"bonus,minutes",fpl_performance,90 * sum(prior 10 bonus) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+bps90_last3,"bps,minutes",fpl_performance,90 * sum(prior 3 bps) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+bps90_last5,"bps,minutes",fpl_performance,90 * sum(prior 5 bps) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+bps90_last10,"bps,minutes",fpl_performance,90 * sum(prior 10 bps) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+goals_minus_xG_last3,"goals_scored,expected_goals",finishing,goals_last3 - xG_last3,HISTORICAL_SHIFTED,SAFE,
+assists_minus_xA_last3,"assists,expected_assists",finishing,assists_last3 - xA_last3,HISTORICAL_SHIFTED,SAFE,
+xGI_minus_returns_last3,"expected_goal_involvements,goals_scored,assists",finishing,xGI_last3 - goals_last3 - assists_last3,HISTORICAL_SHIFTED,SAFE,
+goal_conversion_proxy_last3,"goals_scored,target_missed",finishing,"goals / (goals + target_missed); proxy, not true shot conversion",HISTORICAL_SHIFTED,SAFE,target_missed is not a complete shots denominator
+goals_minus_xG_last5,"goals_scored,expected_goals",finishing,goals_last5 - xG_last5,HISTORICAL_SHIFTED,SAFE,
+assists_minus_xA_last5,"assists,expected_assists",finishing,assists_last5 - xA_last5,HISTORICAL_SHIFTED,SAFE,
+xGI_minus_returns_last5,"expected_goal_involvements,goals_scored,assists",finishing,xGI_last5 - goals_last5 - assists_last5,HISTORICAL_SHIFTED,SAFE,
+goal_conversion_proxy_last5,"goals_scored,target_missed",finishing,"goals / (goals + target_missed); proxy, not true shot conversion",HISTORICAL_SHIFTED,SAFE,target_missed is not a complete shots denominator
+goals_minus_xG_last10,"goals_scored,expected_goals",finishing,goals_last10 - xG_last10,HISTORICAL_SHIFTED,SAFE,
+assists_minus_xA_last10,"assists,expected_assists",finishing,assists_last10 - xA_last10,HISTORICAL_SHIFTED,SAFE,
+xGI_minus_returns_last10,"expected_goal_involvements,goals_scored,assists",finishing,xGI_last10 - goals_last10 - assists_last10,HISTORICAL_SHIFTED,SAFE,
+goal_conversion_proxy_last10,"goals_scored,target_missed",finishing,"goals / (goals + target_missed); proxy, not true shot conversion",HISTORICAL_SHIFTED,SAFE,target_missed is not a complete shots denominator
+selected_last1,selected,market,shift(1),HISTORICAL_SHIFTED,REVIEW,FPL snapshot collection timing is not guaranteed pre-deadline
+selected_change,selected,market,current selected - shifted selected,UNKNOWN,REVIEW,Uses current-row snapshot with uncertain timing
+selected_last3,selected,market,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,REVIEW,Historical snapshot timing remains uncertain
+selected_last5,selected,market,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,REVIEW,Historical snapshot timing remains uncertain
+selected_last10,selected,market,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,REVIEW,Historical snapshot timing remains uncertain
+transfers_in_last1,transfers_in,market,shift(1),HISTORICAL_SHIFTED,REVIEW,FPL snapshot collection timing is not guaranteed pre-deadline
+transfers_in_change,transfers_in,market,current transfers_in - shifted transfers_in,UNKNOWN,REVIEW,Uses current-row snapshot with uncertain timing
+transfers_in_last3,transfers_in,market,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,REVIEW,Historical snapshot timing remains uncertain
+transfers_in_last5,transfers_in,market,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,REVIEW,Historical snapshot timing remains uncertain
+transfers_in_last10,transfers_in,market,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,REVIEW,Historical snapshot timing remains uncertain
+transfers_out_last1,transfers_out,market,shift(1),HISTORICAL_SHIFTED,REVIEW,FPL snapshot collection timing is not guaranteed pre-deadline
+transfers_out_change,transfers_out,market,current transfers_out - shifted transfers_out,UNKNOWN,REVIEW,Uses current-row snapshot with uncertain timing
+transfers_out_last3,transfers_out,market,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,REVIEW,Historical snapshot timing remains uncertain
+transfers_out_last5,transfers_out,market,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,REVIEW,Historical snapshot timing remains uncertain
+transfers_out_last10,transfers_out,market,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,REVIEW,Historical snapshot timing remains uncertain
+transfer_balance_last1,transfers_balance,market,shift(1),HISTORICAL_SHIFTED,REVIEW,FPL snapshot collection timing is not guaranteed pre-deadline
+transfer_balance_change,transfers_balance,market,current transfers_balance - shifted transfers_balance,UNKNOWN,REVIEW,Uses current-row snapshot with uncertain timing
+transfer_balance_last3,transfers_balance,market,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,REVIEW,Historical snapshot timing remains uncertain
+transfer_balance_last5,transfers_balance,market,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,REVIEW,Historical snapshot timing remains uncertain
+transfer_balance_last10,transfers_balance,market,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,REVIEW,Historical snapshot timing remains uncertain
+price_last1,value,market,shift(1),HISTORICAL_SHIFTED,REVIEW,FPL snapshot collection timing is not guaranteed pre-deadline
+price_change,value,market,current value - shifted value,UNKNOWN,REVIEW,Uses current-row snapshot with uncertain timing
+price_last3,value,market,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,REVIEW,Historical snapshot timing remains uncertain
+price_last5,value,market,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,REVIEW,Historical snapshot timing remains uncertain
+price_last10,value,market,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,REVIEW,Historical snapshot timing remains uncertain
+xP_last1,xP,fpl_expected_points,shift(1),HISTORICAL_SHIFTED,REVIEW,Repository README warns xP may have been recorded post-match
+xP_avg3,xP,fpl_expected_points,"shift(1), rolling(3).mean(min_periods=1)",HISTORICAL_SHIFTED,REVIEW,Shifted but source collection timing is uncertain
+xP_avg5,xP,fpl_expected_points,"shift(1), rolling(5).mean(min_periods=1)",HISTORICAL_SHIFTED,REVIEW,Shifted but source collection timing is uncertain
+xP_avg10,xP,fpl_expected_points,"shift(1), rolling(10).mean(min_periods=1)",HISTORICAL_SHIFTED,REVIEW,Shifted but source collection timing is uncertain
+clean_sheets_last3,clean_sheets,defensive,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+clean_sheets_last5,clean_sheets,defensive,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+clean_sheets_last10,clean_sheets,defensive,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+clean_sheets_season_before,clean_sheets,defensive,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+CBI_last3,clearances_blocks_interceptions,defensive,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+CBI_last5,clearances_blocks_interceptions,defensive,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+CBI_last10,clearances_blocks_interceptions,defensive,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+CBI_season_before,clearances_blocks_interceptions,defensive,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+tackles_last3,tackles,defensive,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+tackles_last5,tackles,defensive,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+tackles_last10,tackles,defensive,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+tackles_season_before,tackles,defensive,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+tackled_last3,tackled,defensive,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+tackled_last5,tackled,defensive,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+tackled_last10,tackled,defensive,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+tackled_season_before,tackled,defensive,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+recoveries_last3,recoveries,defensive,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+recoveries_last5,recoveries,defensive,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+recoveries_last10,recoveries,defensive,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+recoveries_season_before,recoveries,defensive,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+goals_conceded_last3,goals_conceded,defensive,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+goals_conceded_last5,goals_conceded,defensive,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+goals_conceded_last10,goals_conceded,defensive,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+goals_conceded_season_before,goals_conceded,defensive,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+errors_leading_to_goal_last3,errors_leading_to_goal,defensive,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+errors_leading_to_goal_last5,errors_leading_to_goal,defensive,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+errors_leading_to_goal_last10,errors_leading_to_goal,defensive,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+errors_leading_to_goal_season_before,errors_leading_to_goal,defensive,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+errors_leading_to_goal_attempt_last3,errors_leading_to_goal_attempt,defensive,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+errors_leading_to_goal_attempt_last5,errors_leading_to_goal_attempt,defensive,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+errors_leading_to_goal_attempt_last10,errors_leading_to_goal_attempt,defensive,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+errors_leading_to_goal_attempt_season_before,errors_leading_to_goal_attempt,defensive,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+penalties_conceded_last3,penalties_conceded,discipline,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+penalties_conceded_last5,penalties_conceded,discipline,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+penalties_conceded_last10,penalties_conceded,discipline,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+penalties_conceded_season_before,penalties_conceded,discipline,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+defensive_contribution_last3,defensive_contribution,defensive,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+defensive_contribution_avg3,defensive_contribution,defensive,defensive_contribution_last3 / games_available_last3,HISTORICAL_SHIFTED,SAFE,
+defensive_contribution_last5,defensive_contribution,defensive,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+defensive_contribution_avg5,defensive_contribution,defensive,defensive_contribution_last5 / games_available_last5,HISTORICAL_SHIFTED,SAFE,
+defensive_contribution_last10,defensive_contribution,defensive,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+defensive_contribution_avg10,defensive_contribution,defensive,defensive_contribution_last10 / games_available_last10,HISTORICAL_SHIFTED,SAFE,
+defensive_contribution_season_before,defensive_contribution,defensive,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+fouls_last3,fouls,discipline,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+fouls_last5,fouls,discipline,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+fouls_last10,fouls,discipline,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+fouls_season_before,fouls,discipline,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+yellow_cards_last3,yellow_cards,discipline,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+yellow_cards_last5,yellow_cards,discipline,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+yellow_cards_last10,yellow_cards,discipline,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+yellow_cards_season_before,yellow_cards,discipline,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+red_cards_last3,red_cards,discipline,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+red_cards_last5,red_cards,discipline,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+red_cards_last10,red_cards,discipline,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+red_cards_season_before,red_cards,discipline,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+own_goals_last3,own_goals,discipline,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+own_goals_last5,own_goals,discipline,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+own_goals_last10,own_goals,discipline,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+own_goals_season_before,own_goals,discipline,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+penalties_missed_last3,penalties_missed,discipline,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+penalties_missed_last5,penalties_missed,discipline,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+penalties_missed_last10,penalties_missed,discipline,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+penalties_missed_season_before,penalties_missed,discipline,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+saves_last3,saves,goalkeeper,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+saves_avg3,saves,goalkeeper,saves_last3 / games_available_last3,HISTORICAL_SHIFTED,SAFE,
+saves_last5,saves,goalkeeper,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+saves_avg5,saves,goalkeeper,saves_last5 / games_available_last5,HISTORICAL_SHIFTED,SAFE,
+saves_last10,saves,goalkeeper,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+saves_avg10,saves,goalkeeper,saves_last10 / games_available_last10,HISTORICAL_SHIFTED,SAFE,
+saves_season_before,saves,goalkeeper,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+penalties_saved_last3,penalties_saved,goalkeeper,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+penalties_saved_last5,penalties_saved,goalkeeper,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+penalties_saved_last10,penalties_saved,goalkeeper,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+penalties_saved_season_before,penalties_saved,goalkeeper,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+attempted_passes_last3,attempted_passes,passing,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+attempted_passes_last5,attempted_passes,passing,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+attempted_passes_last10,attempted_passes,passing,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+attempted_passes_season_before,attempted_passes,passing,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+completed_passes_last3,completed_passes,passing,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+completed_passes_last5,completed_passes,passing,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+completed_passes_last10,completed_passes,passing,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+completed_passes_season_before,completed_passes,passing,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+winning_goals_last3,winning_goals,rare_events,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+winning_goals_last5,winning_goals,rare_events,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+winning_goals_last10,winning_goals,rare_events,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+winning_goals_season_before,winning_goals,rare_events,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+loaned_in_last3,loaned_in,rare_events,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+loaned_in_last5,loaned_in,rare_events,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+loaned_in_last10,loaned_in,rare_events,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+loaned_in_season_before,loaned_in,rare_events,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+loaned_out_last3,loaned_out,rare_events,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+loaned_out_last5,loaned_out,rare_events,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+loaned_out_last10,loaned_out,rare_events,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+loaned_out_season_before,loaned_out,rare_events,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+mng_clean_sheets_last3,mng_clean_sheets,manager,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_clean_sheets_last5,mng_clean_sheets,manager,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_clean_sheets_last10,mng_clean_sheets,manager,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_clean_sheets_season_before,mng_clean_sheets,manager,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+mng_draw_last3,mng_draw,manager,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_draw_last5,mng_draw,manager,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_draw_last10,mng_draw,manager,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_draw_season_before,mng_draw,manager,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+mng_goals_scored_last3,mng_goals_scored,manager,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_goals_scored_last5,mng_goals_scored,manager,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_goals_scored_last10,mng_goals_scored,manager,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_goals_scored_season_before,mng_goals_scored,manager,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+mng_loss_last3,mng_loss,manager,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_loss_last5,mng_loss,manager,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_loss_last10,mng_loss,manager,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_loss_season_before,mng_loss,manager,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+mng_underdog_draw_last3,mng_underdog_draw,manager,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_underdog_draw_last5,mng_underdog_draw,manager,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_underdog_draw_last10,mng_underdog_draw,manager,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_underdog_draw_season_before,mng_underdog_draw,manager,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+mng_underdog_win_last3,mng_underdog_win,manager,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_underdog_win_last5,mng_underdog_win,manager,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_underdog_win_last10,mng_underdog_win,manager,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_underdog_win_season_before,mng_underdog_win,manager,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+mng_win_last3,mng_win,manager,"shift(1), rolling(3).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_win_last5,mng_win,manager,"shift(1), rolling(5).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_win_last10,mng_win,manager,"shift(1), rolling(10).sum(min_periods=1)",HISTORICAL_SHIFTED,SAFE,
+mng_win_season_before,mng_win,manager,"shift(1), season expanding sum",HISTORICAL_SHIFTED,SAFE,
+CBI90_last3,"clearances_blocks_interceptions,minutes",defensive,90 * sum(prior 3 clearances_blocks_interceptions) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+CBI90_last5,"clearances_blocks_interceptions,minutes",defensive,90 * sum(prior 5 clearances_blocks_interceptions) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+CBI90_last10,"clearances_blocks_interceptions,minutes",defensive,90 * sum(prior 10 clearances_blocks_interceptions) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+tackles90_last3,"tackles,minutes",defensive,90 * sum(prior 3 tackles) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+tackles90_last5,"tackles,minutes",defensive,90 * sum(prior 5 tackles) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+tackles90_last10,"tackles,minutes",defensive,90 * sum(prior 10 tackles) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+recoveries90_last3,"recoveries,minutes",defensive,90 * sum(prior 3 recoveries) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+recoveries90_last5,"recoveries,minutes",defensive,90 * sum(prior 5 recoveries) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+recoveries90_last10,"recoveries,minutes",defensive,90 * sum(prior 10 recoveries) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+goals_conceded90_last3,"goals_conceded,minutes",defensive,90 * sum(prior 3 goals_conceded) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+goals_conceded90_last5,"goals_conceded,minutes",defensive,90 * sum(prior 5 goals_conceded) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+goals_conceded90_last10,"goals_conceded,minutes",defensive,90 * sum(prior 10 goals_conceded) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+fouls90_last3,"fouls,minutes",discipline,90 * sum(prior 3 fouls) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+fouls90_last5,"fouls,minutes",discipline,90 * sum(prior 5 fouls) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+fouls90_last10,"fouls,minutes",discipline,90 * sum(prior 10 fouls) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+saves90_last3,"saves,minutes",goalkeeper,90 * sum(prior 3 saves) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+saves90_last5,"saves,minutes",goalkeeper,90 * sum(prior 5 saves) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+saves90_last10,"saves,minutes",goalkeeper,90 * sum(prior 10 saves) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+attempted_passes90_last3,"attempted_passes,minutes",passing,90 * sum(prior 3 attempted_passes) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+attempted_passes90_last5,"attempted_passes,minutes",passing,90 * sum(prior 5 attempted_passes) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+attempted_passes90_last10,"attempted_passes,minutes",passing,90 * sum(prior 10 attempted_passes) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+completed_passes90_last3,"completed_passes,minutes",passing,90 * sum(prior 3 completed_passes) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+completed_passes90_last5,"completed_passes,minutes",passing,90 * sum(prior 5 completed_passes) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+completed_passes90_last10,"completed_passes,minutes",passing,90 * sum(prior 10 completed_passes) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+defensive_contribution90_last3,"defensive_contribution,minutes",defensive,90 * sum(prior 3 defensive_contribution) / sum(prior 3 minutes),HISTORICAL_SHIFTED,SAFE,
+defensive_contribution90_last5,"defensive_contribution,minutes",defensive,90 * sum(prior 5 defensive_contribution) / sum(prior 5 minutes),HISTORICAL_SHIFTED,SAFE,
+defensive_contribution90_last10,"defensive_contribution,minutes",defensive,90 * sum(prior 10 defensive_contribution) / sum(prior 10 minutes),HISTORICAL_SHIFTED,SAFE,
+clean_sheet_rate3,"clean_sheets,fixture",defensive,clean_sheets_last3 / games_available_last3,HISTORICAL_SHIFTED,SAFE,
+pass_completion_last3,"completed_passes,attempted_passes",passing,sum(completed passes) / sum(attempted passes),HISTORICAL_SHIFTED,SAFE,
+defensive_contribution_rate3,"defensive_contribution,fixture",defensive,prior fixtures with defensive_contribution > 0 / available prior 3,HISTORICAL_SHIFTED,SAFE,Rate of positive recorded values; the source stores a match-level FPL API count
+clean_sheet_rate5,"clean_sheets,fixture",defensive,clean_sheets_last5 / games_available_last5,HISTORICAL_SHIFTED,SAFE,
+pass_completion_last5,"completed_passes,attempted_passes",passing,sum(completed passes) / sum(attempted passes),HISTORICAL_SHIFTED,SAFE,
+defensive_contribution_rate5,"defensive_contribution,fixture",defensive,prior fixtures with defensive_contribution > 0 / available prior 5,HISTORICAL_SHIFTED,SAFE,Rate of positive recorded values; the source stores a match-level FPL API count
+clean_sheet_rate10,"clean_sheets,fixture",defensive,clean_sheets_last10 / games_available_last10,HISTORICAL_SHIFTED,SAFE,
+pass_completion_last10,"completed_passes,attempted_passes",passing,sum(completed passes) / sum(attempted passes),HISTORICAL_SHIFTED,SAFE,
+defensive_contribution_rate10,"defensive_contribution,fixture",defensive,prior fixtures with defensive_contribution > 0 / available prior 10,HISTORICAL_SHIFTED,SAFE,Rate of positive recorded values; the source stores a match-level FPL API count
+team_games_played_before,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_games_played_before,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_points_last3,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_points_last3,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_points_last5,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_points_last5,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_points_last10,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_points_last10,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_goals_scored_last3,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_goals_scored_last3,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_goals_scored_last5,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_goals_scored_last5,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_goals_scored_last10,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_goals_scored_last10,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_goals_conceded_last3,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_goals_conceded_last3,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_goals_conceded_last5,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_goals_conceded_last5,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_goals_conceded_last10,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_goals_conceded_last10,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_goal_diff_last3,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_goal_diff_last3,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_goal_diff_last5,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_goal_diff_last5,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_goal_diff_last10,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_goal_diff_last10,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_points_per_game_before,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_points_per_game_before,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_goals_for_per_game_before,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_goals_for_per_game_before,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_goals_against_per_game_before,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_goals_against_per_game_before,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_goal_difference_per_game_before,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_goal_difference_per_game_before,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_home_games_before,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_home_games_before,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_home_goals_for_pg_before,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_home_goals_for_pg_before,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_home_goals_against_pg_before,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_home_goals_against_pg_before,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_away_games_before,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_away_games_before,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_away_goals_for_pg_before,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_away_goals_for_pg_before,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+team_away_goals_against_pg_before,team fixture outcomes,team,prior actual team fixtures,PRE_MATCH,SAFE,Built at one team-fixture row before player join
+opp_away_goals_against_pg_before,opponent fixture outcomes,opponent,opponent corresponding pre-match team row,PRE_MATCH,SAFE,Joined by season + opponent_team + fixture
+ppg_difference,team and opponent features,matchup,team PPG - opponent PPG,PRE_MATCH,SAFE,
+goal_difference_per_game_difference,team and opponent features,matchup,team goal-difference PG - opponent,PRE_MATCH,SAFE,
+team_attack_vs_opp_defence,team and opponent features,matchup,team goals-for PG - opponent goals-against PG,PRE_MATCH,SAFE,
+team_defence_vs_opp_attack,team and opponent features,matchup,opponent goals-for PG - team goals-against PG,PRE_MATCH,SAFE,
+recent_form_difference_3,team and opponent features,matchup,team points last3 - opponent points last3,PRE_MATCH,SAFE,
+recent_form_difference_5,team and opponent features,matchup,team points last5 - opponent points last5,PRE_MATCH,SAFE,
+recent_goal_difference_5,team and opponent features,matchup,team goal difference last5 - opponent last5,PRE_MATCH,SAFE,
