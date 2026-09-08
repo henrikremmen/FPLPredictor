@@ -5,3 +5,6 @@ __pycache__/
 *.db
 data-source/
 data/processed/player_fixture_features.csv
+
+data/raw/
+artifacts/
