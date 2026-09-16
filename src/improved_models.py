@@ -32,8 +32,9 @@ def minutes_class(d):
 
 class PointsModel:
     """Serializable direct model or soft mixture: sum P(minutes band|X)*E(points|band,X)."""
-    def __init__(self, kind='hgb', leaves=7, extended=False):
+    def __init__(self, kind='hgb', leaves=7, extended=False, classifier_leaves=7):
         self.kind, self.leaves, self.extended = kind, leaves, extended
+        self.classifier_leaves = classifier_leaves
 
     def fit(self, train):
         cols = FEATURE_SETS['context'] + (EXTRA if self.extended else [])
@@ -47,7 +48,8 @@ class PointsModel:
                 self.prep = base.named_steps['preprocess']
                 X = self.prep.fit_transform(train[self.cols])
                 bands = minutes_class(train)
-                self.classifier = (HistGradientBoostingClassifier(max_iter=120, max_leaf_nodes=7,
+                self.classifier = (HistGradientBoostingClassifier(max_iter=120,
+                    max_leaf_nodes=self.classifier_leaves,
                     learning_rate=.06, l2_regularization=10., early_stopping=False, random_state=42)
                     if len(np.unique(bands)) > 1 else DummyClassifier(strategy='prior'))
                 self.classifier.fit(X, bands)
@@ -71,6 +73,8 @@ class PointsModel:
                        for j, b in enumerate(self.classifier.classes_))
 
     def probabilities(self, data):
+        if self.kind != 'mixture':
+            return None
         with threadpool_limits(limits=4):
             raw = self.classifier.predict_proba(self.prep.transform(data[self.cols]))
         out = np.zeros((len(data), 3))
@@ -83,6 +87,52 @@ class Blend:
 
     def predict(self, data):
         return np.mean([m.predict(data) for m in self.models], axis=0)
+
+class ProductionModel:
+    """Use separately evaluated components for points and minutes uncertainty."""
+    def __init__(self, points_model, probability_model, uncertainty_model=None):
+        self.points_model = points_model
+        self.probability_model = probability_model
+        self.uncertainty_model = uncertainty_model
+
+    def predict(self, data):
+        return self.points_model.predict(data)
+
+    def probabilities(self, data):
+        return self.probability_model.probabilities(data)
+
+    def quantiles(self, data):
+        model = getattr(self, 'uncertainty_model', None)
+        return model.predict_quantiles(data) if model is not None else None
+
+class QuantilePointsModel:
+    """Conditional point quantiles using the production context features."""
+    def __init__(self, quantiles=(.1, .5, .9), leaves=15, extended=True):
+        self.quantile_levels = tuple(float(q) for q in quantiles)
+        self.leaves, self.extended = leaves, extended
+
+    def fit(self, train):
+        cols = FEATURE_SETS['context'] + (EXTRA if self.extended else [])
+        base, self.cols, self.dropped = build_model('hgb', train, cols, self.leaves)
+        self.prep = base.named_steps['preprocess']
+        X = self.prep.fit_transform(train[self.cols])
+        self.models = []
+        with threadpool_limits(limits=4):
+            for quantile in self.quantile_levels:
+                model = HistGradientBoostingRegressor(
+                    loss='quantile', quantile=quantile, max_iter=120,
+                    max_leaf_nodes=self.leaves, learning_rate=.06,
+                    l2_regularization=10., early_stopping=False, random_state=42)
+                self.models.append(model.fit(X, train[TARGET]))
+        return self
+
+    def predict_quantiles(self, data):
+        X = self.prep.transform(data[self.cols])
+        with threadpool_limits(limits=4):
+            raw = np.column_stack([model.predict(X) for model in self.models])
+        # Finite samples can produce crossing quantile estimates. Sorting is the
+        # standard monotonic repair and preserves the predicted set per row.
+        return np.sort(raw, axis=1)
 
 CONFIGS = {
     'ridge_reference': ('ridge', 7, False),

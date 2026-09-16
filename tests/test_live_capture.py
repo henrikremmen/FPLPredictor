@@ -6,10 +6,45 @@ import sys
 import pandas as pd
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'))
-from capture_fpl import normalize, score_previous, RAW_STATS
+from capture_fpl import (normalize, score_previous, select_model_path, score_rows,
+                         aggregate_forecast, RAW_STATS)
 from deadline_features import build_round
 
 class LiveCaptureTests(unittest.TestCase):
+    def test_score_rows_exports_playing_time_uncertainty(self):
+        class Model:
+            def predict(self, rows):
+                return pd.Series([3.0, 9.0]).to_numpy()
+            def probabilities(self, rows):
+                return pd.DataFrame([[.1, .2, .7], [.2, .3, .5]]).to_numpy()
+            def quantiles(self, rows):
+                return pd.DataFrame([[0., 2., 7.], [1., 4., 10.]]).to_numpy()
+        rows = pd.DataFrame({
+            'season':['s','s'], 'GW':[1,1], 'player_id':[1,2],
+            'name':['One','Two'], 'position':['MID','MID'],
+            'planned_fixture':[True,False]})
+        scored = score_rows(Model(), rows)
+        self.assertEqual(scored.prediction.tolist(), [3.0, 0.0])
+        self.assertEqual(scored.p_60plus_minutes.tolist(), [.7, 0.0])
+        self.assertEqual(scored.prediction_q90.tolist(), [7.0, 0.0])
+        forecast = aggregate_forecast(scored)
+        self.assertAlmostEqual(forecast.query('player_id == 1').expected_appearances.iloc[0], .9)
+        self.assertEqual(forecast.query('player_id == 1').prediction_q50.iloc[0], 2.0)
+
+    def test_model_selection_requires_refitted_production_artifact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            legacy=root/'artifacts/models/improved_old'; legacy.mkdir(parents=True)
+            (legacy/'model.joblib').write_bytes(b'legacy')
+            rejected=root/'artifacts/models/nextgen_rejected'; rejected.mkdir()
+            (rejected/'model.joblib').write_bytes(b'newer')
+            (rejected/'settings.json').write_text(json.dumps({'production_eligible':True}))
+            self.assertEqual(select_model_path(root), legacy/'model.joblib')
+            accepted=root/'artifacts/models/production_accepted'; accepted.mkdir()
+            (accepted/'model.joblib').write_bytes(b'newest')
+            (accepted/'settings.json').write_text(json.dumps({'production_eligible':True}))
+            self.assertEqual(select_model_path(root), accepted/'model.joblib')
+
     def test_normalize_uses_completed_fixtures_and_chronological_order(self):
         at='2026-09-08T10:00:00Z'
         bootstrap={'elements':[{'id':1,'team':1,'element_type':3,'web_name':'One'},

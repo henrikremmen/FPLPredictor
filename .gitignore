@@ -3,8 +3,39 @@ __pycache__/
 *.pyc
 .DS_Store
 *.db
+
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+
+# Python tooling and test output
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Jupyter temporary files
+.ipynb_checkpoints/
+
+# Logs and local editor settings
+*.log
+.idea/
+.vscode/
+
+# Legacy local Streamlit configuration (React is the primary UI)
+.streamlit/
+
+# Local datasets and generated model artifacts
 data-source/
 data/processed/player_fixture_features.csv
 
 data/raw/
 artifacts/
+
+# React dependencies and generated build output
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo

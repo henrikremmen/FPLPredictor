@@ -123,6 +123,130 @@ def score_previous(parent, dest, bootstrap, histories, season, observed_at):
         pd.DataFrame(rows).to_csv(dest/'observed_outcomes.csv', index=False)
     return len(rows)
 
+def select_model_path(root):
+    """Select a refitted production model, with legacy fallback."""
+    parent = Path(root) / 'artifacts/models'
+    candidates = list(parent.glob('improved_*/model.joblib'))
+    for path in parent.glob('production_*/model.joblib'):
+        try:
+            settings = json.loads((path.parent / 'settings.json').read_text())
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        if settings.get('production_eligible') is True:
+            candidates.append(path)
+    return max(candidates, key=lambda path: path.stat().st_mtime) if candidates else None
+
+def score_rows(model, rows):
+    """Attach expected points, playing-time probabilities and point quantiles."""
+    result = rows.copy()
+    prediction = model.predict(result)
+    if not np.isfinite(prediction).all():
+        raise ValueError('Nonfinite predictions')
+    result['prediction'] = np.where(result.planned_fixture, prediction, 0.)
+    probability_method = getattr(model, 'probabilities', None)
+    probability = probability_method(result) if callable(probability_method) else None
+    if probability is not None:
+        if probability.shape != (len(result), 3) or not np.isfinite(probability).all():
+            raise ValueError('Invalid playing-time probabilities')
+        result['p_zero_minutes'] = np.where(result.planned_fixture, probability[:, 0], 1.)
+        result['p_1_59_minutes'] = np.where(result.planned_fixture, probability[:, 1], 0.)
+        result['p_60plus_minutes'] = np.where(result.planned_fixture, probability[:, 2], 0.)
+    quantile_method = getattr(model, 'quantiles', None)
+    quantiles = quantile_method(result) if callable(quantile_method) else None
+    if quantiles is not None:
+        if quantiles.shape != (len(result), 3) or not np.isfinite(quantiles).all():
+            raise ValueError('Invalid point quantiles')
+        for index, label in enumerate([10, 50, 90]):
+            result[f'prediction_q{label}'] = np.where(
+                result.planned_fixture, quantiles[:, index], 0.)
+    return result
+
+def aggregate_forecast(rows):
+    aggregations = {
+        'prediction': ('prediction', 'sum'), 'name': ('name', 'first'),
+        'position': ('position', 'first'), 'planned_fixtures': ('planned_fixture', 'sum')}
+    if 'p_60plus_minutes' in rows:
+        aggregations.update(expected_60plus_appearances=('p_60plus_minutes', 'sum'))
+    for label in [10, 50, 90]:
+        column = f'prediction_q{label}'
+        if column in rows:
+            aggregations[column] = (column, 'sum')
+    forecast = rows.groupby(['season','GW','player_id'],as_index=False).agg(**aggregations)
+    if 'p_60plus_minutes' in rows:
+        played = rows.assign(p_played=rows.p_1_59_minutes + rows.p_60plus_minutes)
+        appearances = played.groupby(['season','GW','player_id']).p_played.sum()
+        keys = pd.MultiIndex.from_frame(forecast[['season','GW','player_id']])
+        forecast['expected_appearances'] = appearances.reindex(keys).to_numpy()
+    return forecast.sort_values(['GW','prediction','player_id'],ascending=[True,False,True])
+
+def read_gzip_json(path):
+    return json.loads(gzip.decompress(Path(path).read_bytes()))
+
+def rescore_latest(root):
+    """Create a new forecast from the latest complete raw snapshot, without API calls."""
+    started_at = now()
+    root = Path(root)
+    parent = root/'data/raw/live_fpl'
+    sources = []
+    for path in parent.glob('capture_*/manifest.json'):
+        try:
+            manifest = json.loads(path.read_text())
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        if (manifest.get('status') == 'complete' and
+                (path.parent/'bootstrap.json.gz').exists() and
+                (path.parent/'fixtures.json.gz').exists()):
+            sources.append(path.parent)
+    if not sources:
+        raise FileNotFoundError('No complete raw live snapshot to rescore')
+    source = max(sources,key=lambda path:path.stat().st_mtime)
+    source_manifest = json.loads((source/'manifest.json').read_text())
+    bootstrap = read_gzip_json(source/'bootstrap.json.gz')
+    fixtures = read_gzip_json(source/'fixtures.json.gz')
+    histories = {int(player['id']):read_gzip_json(source/f"player_{player['id']}.json.gz")
+                 for player in bootstrap['elements'] if (source/f"player_{player['id']}.json.gz").exists()}
+    expected = {int(player['id']) for player in bootstrap['elements'] if player['element_type'] in POSITIONS}
+    if set(histories) != expected:
+        raise ValueError('Latest raw snapshot is incomplete')
+    target = upcoming(bootstrap)
+    if target is None or pd.Timestamp(now()) >= pd.Timestamp(target['deadline_time']):
+        raise ValueError('Latest raw snapshot has no future stable deadline')
+    model_path = select_model_path(root)
+    if model_path is None:
+        raise FileNotFoundError('No production-eligible local model')
+    bundle = joblib.load(model_path)
+    season = source_manifest['season']
+    registry,schedule,ph,th = normalize(
+        bootstrap,fixtures,histories,source_manifest['files'],season)
+    horizon_events = [event for event in bootstrap['events']
+        if target['id'] <= event['id'] <= target['id']+2 and
+        pd.Timestamp(now()) < pd.Timestamp(event['deadline_time'])]
+    horizon_rows=[]
+    for event in horizon_events:
+        rows=build_round(season,event['id'],event['deadline_time'],registry,schedule,ph,th)
+        horizon_rows.append(score_rows(bundle['model'],rows))
+    horizon_fixture=pd.concat(horizon_rows,ignore_index=True)
+    horizon=aggregate_forecast(horizon_fixture)
+    stamp=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    dest=Path(tempfile.mkdtemp(prefix=f'capture_{stamp}_rescore_',dir=parent))
+    first_rows=horizon_fixture[horizon_fixture.GW.eq(target['id'])]
+    aggregate_forecast(first_rows).to_csv(dest/'forecast.csv',index=False)
+    first_rows.to_csv(dest/'fixture_forecast.csv',index=False)
+    horizon.to_csv(dest/'horizon_forecast.csv',index=False)
+    horizon_fixture.to_csv(dest/'horizon_fixture_forecast.csv',index=False)
+    manifest={'started_at':started_at,'finished_at':now(),'status':'complete',
+        'forecast_status':'experimental_frozen','season':season,'target_event':target,
+        'forecast_at':now(),'forecast_horizons':[int(event['id']) for event in horizon_events],
+        'model_path':str(model_path.resolve()),'model_sha256':digest(model_path.read_bytes()),
+        'model_family':bundle.get('model_family','legacy_improved_blend'),
+        'source_capture':str(source.resolve()),
+        'source_manifest_sha256':digest((source/'manifest.json').read_bytes()),
+        'model_caveat':'Rescored from an earlier raw snapshot; trained on pre-fixture features.'}
+    (dest/'manifest.json').write_text(json.dumps(manifest,indent=2))
+    print(json.dumps({k:v for k,v in manifest.items() if k!='target_event'},indent=2),flush=True)
+    print('Rescore directory:',dest,flush=True)
+    return dest
+
 def run(root):
     root=Path(root)
     parent=root/'data/raw/live_fpl'
@@ -181,27 +305,34 @@ def run(root):
                 manifest['forecast_status']='skipped_no_stable_future_deadline'
             else:
                 manifest['forecast_status']='no_model'
-                models=list((root/'artifacts/models').glob('improved_*/model.joblib'))
-                if models:
-                    model_path=max(models,key=lambda p:p.stat().st_mtime)
+                model_path=select_model_path(root)
+                if model_path is not None:
                     bundle=joblib.load(model_path)  # only locally trained user-owned artifacts
                     registry,schedule,ph,th=normalize(bootstrap,fixtures,histories,manifest['files'],season)
                     rows=build_round(season,target['id'],target['deadline_time'],registry,schedule,ph,th)
-                    prediction=bundle['model'].predict(rows)
-                    if not np.isfinite(prediction).all():
-                        raise ValueError('Nonfinite predictions')
+                    rows=score_rows(bundle['model'],rows)
                     if pd.Timestamp(now())>=pd.Timestamp(target['deadline_time']):
                         manifest['forecast_status']='skipped_prediction_crossed_deadline'
                     else:
-                        rows['prediction']=np.where(rows.planned_fixture,prediction,0.)
-                        forecast=rows.groupby(['season','GW','player_id'],as_index=False).agg(
-                            prediction=('prediction','sum'),name=('name','first'),position=('position','first'),
-                            planned_fixtures=('planned_fixture','sum'))
-                        forecast=forecast.sort_values(['prediction','player_id'],ascending=[False,True])
+                        forecast=aggregate_forecast(rows)
                         rows.to_csv(dest/'fixture_forecast.csv',index=False)
                         forecast.to_csv(dest/'forecast.csv',index=False)
+                        horizon_events = [event for event in closing['events']
+                            if target['id'] <= event['id'] <= target['id'] + 2 and
+                            pd.Timestamp(now()) < pd.Timestamp(event['deadline_time'])]
+                        horizon_rows = []
+                        for event in horizon_events:
+                            event_rows = build_round(season,event['id'],event['deadline_time'],
+                                registry,schedule,ph,th)
+                            horizon_rows.append(score_rows(bundle['model'],event_rows))
+                        horizon_fixture = pd.concat(horizon_rows,ignore_index=True)
+                        horizon = aggregate_forecast(horizon_fixture)
+                        horizon_fixture.to_csv(dest/'horizon_fixture_forecast.csv',index=False)
+                        horizon.to_csv(dest/'horizon_forecast.csv',index=False)
                         manifest.update(forecast_status='experimental_frozen',forecast_at=now(),
                             model_path=str(model_path.resolve()),model_sha256=digest(model_path.read_bytes()),
+                            model_family=bundle.get('model_family', 'legacy_improved_blend'),
+                            forecast_horizons=[int(event['id']) for event in horizon_events],
                             model_caveat='Trained on historical fixture-time features, not verified deadline features.')
                         if pd.Timestamp(manifest['forecast_at'])>=pd.Timestamp(target['deadline_time']):
                             manifest['forecast_status']='invalid_written_after_deadline'
@@ -218,4 +349,7 @@ def run(root):
 if __name__=='__main__':
     parser=argparse.ArgumentParser()
     parser.add_argument('--root',type=Path,default=Path(__file__).resolve().parents[1])
-    run(parser.parse_args().root)
+    parser.add_argument('--rescore-latest',action='store_true',
+                        help='Reuse latest complete raw snapshot with the newest eligible model')
+    args=parser.parse_args()
+    rescore_latest(args.root) if args.rescore_latest else run(args.root)
