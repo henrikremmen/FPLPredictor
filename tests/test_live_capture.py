@@ -1,16 +1,36 @@
 import json
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 from pathlib import Path
 import sys
 import pandas as pd
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'))
 from capture_fpl import (normalize, score_previous, select_model_path, score_rows,
-                         aggregate_forecast, RAW_STATS)
+                         aggregate_forecast, capture_football_data_matches, RAW_STATS)
 from deadline_features import build_round
 
 class LiveCaptureTests(unittest.TestCase):
+    def test_football_data_window_is_chunked_and_credentials_are_not_recorded(self):
+        responses = []
+        for ids in ([1, 2], [2, 3], [4]):
+            response = Mock(status_code=200, headers={})
+            response.raise_for_status.return_value = None
+            response.json.return_value = {'matches': [{'id': value} for value in ids]}
+            responses.append(response)
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            'capture_fpl.requests.get', side_effect=responses
+        ) as get:
+            payload, record = capture_football_data_matches(
+                Path(tmp), 'super-secret', '2026-09-01', '2026-09-21'
+            )
+        self.assertEqual(get.call_count, 3)
+        self.assertEqual([row['id'] for row in payload['matches']], [1, 2, 3, 4])
+        self.assertEqual(record['status'], 'complete')
+        self.assertEqual(record['windows_captured'], 3)
+        self.assertNotIn('super-secret', json.dumps(record))
+
     def test_score_rows_exports_playing_time_uncertainty(self):
         class Model:
             def predict(self, rows):

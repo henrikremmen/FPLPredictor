@@ -19,7 +19,10 @@ from fpl_app import (
     selling_price,
     build_market,
     apply_risk_profile,
+    apply_manual_squad_changes,
     chip_inventory,
+    load_team_override,
+    save_team_override,
 )
 
 
@@ -59,6 +62,10 @@ class FPLAppTests(unittest.TestCase):
             bootstrap={'teams':[{'id':1,'short_name':'AAA'},{'id':2,'short_name':'BBB'}],
                        'elements':[{'id':1,'web_name':'One','element_type':3,'team':1,
                                     'now_cost':50,'status':'a','news':'',
+                                    'selected_by_percent':'7.5',
+                                    'price_change_percent':'88.2',
+                                    'price_change_projections':[{'offset':0,
+                                        'projected_percent':'104.5','likelihood':5}],
                                     'chance_of_playing_next_round':None}]}
             fixtures=[{'event':5,'team_h':1,'team_a':2},{'event':6,'team_h':2,'team_a':1}]
             market=build_market(bootstrap,fixtures,path,5,horizon=2)
@@ -66,6 +73,9 @@ class FPLAppTests(unittest.TestCase):
             self.assertEqual(market.planned_fixtures.iloc[0],2)
             self.assertIn('GW6:',market.opponent.iloc[0])
             self.assertEqual(market.point_range_q10_q90.iloc[0], '0.0–13.0')
+            self.assertEqual(market.selected_by_percent.iloc[0], 7.5)
+            self.assertEqual(market.price_change_projected_percent.iloc[0], 104.5)
+            self.assertEqual(market.price_change_likelihood.iloc[0], 5)
 
     def setUp(self):
         specs = [
@@ -102,6 +112,50 @@ class FPLAppTests(unittest.TestCase):
         self.assertEqual(selling_price(50, 53), 51)
         self.assertEqual(selling_price(50, 47), 47)
 
+    def test_manual_squad_sync_uses_actual_bank_and_remaining_transfers(self):
+        result = apply_manual_squad_changes(
+            self.team, [{"out_id": 12, "in_id": 16}], "synchronize",
+            bank=13, free_transfers=0,
+        )
+        self.assertNotIn(12, set(self.team.squad.id))
+        self.assertIn(16, set(self.team.squad.id))
+        self.assertEqual(self.team.bank, 13)
+        self.assertEqual(self.team.free_transfers, 0)
+        self.assertEqual(self.team.squad_source, "manual_override")
+        self.assertEqual(result["hit"], 0)
+
+    def test_manual_new_transfer_consumes_ft_and_survives_reload(self):
+        self.team.bank = 15
+        result = apply_manual_squad_changes(
+            self.team, [{"out_id": 12, "in_id": 16}], "apply_transfers"
+        )
+        self.assertEqual(self.team.bank, 10)
+        self.assertEqual(self.team.free_transfers, 1)
+        self.assertEqual(result["hit"], 0)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            save_team_override(root, self.team)
+            fresh = ImportedTeam(
+                1, 4, 5, "Manager", "Team", 15, 2,
+                self.squad.copy(), self.market.copy(), "deadline", Path("forecast.csv"),
+            )
+            self.assertTrue(load_team_override(root, fresh))
+        self.assertIn(16, set(fresh.squad.id))
+        self.assertNotIn(12, set(fresh.squad.id))
+        self.assertEqual(fresh.bank, 10)
+        self.assertEqual(fresh.free_transfers, 1)
+
+    def test_invalid_manual_change_does_not_mutate_team(self):
+        original_ids = self.team.squad.id.tolist()
+        original_bank = self.team.bank
+        with self.assertRaisesRegex(AppError, "samme posisjon"):
+            apply_manual_squad_changes(
+                self.team, [{"out_id": 12, "in_id": 17}], "synchronize",
+                bank=0, free_transfers=0,
+            )
+        self.assertEqual(self.team.squad.id.tolist(), original_ids)
+        self.assertEqual(self.team.bank, original_bank)
+
     def test_free_transfer_estimate(self):
         history = {"current": [
             {"event": 1, "event_transfers": 0},
@@ -110,6 +164,8 @@ class FPLAppTests(unittest.TestCase):
             {"event": 4, "event_transfers": 2},
         ], "chips": []}
         self.assertEqual(estimate_free_transfers(history, 4), 2)
+        history["chips"] = [{"name": "wildcard", "event": 3}]
+        self.assertEqual(estimate_free_transfers(history, 3), 2)
 
     def test_chip_inventory_resets_by_half_and_blocks_consecutive_free_hit(self):
         history = {"chips": [
@@ -181,6 +237,22 @@ class FPLAppTests(unittest.TestCase):
         self.assertFalse(suggestions.empty)
         self.assertEqual(suggestions.iloc[0]["in"], "M6")
 
+    def test_targeted_transfer_only_replaces_selected_player(self):
+        suggestions = recommend_transfers(
+            self.team, number=1, forced_outgoing=[11]
+        )
+        self.assertFalse(suggestions.empty)
+        self.assertTrue(suggestions["out"].eq("M4").all())
+        self.assertEqual(suggestions.iloc[0]["in"], "M6")
+
+    def test_targeted_transfer_rejects_invalid_selection(self):
+        with self.assertRaisesRegex(AppError, "likt antall"):
+            recommend_transfers(self.team, number=2, forced_outgoing=[11])
+        with self.assertRaisesRegex(AppError, "aktive troppen"):
+            recommend_transfers(self.team, number=1, forced_outgoing=[16])
+        with self.assertRaisesRegex(AppError, "flere ganger"):
+            recommend_transfers(self.team, number=2, forced_outgoing=[11, 11])
+
     def test_best_two_transfer_plan_is_globally_optimized(self):
         self.team.bank = 15
         suggestions = recommend_transfers(self.team, number=2, candidate_pool=1)
@@ -210,6 +282,26 @@ class FPLAppTests(unittest.TestCase):
         self.assertEqual(len(best["in"].split(" + ")), 5)
         self.assertEqual(best["hit"], 12)
         self.assertTrue(bool(best["is_global_optimum"]))
+
+    def test_exact_optimizer_forces_all_five_selected_sales(self):
+        additions = pd.DataFrame([
+            player(20, "GK3", "GK", 18, 6, price=50),
+            player(21, "D7", "DEF", 19, 8, price=50),
+        ])
+        market = pd.concat([self.market, additions], ignore_index=True)
+        team = ImportedTeam(
+            1, 4, 5, "Manager", "Team", 100, 2,
+            self.squad, market, "deadline", Path("forecast.csv"),
+        )
+        forced = [2, 6, 7, 12, 15]
+        suggestions = recommend_transfers(
+            team, number=5, forced_outgoing=forced
+        )
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(
+            set(suggestions.iloc[0]["out"].split(" + ")),
+            {"GK2", "D4", "D5", "M5", "F3"},
+        )
 
     def test_refresh_rejects_failed_capture_manifest(self):
         with tempfile.TemporaryDirectory() as temporary:

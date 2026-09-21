@@ -11,19 +11,52 @@ import fcntl
 import gzip
 import hashlib
 import json
+import os
 import tempfile
 import time
 import joblib
 import numpy as np
 import pandas as pd
 import requests
+from dotenv import load_dotenv
 from deadline_features import build_round
+from external_context import (
+    add_odds_to_schedule,
+    add_player_props_to_schedule,
+    enrich_registry_with_workload,
+)
 
 API = 'https://fantasy.premierleague.com/api/'
 POSITIONS = {1:'GK', 2:'DEF', 3:'MID', 4:'FWD'}
 RAW_STATS = ['minutes','starts','total_points','bps','ict_index','threat','creativity',
              'influence','saves','clean_sheets','expected_goals','expected_assists',
-             'goals_scored','assists']
+             'expected_goal_involvements','expected_goals_conceded',
+             'goals_scored','assists','bonus','clearances_blocks_interceptions',
+             'defensive_contribution','recoveries','tackles','yellow_cards','red_cards']
+
+# Values published in bootstrap-static before the deadline.  Text is retained
+# in the immutable raw JSON; the normalized table only contains model-friendly
+# scalar values and timestamps.
+DEADLINE_PLAYER_FIELDS = [
+    'birth_date', 'team_join_date', 'status', 'chance_of_playing_next_round',
+    'chance_of_playing_this_round', 'news_added', 'now_cost',
+    'selected_by_percent', 'transfers_in', 'transfers_out',
+    'transfers_in_event', 'transfers_out_event',
+    'cost_change_event', 'cost_change_start',
+    'form', 'points_per_game', 'ep_next', 'value_form', 'value_season',
+    'total_points', 'minutes', 'starts', 'starts_per_90',
+    'ict_index_rank', 'influence_rank', 'creativity_rank', 'threat_rank',
+    'penalties_order', 'corners_and_indirect_freekicks_order',
+    'direct_freekicks_order', 'defensive_contribution_per_90',
+    'expected_goals_per_90', 'expected_assists_per_90',
+    'expected_goal_involvements_per_90', 'expected_goals_conceded_per_90',
+    'price_change_percent', 'price_change_hourly_rate', 'price_change_calibrating',
+]
+TEAM_STRENGTH_FIELDS = [
+    'strength', 'strength_attack_home', 'strength_attack_away',
+    'strength_defence_home', 'strength_defence_away',
+    'strength_overall_home', 'strength_overall_away',
+]
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -63,21 +96,232 @@ def capture_endpoint(endpoint, directory, name):
             time.sleep(attempt+1)
     return None, record
 
+
+def capture_external_json(url, directory, name, *, headers=None, params=None,
+                          public_endpoint=None):
+    """Capture an optional external source without persisting credentials."""
+    record = {
+        'endpoint': public_endpoint or url, 'started_at': now(),
+        'optional': True,
+    }
+    try:
+        response = requests.get(
+            url, headers=headers or {}, params=params or {}, timeout=(10, 35)
+        )
+        record.update(received_at=now(), status=response.status_code,
+                      http_date=response.headers.get('Date'))
+        response.raise_for_status()
+        body = response.content
+        payload = response.json()
+        path = directory / (name + '.json.gz')
+        path.write_bytes(gzip.compress(body, mtime=0))
+        record.update(file=path.name, sha256=digest(body), bytes=len(body),
+                      stored_sha256=digest(path.read_bytes()))
+        return payload, record
+    except (requests.RequestException, ValueError) as exc:
+        record['error'] = f'{type(exc).__name__}: {exc}'
+        return None, record
+
+
+def capture_football_data_matches(directory, api_key, date_from, date_to):
+    """Capture a long match window in the API's maximum ten-day chunks."""
+    started = now()
+    start = pd.Timestamp(date_from).normalize()
+    final_exclusive = pd.Timestamp(date_to).normalize() + pd.Timedelta(days=1)
+    matches: dict[int, dict] = {}
+    windows, errors = [], []
+    cursor = start
+    while cursor < final_exclusive:
+        end = min(cursor + pd.Timedelta(days=10), final_exclusive)
+        params = {
+            'dateFrom': cursor.date().isoformat(),
+            # football-data v4 treats dateTo as exclusive.
+            'dateTo': end.date().isoformat(),
+        }
+        try:
+            response = requests.get(
+                'https://api.football-data.org/v4/matches',
+                headers={'X-Auth-Token': api_key}, params=params, timeout=(10, 35),
+            )
+            response.raise_for_status()
+            payload = response.json()
+            captured = payload.get('matches', [])
+            for match in captured:
+                match_id = match.get('id')
+                if match_id is not None:
+                    matches[int(match_id)] = match
+            windows.append({
+                **params, 'status': response.status_code, 'matches': len(captured),
+            })
+        except (requests.RequestException, ValueError) as exc:
+            status = getattr(getattr(exc, 'response', None), 'status_code', None)
+            errors.append({
+                **params, 'status': status,
+                'error': f'{type(exc).__name__}: {exc}',
+            })
+        cursor = end
+
+    combined = {
+        'filters': {'dateFrom': start.date().isoformat(),
+                    'dateTo': final_exclusive.date().isoformat()},
+        'resultSet': {'count': len(matches)},
+        'matches': list(matches.values()),
+    }
+    body = json.dumps(combined, separators=(',', ':'), sort_keys=True).encode()
+    path = directory / 'all_competitions.json.gz'
+    path.write_bytes(gzip.compress(body, mtime=0))
+    record = {
+        'endpoint': 'football-data.org:v4/matches', 'optional': True,
+        'started_at': started, 'received_at': now(),
+        'status': 'complete' if not errors else 'partial',
+        'windows_requested': len(windows) + len(errors),
+        'windows_captured': len(windows), 'matches_captured': len(matches),
+        'windows': windows, 'errors': errors,
+        'file': path.name, 'sha256': digest(body), 'bytes': len(body),
+        'stored_sha256': digest(path.read_bytes()),
+    }
+    # A completely failed optional source remains unavailable to feature code,
+    # while its diagnostic record is still preserved in the manifest.
+    return (combined if windows else None), record
+
+
+def capture_player_props(events, directory, api_key):
+    """Capture optional event-level goal and assist odds without storing the key."""
+    started = now()
+    payload, errors = [], []
+    for event in events or []:
+        event_id = str(event.get('id', ''))
+        if not event_id:
+            continue
+        url = ('https://api.the-odds-api.com/v4/sports/soccer_epl/events/'
+               f'{event_id}/odds/')
+        try:
+            response = requests.get(url, params={
+                'apiKey': api_key, 'regions': 'us',
+                'markets': 'player_goal_scorer_anytime,player_assists',
+                'oddsFormat': 'decimal', 'dateFormat': 'iso',
+            }, timeout=(10, 35))
+            response.raise_for_status()
+            payload.append(response.json())
+        except (requests.RequestException, ValueError) as exc:
+            errors.append({'event_id': event_id, 'error': f'{type(exc).__name__}: {exc}'})
+    body = json.dumps(payload, separators=(',', ':'), sort_keys=True).encode()
+    path = directory / 'player_props.json.gz'
+    path.write_bytes(gzip.compress(body, mtime=0))
+    record = {
+        'endpoint': 'the-odds-api:v4/event-odds:player-props',
+        'optional': True, 'started_at': started, 'received_at': now(),
+        'status': 'complete' if not errors else 'partial',
+        'events_requested': len(events or []), 'events_captured': len(payload),
+        'errors': errors, 'file': path.name, 'sha256': digest(body),
+        'bytes': len(body), 'stored_sha256': digest(path.read_bytes()),
+    }
+    return payload, record
+
+
+def capture_optional_context(root, directory, target):
+    """Freeze official context plus opt-in odds and cross-competition schedules."""
+    payloads, records = {}, {}
+    for endpoint, name in [
+        ('event-status/', 'event_status'),
+        ('team/set-piece-notes/', 'set_piece_notes'),
+    ]:
+        payloads[name], records[name] = capture_endpoint(endpoint, directory, name)
+
+    odds_key = os.getenv('ODDS_API_KEY')
+    if odds_key:
+        payloads['odds'], records['odds'] = capture_external_json(
+            'https://api.the-odds-api.com/v4/sports/soccer_epl/odds/',
+            directory, 'odds',
+            params={
+                'apiKey': odds_key, 'regions': 'uk,eu',
+                'markets': 'h2h,totals', 'oddsFormat': 'decimal',
+                'dateFormat': 'iso',
+            },
+            public_endpoint='the-odds-api:v4/sports/soccer_epl/odds',
+        )
+        include_props = os.getenv('ODDS_PLAYER_PROPS', '').strip().lower() in {
+            '1', 'true', 'yes', 'on'
+        }
+        if include_props and payloads.get('odds'):
+            payloads['player_props'], records['player_props'] = capture_player_props(
+                payloads['odds'], directory, odds_key
+            )
+        else:
+            records['player_props'] = {
+                'optional': True, 'status': 'skipped',
+                'reason': ('ODDS_PLAYER_PROPS is not enabled' if not include_props
+                           else 'No matching odds events were returned'),
+            }
+    else:
+        records['odds'] = {
+            'optional': True, 'status': 'skipped',
+            'reason': 'ODDS_API_KEY is not configured',
+        }
+        records['player_props'] = {
+            'optional': True, 'status': 'skipped',
+            'reason': 'ODDS_API_KEY is not configured',
+        }
+
+    football_key = os.getenv('FOOTBALL_DATA_API_KEY')
+    if football_key and target is not None:
+        deadline = pd.Timestamp(target['deadline_time'])
+        date_from = (deadline - pd.Timedelta(days=14)).date().isoformat()
+        date_to = (deadline + pd.Timedelta(days=45)).date().isoformat()
+        payloads['all_competitions'], records['all_competitions'] = (
+            capture_football_data_matches(
+                directory, football_key, date_from, date_to,
+            )
+        )
+    else:
+        records['all_competitions'] = {
+            'optional': True, 'status': 'skipped',
+            'reason': ('FOOTBALL_DATA_API_KEY is not configured'
+                       if not football_key else 'No future FPL deadline'),
+        }
+    return payloads, records
+
 def upcoming(bootstrap):
     return next((e for e in bootstrap['events'] if e.get('is_next')), None)
 
 def roster_signature(bootstrap):
     return sorted((p['id'],p['team'],p['element_type']) for p in bootstrap['elements'])
 
-def normalize(bootstrap, fixtures, histories, records, season):
+def normalize(bootstrap, fixtures, histories, records, season, optional=None):
     at = records['bootstrap']['received_at']
-    registry = pd.DataFrame([{'season':season,'player_id':p['id'],'team':p['team'],
-        'position':POSITIONS[p['element_type']], 'name':p['web_name'],'available_at':at}
-        for p in bootstrap['elements'] if p['element_type'] in POSITIONS])
+    teams = {int(team['id']): team for team in bootstrap.get('teams', [])}
+    registry_rows = []
+    for player in bootstrap['elements']:
+        if player['element_type'] not in POSITIONS:
+            continue
+        team = teams.get(int(player['team']), {})
+        projection = player.get('price_change_projections') or []
+        projected = next((row.get('projected_percent') for row in projection
+                          if row.get('offset') == 0), np.nan)
+        row = {
+            'season': season, 'player_id': player['id'], 'team': player['team'],
+            'position': POSITIONS[player['element_type']], 'name': player['web_name'],
+            'player_key': f"{player.get('first_name', '')}_{player.get('second_name', '')}".strip('_'),
+            'team_name': team.get('name'),
+            'available_at': at, 'price_change_projected_percent': projected,
+        }
+        row.update({field: player.get(field) for field in DEADLINE_PLAYER_FIELDS})
+        row.update({f'team_{field}': team.get(field) for field in TEAM_STRENGTH_FIELDS})
+        registry_rows.append(row)
+    registry = pd.DataFrame(registry_rows)
+    optional = optional or {}
+    registry = enrich_registry_with_workload(
+        registry, bootstrap, optional.get('all_competitions'), at
+    )
     fat = records['fixtures']['received_at']
     schedule = pd.DataFrame([{'season':season,'fixture':f['id'],'GW':f['event'],
         'team_h':f['team_h'],'team_a':f['team_a'],'was_cancelled':False,
+        'kickoff_time':f.get('kickoff_time'),
+        'team_h_difficulty':f.get('team_h_difficulty'),
+        'team_a_difficulty':f.get('team_a_difficulty'),
         'available_at':fat} for f in fixtures])
+    schedule = add_odds_to_schedule(schedule, bootstrap, optional.get('odds'))
+    schedule = add_player_props_to_schedule(schedule, optional.get('player_props'))
     finished = {f['id']:f for f in fixtures if f.get('finished') and
                 f.get('team_h_score') is not None and f.get('team_a_score') is not None}
     teams=[]
@@ -167,6 +411,12 @@ def aggregate_forecast(rows):
         'position': ('position', 'first'), 'planned_fixtures': ('planned_fixture', 'sum')}
     if 'p_60plus_minutes' in rows:
         aggregations.update(expected_60plus_appearances=('p_60plus_minutes', 'sum'))
+    for column in [
+        'market_clean_sheet_probability', 'market_team_expected_goals',
+        'market_player_goal_probability', 'market_player_assist_probability',
+    ]:
+        if column in rows:
+            aggregations[column] = (column, lambda values: values.sum(min_count=1))
     for label in [10, 50, 90]:
         column = f'prediction_q{label}'
         if column in rows:
@@ -181,6 +431,21 @@ def aggregate_forecast(rows):
 
 def read_gzip_json(path):
     return json.loads(gzip.decompress(Path(path).read_bytes()))
+
+
+def read_optional_context(directory):
+    result = {}
+    for key, filename in [
+        ('event_status', 'event_status.json.gz'),
+        ('set_piece_notes', 'set_piece_notes.json.gz'),
+        ('odds', 'odds.json.gz'),
+        ('player_props', 'player_props.json.gz'),
+        ('all_competitions', 'all_competitions.json.gz'),
+    ]:
+        path = Path(directory) / filename
+        if path.exists():
+            result[key] = read_gzip_json(path)
+    return result
 
 def rescore_latest(root):
     """Create a new forecast from the latest complete raw snapshot, without API calls."""
@@ -217,9 +482,10 @@ def rescore_latest(root):
     bundle = joblib.load(model_path)
     season = source_manifest['season']
     registry,schedule,ph,th = normalize(
-        bootstrap,fixtures,histories,source_manifest['files'],season)
+        bootstrap,fixtures,histories,source_manifest['files'],season,
+        read_optional_context(source))
     horizon_events = [event for event in bootstrap['events']
-        if target['id'] <= event['id'] <= target['id']+2 and
+        if target['id'] <= event['id'] <= target['id']+7 and
         pd.Timestamp(now()) < pd.Timestamp(event['deadline_time'])]
     horizon_rows=[]
     for event in horizon_events:
@@ -247,8 +513,9 @@ def rescore_latest(root):
     print('Rescore directory:',dest,flush=True)
     return dest
 
-def run(root):
+def run(root, capture_phase='manual'):
     root=Path(root)
+    load_dotenv(root / '.env')
     parent=root/'data/raw/live_fpl'
     parent.mkdir(parents=True,exist_ok=True)
     with (parent/'capture.lock').open('a') as lock:
@@ -258,7 +525,8 @@ def run(root):
             print('Another capture is running; skipped.',flush=True)
             return None
         dest=Path(tempfile.mkdtemp(prefix='capture_'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'_',dir=parent))
-        manifest={'started_at':now(),'status':'collecting','files':{},'forecast_status':'not_generated'}
+        manifest={'started_at':now(),'status':'collecting','files':{},
+                  'forecast_status':'not_generated','capture_phase':capture_phase}
         def save():
             (dest/'manifest.json').write_text(json.dumps(manifest,indent=2))
         save()
@@ -269,6 +537,11 @@ def run(root):
             if bootstrap is None or fixtures is None:
                 raise ValueError('Core API capture failed')
             target=upcoming(bootstrap)
+            optional, optional_records = capture_optional_context(root, dest, target)
+            manifest['files'].update(optional_records)
+            manifest['optional_sources'] = {
+                key: bool(value is not None) for key, value in optional.items()
+            }
             first_year=pd.Timestamp(bootstrap['events'][0]['deadline_time']).year
             season=f'{first_year}-{str(first_year+1)[-2:]}'
             manifest.update(season=season,target_event=target)
@@ -308,7 +581,8 @@ def run(root):
                 model_path=select_model_path(root)
                 if model_path is not None:
                     bundle=joblib.load(model_path)  # only locally trained user-owned artifacts
-                    registry,schedule,ph,th=normalize(bootstrap,fixtures,histories,manifest['files'],season)
+                    registry,schedule,ph,th=normalize(
+                        bootstrap,fixtures,histories,manifest['files'],season,optional)
                     rows=build_round(season,target['id'],target['deadline_time'],registry,schedule,ph,th)
                     rows=score_rows(bundle['model'],rows)
                     if pd.Timestamp(now())>=pd.Timestamp(target['deadline_time']):
@@ -318,7 +592,7 @@ def run(root):
                         rows.to_csv(dest/'fixture_forecast.csv',index=False)
                         forecast.to_csv(dest/'forecast.csv',index=False)
                         horizon_events = [event for event in closing['events']
-                            if target['id'] <= event['id'] <= target['id'] + 2 and
+                            if target['id'] <= event['id'] <= target['id'] + 7 and
                             pd.Timestamp(now()) < pd.Timestamp(event['deadline_time'])]
                         horizon_rows = []
                         for event in horizon_events:
@@ -351,5 +625,8 @@ if __name__=='__main__':
     parser.add_argument('--root',type=Path,default=Path(__file__).resolve().parents[1])
     parser.add_argument('--rescore-latest',action='store_true',
                         help='Reuse latest complete raw snapshot with the newest eligible model')
+    parser.add_argument('--phase', default='manual',
+                        choices=['manual', '24h', '6h', '1h'],
+                        help='Deadline checkpoint label stored in the manifest')
     args=parser.parse_args()
-    rescore_latest(args.root) if args.rescore_latest else run(args.root)
+    rescore_latest(args.root) if args.rescore_latest else run(args.root, args.phase)

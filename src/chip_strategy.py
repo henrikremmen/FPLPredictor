@@ -70,7 +70,8 @@ def _squad_event_score(frame: pd.DataFrame, squad_ids: set[int],
 def _optimize_window(team: ImportedTeam, events: list[int],
                      bench_boost_event: int | None = None,
                      triple_captain_event: int | None = None,
-                     max_transfers: int | None = None) -> WindowSolution:
+                     max_transfers: int | None = None,
+                     discount: float = .9) -> WindowSolution:
     """Optimize a sale-value-budget squad, weekly XI and captain over events."""
     weekly = team.weekly_market
     if weekly is None:
@@ -133,12 +134,13 @@ def _optimize_window(team: ImportedTeam, events: list[int],
         for index in range(n):
             add([(index, -1), (starter + index, 1)], hi=0)
             add([(starter + index, -1), (captain + index, 1)], hi=0)
+        weight = discount ** period
         if event == bench_boost_event:
-            objective[:n] -= scores
+            objective[:n] -= weight * scores
         else:
-            objective[starter:starter + n] -= scores
+            objective[starter:starter + n] -= weight * scores
         captain_multiplier = 2 if event == triple_captain_event else 1
-        objective[captain:captain + n] -= captain_multiplier * scores
+        objective[captain:captain + n] -= weight * captain_multiplier * scores
 
     matrix = csr_matrix((data, (row_ids, columns)), shape=(len(lower), variables))
     result = milp(

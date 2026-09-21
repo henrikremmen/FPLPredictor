@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 import re
 import sys
+import tempfile
 from typing import Iterable
 
 import numpy as np
@@ -28,6 +29,7 @@ from scipy.sparse import csr_matrix, vstack
 API = "https://fantasy.premierleague.com/api/"
 POSITIONS = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
 POSITION_ORDER = {"GK": 0, "DEF": 1, "MID": 2, "FWD": 3}
+SQUAD_POSITION_COUNTS = {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}
 ENTRY_PATTERN = re.compile(r"(?:^|/)entry/(\d+)(?:/event/(\d+))?/?(?:[?#].*)?$")
 
 
@@ -65,9 +67,12 @@ def estimate_free_transfers(history: dict, through_event: int, started_event: in
     for event in range(started_event + 1, through_event + 1):
         used = int(rows.get(event, {}).get("event_transfers", 0))
         chip = str(chips.get(event, "")).lower()
-        if chip not in {"wildcard", "freehit", "free_hit"}:
-            available = max(0, available - used)
-        available = min(5, available + 1)
+        if chip in {"wildcard", "freehit", "free_hit"}:
+            # The current week's allocation activates the chip; previously
+            # banked transfers are retained, so the entering balance is the
+            # balance shown again in the following Gameweek.
+            continue
+        available = min(5, max(0, available - used) + 1)
     return available
 
 
@@ -151,6 +156,11 @@ class ImportedTeam:
     weekly_market: pd.DataFrame | None = None
     risk_profile: str = "balanced"
     chip_status: dict[str, dict] = field(default_factory=dict)
+    overall_points: int | None = None
+    overall_rank: int | None = None
+    team_value: int | None = None
+    squad_source: str = "fpl_public"
+    manual_changes: list[dict] = field(default_factory=list)
 
 
 def latest_forecast(root: Path, target_event: int) -> Path:
@@ -170,7 +180,8 @@ def latest_forecast(root: Path, target_event: int) -> Path:
         if events.tolist() == [target_event]:
             return path
     raise AppError(
-        f"Fant ingen modellprognose for GW{target_event}. Kjør appen med --refresh først."
+        f"Fant ingen modellprognose for GW{target_event}. "
+        "Oppdater prognosen først (--refresh i terminalappen)."
     )
 
 
@@ -210,12 +221,18 @@ def build_market(bootstrap: dict, fixtures: list[dict], forecast_path: Path,
     optional = [column for column in [
         "expected_60plus_appearances", "expected_appearances",
         "prediction_q10", "prediction_q50", "prediction_q90",
+        "market_clean_sheet_probability", "market_team_expected_goals",
+        "market_player_goal_probability", "market_player_assist_probability",
     ]
                 if column in forecasts]
     forecasts = forecasts.groupby("player_id", as_index=False).agg(**{
         "prediction": ("prediction", "sum"),
         "planned_fixtures": ("planned_fixtures", "sum"),
-        **{column: (column, "sum") for column in optional},
+        **{column: (
+            column,
+            (lambda values: values.sum(min_count=1))
+            if column.startswith("market_") else "sum",
+        ) for column in optional},
     }).rename(columns={"player_id": "id"})
     forecasts["id"] = forecasts["id"].astype(int)
     team_names = {int(team["id"]): team["short_name"] for team in bootstrap["teams"]}
@@ -224,6 +241,19 @@ def build_market(bootstrap: dict, fixtures: list[dict], forecast_path: Path,
     for player in bootstrap["elements"]:
         if int(player.get("element_type", 0)) not in POSITIONS:
             continue
+        projections = player.get("price_change_projections") or []
+        next_projection = next(
+            (item for item in projections if int(item.get("offset", -1)) == 0),
+            projections[0] if projections else {},
+        )
+
+        def numeric(key: str, default=np.nan):
+            value = player.get(key)
+            try:
+                return float(value) if value not in (None, "") else default
+            except (TypeError, ValueError):
+                return default
+
         rows.append({
             "id": int(player["id"]),
             "name": player["web_name"],
@@ -235,12 +265,42 @@ def build_market(bootstrap: dict, fixtures: list[dict], forecast_path: Path,
             "news": player.get("news", "") or "",
             "availability": _availability_factor(player),
             "opponent": opponents.get(int(player["team"]), "Blank"),
+            # Official public manager context. These are decision-support
+            # fields, never substituted for the model's expected points.
+            "selected_by_percent": numeric("selected_by_percent"),
+            "transfers_in_event": int(player.get("transfers_in_event") or 0),
+            "transfers_out_event": int(player.get("transfers_out_event") or 0),
+            "cost_change_event": int(player.get("cost_change_event") or 0),
+            "cost_change_start": int(player.get("cost_change_start") or 0),
+            "price_change_percent": numeric("price_change_percent"),
+            "price_change_projected_percent": (
+                float(next_projection["projected_percent"])
+                if next_projection.get("projected_percent") not in (None, "") else np.nan
+            ),
+            "price_change_likelihood": int(next_projection.get("likelihood") or 0),
+            "price_change_calibrating": bool(player.get("price_change_calibrating", False)),
+            "price_change_locked_until": player.get("price_change_locked_until"),
+            "defensive_contribution_per_90": numeric("defensive_contribution_per_90"),
+            "penalties_order": numeric("penalties_order"),
+            "corners_and_indirect_freekicks_order": numeric(
+                "corners_and_indirect_freekicks_order"
+            ),
+            "direct_freekicks_order": numeric("direct_freekicks_order"),
+            "form": numeric("form"),
+            "ep_next": numeric("ep_next"),
+            "points_per_game": numeric("points_per_game"),
+            "value_form": numeric("value_form"),
+            "total_points": int(player.get("total_points") or 0),
+            "can_select": bool(player.get("can_select", True)),
+            "can_transact": bool(player.get("can_transact", True)),
         })
     market = pd.DataFrame(rows).merge(forecasts, on="id", how="left", validate="one_to_one")
     market["prediction"] = market["prediction"].fillna(0.0).clip(lower=0.0)
     market["planned_fixtures"] = market["planned_fixtures"].fillna(0).astype(int)
     for column in ["expected_60plus_appearances", "expected_appearances",
-                   "prediction_q10", "prediction_q50", "prediction_q90"]:
+                   "prediction_q10", "prediction_q50", "prediction_q90",
+                   "market_clean_sheet_probability", "market_team_expected_goals",
+                   "market_player_goal_probability", "market_player_assist_probability"]:
         if column not in market:
             market[column] = np.nan
     market["recommended_points"] = market["prediction"] * market["availability"]
@@ -317,8 +377,8 @@ def acquisition_prices(client: FPLClient, entry_id: int, event: int,
 def import_team(reference: str, root: Path, client: FPLClient | None = None,
                 horizon: int = 1, risk_profile: str = "balanced") -> ImportedTeam:
     client = client or FPLClient()
-    if horizon not in {1, 2, 3}:
-        raise AppError("Prognosehorisonten må være 1, 2 eller 3 Gameweeks.")
+    if not 1 <= horizon <= 8:
+        raise AppError("Prognosehorisonten må være mellom 1 og 8 Gameweeks.")
     entry_id, requested_event = parse_entry_reference(reference)
     entry = client.get(f"entry/{entry_id}/")
     bootstrap = client.get("bootstrap-static/")
@@ -393,7 +453,238 @@ def import_team(reference: str, root: Path, client: FPLClient | None = None,
         weekly_market=weekly_market,
         risk_profile=risk_profile,
         chip_status=chip_inventory(history, target_event),
+        overall_points=(int(entry_history["total_points"])
+                        if entry_history.get("total_points") is not None else None),
+        overall_rank=(int(entry_history["overall_rank"])
+                      if entry_history.get("overall_rank") is not None else None),
+        team_value=(int(entry_history["value"])
+                    if entry_history.get("value") is not None else None),
     )
+
+
+def _validate_holdings(market: pd.DataFrame, player_ids: list[int]) -> pd.DataFrame:
+    if len(player_ids) != 15 or len(set(player_ids)) != 15:
+        raise AppError("Troppen må inneholde 15 unike spillere.")
+    selected = market[market["id"].isin(player_ids)].copy()
+    if len(selected) != 15:
+        missing = sorted(set(player_ids) - set(selected["id"].astype(int)))
+        raise AppError(f"Spillere finnes ikke i dagens marked: {missing}")
+    counts = selected["position"].value_counts().to_dict()
+    if counts != SQUAD_POSITION_COUNTS:
+        raise AppError(
+            "Troppen må ha 2 keepere, 5 forsvarere, 5 midtbanespillere og 3 spisser."
+        )
+    clubs = selected["team_id"].astype(int).value_counts()
+    if len(clubs) and int(clubs.max()) > 3:
+        raise AppError("Troppen kan ha maksimalt tre spillere fra samme klubb.")
+    return selected
+
+
+def _frame_for_holdings(template: pd.DataFrame, market: pd.DataFrame,
+                        holdings: list[dict]) -> pd.DataFrame:
+    """Build an owned-squad frame while preserving FPL pick-slot metadata."""
+    by_id = market.drop_duplicates("id").set_index("id")
+    template_slots = {
+        position: list(group.sort_values(
+            "pick_position" if "pick_position" in group else "id"
+        ).to_dict("records"))
+        for position, group in template.groupby("position", sort=False)
+    }
+    slot_index = Counter()
+    rows = []
+    for holding in holdings:
+        player_id = int(holding["id"])
+        if player_id not in by_id.index:
+            raise AppError(f"Spiller {player_id} finnes ikke i dagens prognose.")
+        market_row = by_id.loc[player_id]
+        if isinstance(market_row, pd.DataFrame):
+            market_row = market_row.iloc[0]
+        row = market_row.to_dict()
+        row["id"] = player_id
+        position = str(row["position"])
+        templates = template_slots.get(position, [])
+        index = slot_index[position]
+        slot_index[position] += 1
+        template_row = templates[index] if index < len(templates) else {}
+        for column in [
+            "pick_position", "pick_element_type", "multiplier",
+            "is_captain", "is_vice_captain",
+        ]:
+            if column in template_row:
+                row[column] = template_row[column]
+        purchase = int(holding.get("purchase_price", row["price"]))
+        current = int(row["price"])
+        row.update(
+            purchase_price=purchase,
+            selling_price=selling_price(purchase, current),
+            price_is_estimate=bool(holding.get("price_is_estimate", False)),
+        )
+        rows.append(row)
+    result = pd.DataFrame(rows)
+    if "pick_position" in result:
+        result = result.sort_values("pick_position")
+    else:
+        result["_position_order"] = result.position.map(POSITION_ORDER)
+        result = result.sort_values(["_position_order", "id"]).drop(
+            columns="_position_order"
+        )
+    return result.reset_index(drop=True)
+
+
+def set_team_holdings(team: ImportedTeam, holdings: list[dict]) -> None:
+    """Replace ownership while keeping every forecast view internally aligned."""
+    player_ids = [int(row["id"]) for row in holdings]
+    _validate_holdings(team.market, player_ids)
+    new_squad = _frame_for_holdings(team.squad, team.market, holdings)
+    if team.weekly_market is not None:
+        lineup_market = team.weekly_market[
+            team.weekly_market["forecast_event"].eq(team.target_event)
+        ].drop(columns="forecast_event")
+    else:
+        lineup_market = team.market
+    template = team.lineup_squad if team.lineup_squad is not None else new_squad
+    new_lineup_squad = _frame_for_holdings(template, lineup_market, holdings)
+    team.squad = new_squad
+    team.lineup_squad = new_lineup_squad
+    team.team_value = int(team.squad["selling_price"].sum() + team.bank)
+
+
+def apply_manual_squad_changes(team: ImportedTeam, changes: list[dict], mode: str,
+                               bank: int | None = None,
+                               free_transfers: int | None = None) -> dict:
+    """Synchronize completed FPL moves or apply new simulated session moves."""
+    if mode not in {"synchronize", "apply_transfers"}:
+        raise AppError("Ukjent korrigeringsmodus.")
+    if not changes:
+        raise AppError("Velg minst ett spillerbytte.")
+    if len(changes) > 5:
+        raise AppError("Maksimalt fem spillerbytter kan lagres samtidig.")
+    squad = team.squad.set_index("id", drop=False)
+    market = team.market.drop_duplicates("id").set_index("id", drop=False)
+    outgoing = [int(change["out_id"]) for change in changes]
+    incoming = [int(change["in_id"]) for change in changes]
+    if len(set(outgoing)) != len(outgoing) or len(set(incoming)) != len(incoming):
+        raise AppError("Samme spiller kan ikke brukes i flere bytter.")
+    owned = set(squad.index.astype(int))
+    if not set(outgoing).issubset(owned):
+        raise AppError("Minst én spiller som skal ut er ikke i troppen.")
+    if set(incoming) & owned:
+        raise AppError("Minst én spiller som skal inn er allerede i troppen.")
+    if not set(incoming).issubset(set(market.index.astype(int))):
+        raise AppError("Minst én spiller som skal inn finnes ikke i markedet.")
+    for out_id, in_id in zip(outgoing, incoming):
+        if squad.loc[out_id, "position"] != market.loc[in_id, "position"]:
+            raise AppError("Hvert bytte må være mellom spillere i samme posisjon.")
+        if "can_select" in market and not bool(market.loc[in_id, "can_select"]):
+            raise AppError(f"{market.loc[in_id, 'name']} kan ikke velges i FPL nå.")
+
+    sales = sum(int(squad.loc[player_id, "selling_price"]) for player_id in outgoing)
+    purchases = sum(int(market.loc[player_id, "price"]) for player_id in incoming)
+    calculated_bank = int(team.bank + sales - purchases)
+    if mode == "apply_transfers" and calculated_bank < 0:
+        raise AppError("Byttene er ikke innenfor tilgjengelig budsjett.")
+
+    holdings = []
+    incoming_by_out = dict(zip(outgoing, incoming))
+    for row in team.squad.to_dict("records"):
+        player_id = int(row["id"])
+        if player_id in incoming_by_out:
+            new_id = incoming_by_out[player_id]
+            holdings.append({
+                "id": new_id,
+                "purchase_price": int(market.loc[new_id, "price"]),
+                "price_is_estimate": False,
+            })
+        else:
+            holdings.append({
+                "id": player_id,
+                "purchase_price": int(row.get("purchase_price", row["price"])),
+                "price_is_estimate": bool(row.get("price_is_estimate", False)),
+            })
+
+    before_bank = int(team.bank)
+    before_free = int(team.free_transfers)
+    if mode == "synchronize":
+        if bank is None or free_transfers is None:
+            raise AppError("Oppgi faktisk bank og gjenværende gratisbytter etter byttene.")
+        new_bank = int(bank)
+        new_free_transfers = int(free_transfers)
+        hit = 0
+    else:
+        new_bank = calculated_bank
+        new_free_transfers = max(0, before_free - len(changes))
+        hit = max(0, len(changes) - before_free) * 4
+    if new_bank < 0:
+        raise AppError("Banken kan ikke være negativ.")
+    if not 0 <= new_free_transfers <= 5:
+        raise AppError("Gratisbytter må være mellom 0 og 5.")
+
+    set_team_holdings(team, holdings)
+    team.bank = new_bank
+    team.free_transfers = new_free_transfers
+    team.team_value = int(team.squad["selling_price"].sum() + team.bank)
+    recorded = [{
+        "out_id": out_id, "out": str(squad.loc[out_id, "name"]),
+        "in_id": in_id, "in": str(market.loc[in_id, "name"]),
+    } for out_id, in_id in zip(outgoing, incoming)]
+    team.squad_source = "manual_override"
+    team.manual_changes.extend(recorded)
+    return {
+        "mode": mode, "changes": recorded, "bank_before": before_bank,
+        "bank_after": team.bank, "free_transfers_before": before_free,
+        "free_transfers_after": team.free_transfers, "hit": hit,
+    }
+
+
+def _override_path(root: Path, entry_id: int) -> Path:
+    return Path(root) / "data" / "local" / "team_overrides" / f"{entry_id}.json"
+
+
+def save_team_override(root: Path, team: ImportedTeam) -> Path:
+    path = _override_path(root, team.entry_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "entry_id": team.entry_id,
+        "target_event": team.target_event,
+        "bank": team.bank,
+        "free_transfers": team.free_transfers,
+        "squad_source": team.squad_source,
+        "manual_changes": team.manual_changes,
+        "holdings": [{
+            "id": int(row.id), "purchase_price": int(row.purchase_price),
+            "price_is_estimate": bool(getattr(row, "price_is_estimate", False)),
+        } for row in team.squad.itertuples()],
+    }
+    with tempfile.NamedTemporaryFile("w", dir=path.parent, delete=False) as handle:
+        json.dump(payload, handle, indent=2)
+        temporary = Path(handle.name)
+    temporary.replace(path)
+    return path
+
+
+def load_team_override(root: Path, team: ImportedTeam) -> bool:
+    path = _override_path(root, team.entry_id)
+    if not path.exists():
+        return False
+    try:
+        payload = json.loads(path.read_text())
+        if int(payload.get("target_event", -1)) != team.target_event:
+            return False
+        set_team_holdings(team, payload["holdings"])
+        team.bank = int(payload["bank"])
+        team.free_transfers = int(payload["free_transfers"])
+        team.squad_source = "manual_override"
+        team.manual_changes = list(payload.get("manual_changes", []))
+        team.team_value = int(team.squad["selling_price"].sum() + team.bank)
+        return True
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+        raise AppError(f"Lagret lagkorrigering er ugyldig: {exc}") from exc
+
+
+def clear_team_override(root: Path, entry_id: int) -> None:
+    path = _override_path(root, entry_id)
+    if path.exists():
+        path.unlink()
 
 
 def optimal_lineup(squad: pd.DataFrame) -> dict:
@@ -490,7 +781,8 @@ def _lineup_total_records(records: Iterable[tuple[int, str, float]]) -> float:
 
 def _exact_transfer_plan(team: ImportedTeam, weekly_source: pd.DataFrame,
                          score_column: str, baseline: float,
-                         expected_baseline: float, number: int) -> dict | None:
+                         expected_baseline: float, number: int,
+                         forced_outgoing: tuple[int, ...] = ()) -> dict | None:
     """Return the globally optimal exact-N transfer plan over the horizon."""
     frame = team.market.sort_values("id").drop_duplicates("id").reset_index(drop=True)
     ids = frame["id"].astype(int).to_numpy()
@@ -519,6 +811,9 @@ def _exact_transfer_plan(team: ImportedTeam, weekly_source: pd.DataFrame,
     add([(index, 1) for index in range(n)], 15, 15)
     retained = 15 - number
     add([(index, owned_mask[index]) for index in range(n)], retained, retained)
+    index_by_id = {int(player_id): index for index, player_id in enumerate(ids)}
+    for player_id in forced_outgoing:
+        add([(index_by_id[player_id], 1)], 0, 0)
     for position, count in {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}.items():
         add([(index, 1) for index in range(n)
              if frame.loc[index, "position"] == position], count, count)
@@ -635,7 +930,8 @@ def _exact_transfer_plan(team: ImportedTeam, weekly_source: pd.DataFrame,
 
 
 def recommend_transfers(team: ImportedTeam, number: int = 1, limit: int = 8,
-                        candidate_pool: int = 14) -> pd.DataFrame:
+                        candidate_pool: int = 14,
+                        forced_outgoing: Iterable[int] | None = None) -> pd.DataFrame:
     """Rank legal transfer plans by lineup gain over the horizon.
 
     One-transfer search is exhaustive. For two transfers, the global optimum
@@ -646,6 +942,15 @@ def recommend_transfers(team: ImportedTeam, number: int = 1, limit: int = 8,
         raise AppError("Antall bytter må være mellom ett og fem.")
     squad, market = team.squad, team.market
     owned = set(squad["id"].astype(int))
+    raw_forced = tuple(int(player_id) for player_id in (forced_outgoing or ()))
+    forced = tuple(dict.fromkeys(raw_forced))
+    if len(forced) != len(raw_forced):
+        raise AppError("Samme spiller kan ikke velges flere ganger.")
+    if forced and len(forced) != number:
+        raise AppError("Antall valgte spillere må være likt antall bytter.")
+    unknown = set(forced) - owned
+    if unknown:
+        raise AppError("Alle valgte spillere må finnes i den aktive troppen.")
     weekly_source = team.weekly_market if team.weekly_market is not None else market.assign(
         forecast_event=team.target_event
     )
@@ -669,7 +974,8 @@ def recommend_transfers(team: ImportedTeam, number: int = 1, limit: int = 8,
     ) for lookup in expected_records.values())
     if number >= 3:
         exact_plan = _exact_transfer_plan(
-            team, weekly_source, score_column, baseline, expected_baseline, number
+            team, weekly_source, score_column, baseline, expected_baseline, number,
+            forced,
         )
         if exact_plan is None:
             return pd.DataFrame(columns=[
@@ -694,9 +1000,15 @@ def recommend_transfers(team: ImportedTeam, number: int = 1, limit: int = 8,
             ranked.head(candidate_pool)["id"], cheapest["id"], club_best["id"]
         ]).drop_duplicates()
         pools[position] = ranked[ranked["id"].isin(keep_ids)]
-    outgoing_sets = [(int(row.id),) for row in squad.itertuples()] if number == 1 else [
-        tuple(int(x) for x in pair) for pair in combinations(squad["id"].astype(int), 2)
-    ]
+    if forced:
+        outgoing_sets = [forced]
+    elif number == 1:
+        outgoing_sets = [(int(row.id),) for row in squad.itertuples()]
+    else:
+        outgoing_sets = [
+            tuple(int(x) for x in pair)
+            for pair in combinations(squad["id"].astype(int), 2)
+        ]
     by_id = squad.set_index("id")
     market_by_id = market.set_index("id")
     club_counts = Counter(int(team_id) for team_id in squad["team_id"])
@@ -755,7 +1067,8 @@ def recommend_transfers(team: ImportedTeam, number: int = 1, limit: int = 8,
             })
     if number == 2:
         exact_plan = _exact_transfer_plan(
-            team, weekly_source, score_column, baseline, expected_baseline, number
+            team, weekly_source, score_column, baseline, expected_baseline, number,
+            forced,
         )
         if exact_plan is not None:
             results.append(exact_plan)
@@ -917,6 +1230,23 @@ def show_transfers(team: ImportedTeam, number: int = 1) -> None:
                 print("De øvrige forslagene kommer fra en bred, modellrangert kandidatliste.")
 
 
+def show_multiweek(team: ImportedTeam) -> None:
+    from multiweek_planner import plan_multiweek
+
+    result = plan_multiweek(team, weeks=team.horizon)
+    print(f'\nGlobal flerukersplan: {result["total_projected_points"]:.2f} modellpoeng')
+    for week in result["weeks"]:
+        outgoing = ", ".join(week["transfers_out"]) or "ingen"
+        incoming = ", ".join(week["transfers_in"]) or "ingen"
+        print(
+            f'GW{week["event"]} | {week["formation"]} | '
+            f'{week["projected_points"]:.2f} | UT: {outgoing} | INN: {incoming} | '
+            f'C: {week["captain"]} | bank £{week["bank"]:.1f}m | hit {week["hit"]}'
+        )
+        print("  XI: " + ", ".join(week["starters"]))
+    print(result["caveat"])
+
+
 def show_targets(team: ImportedTeam, position: str | None = None,
                  max_price: int | None = None) -> None:
     print("\nBeste kjøpskandidater etter anbefalte poeng:")
@@ -959,6 +1289,7 @@ def interactive(team: ImportedTeam) -> None:
         "4": ("Anbefal to bytter", lambda: show_transfers(team, 2)),
         "5": ("Vis kjøpskandidater", lambda: show_targets(team)),
         "6": ("Vis salgskandidater", lambda: show_sells(team)),
+        "7": ("Lag global flerukersplan", lambda: show_multiweek(team)),
     }
     show_overview(team)
     while True:
@@ -994,12 +1325,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("team", help="FPL-lenke eller numerisk lag-ID")
-    parser.add_argument("--action", choices=["interactive", "overview", "lineup", "transfers", "targets", "sells"],
+    parser.add_argument("--action", choices=["interactive", "overview", "lineup", "transfers", "plan", "targets", "sells"],
                         default="interactive")
     parser.add_argument("--max-transfers", type=int, choices=range(1, 6), default=1)
     parser.add_argument("--position", choices=list(POSITION_ORDER))
     parser.add_argument("--max-price", type=float, help="Maks kjøpspris i millioner")
-    parser.add_argument("--horizon", type=int, choices=[1, 2, 3], default=1,
+    parser.add_argument("--horizon", type=int, choices=range(1, 9), default=1,
                         help="Gameweeks som summeres for kjøp/salg (standard: 1)")
     parser.add_argument("--risk-profile", choices=["balanced", "stable", "upside"],
                         default="balanced",
@@ -1021,6 +1352,7 @@ def main(argv: list[str] | None = None) -> int:
             "overview": lambda: show_overview(team),
             "lineup": lambda: show_lineup(team),
             "transfers": lambda: show_transfers(team, args.max_transfers),
+            "plan": lambda: show_multiweek(team),
             "targets": lambda: show_targets(
                 team, args.position, round(args.max_price * 10) if args.max_price is not None else None
             ),

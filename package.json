@@ -1,0 +1,22 @@
+{
+  "name": "fplmodell",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "overrides": {
+    "react": "19.2.3"
+  },
+  "scripts": {
+    "backend": "FPL_API_HOST=127.0.0.1 .venv/bin/python run_app.py",
+    "backend:lan": "FPL_API_HOST=0.0.0.0 .venv/bin/python run_app.py",
+    "test:backend": ".venv/bin/python -m unittest discover -s tests -v",
+    "web": "npm --prefix frontend run dev",
+    "mobile": "npm --prefix apps/mobile run start",
+    "mobile:ios": "npm --prefix apps/mobile run ios",
+    "typecheck:shared": "npm --prefix packages/shared run typecheck",
+    "typecheck:mobile": "npm --prefix apps/mobile run typecheck",
+    "test:mobile": "npm --prefix apps/mobile test"
+  }
+}
