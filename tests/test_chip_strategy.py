@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from chip_strategy import recommend_chip_strategy
 from fpl_app import ImportedTeam
+from squad_recommendations import recommend_squads
 
 
 def player(player_id, name, position, team, points, price=50):
@@ -84,6 +85,15 @@ class ChipStrategyTests(unittest.TestCase):
         triple = next(row for row in result["best_by_chip"]
                       if row["chip"] == "triple_captain")
         self.assertEqual(triple["decision"], "UNAVAILABLE")
+
+    def test_standalone_squads_include_lineup_and_wildcard_roadmap(self):
+        result = recommend_squads(self.team)
+        self.assertEqual([row["event"] for row in result["free_hit_by_event"]], [5, 6])
+        self.assertEqual(len(result["free_hit_by_event"][0]["starters"]), 11)
+        self.assertEqual(len(result["free_hit_by_event"][0]["bench"]), 4)
+        self.assertEqual(len(result["wildcard"]["squad"]), 15)
+        self.assertEqual(result["wildcard"]["horizon_events"], [5, 6])
+        self.assertEqual(len(result["wildcard"]["roadmap"]["weeks"]), 1)
 
 
 if __name__ == "__main__":

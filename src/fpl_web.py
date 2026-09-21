@@ -21,6 +21,7 @@ from fpl_app import (
     sell_candidates,
     transfer_targets,
 )
+from multiweek_planner import plan_multiweek
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -275,6 +276,43 @@ def _render_transfers(team: ImportedTeam) -> None:
         st.caption(f"Forslaget er globalt optimalt{suffix}.")
 
 
+def _render_multiweek(team: ImportedTeam) -> None:
+    st.subheader("Flerukersplan")
+    st.caption(
+        "Optimerer bytter, rullering av gratisbytter, startellever og kaptein samlet."
+    )
+    key = (*_transfer_key(team, 0), "multiweek")
+    cache = st.session_state.setdefault("multiweek_results", {})
+    if st.button("Beregn flerukersplan", type="primary", width="stretch"):
+        try:
+            with st.spinner("Løser hele planhorisonten …"):
+                cache[key] = plan_multiweek(team, weeks=team.horizon)
+        except AppError as exc:
+            st.error(str(exc))
+    result = cache.get(key)
+    if result is None:
+        st.info("Trykk «Beregn flerukersplan» for å starte optimeringen.")
+        return
+    first, second = st.columns(2)
+    first.metric("Planlagt total", f'{result["total_projected_points"]:.2f}')
+    second.metric("Gameweeks", len(result["weeks"]))
+    for week in result["weeks"]:
+        with st.expander(
+            f'GW{week["event"]} · {week["formation"]} · '
+            f'{week["projected_points"]:.2f} poeng', expanded=True
+        ):
+            outgoing = ", ".join(week["transfers_out"]) or "Ingen"
+            incoming = ", ".join(week["transfers_in"]) or "Ingen"
+            st.markdown(
+                f'**UT:** {outgoing}  \n**INN:** {incoming}  \n'
+                f'**Kaptein:** {week["captain"]} · **Bank:** £{week["bank"]:.1f}m · '
+                f'**FT før runden:** {week["free_transfers_before"]} · '
+                f'**Hit:** −{week["hit"]}'
+            )
+            st.caption("Startellever: " + " · ".join(week["starters"]))
+    st.warning(result["caveat"])
+
+
 def _render_market(team: ImportedTeam) -> None:
     buy_tab, sell_tab = st.tabs(["Kjøpskandidater", "Salgskandidater"])
     with buy_tab:
@@ -304,7 +342,7 @@ def _render_method(team: ImportedTeam) -> None:
         - Leser bare offentlig FPL-data og utfører aldri bytter på kontoen din.
         - Velger lovlig XI, kaptein, visekaptein og benkerekkefølge.
         - Kontrollerer budsjett, posisjoner, klubbgrense, salgspris og eventuelle hits.
-        - Det beste tobytteforslaget løses globalt over hele markedet for 1–3 Gameweeks.
+        - Bytter og flerukersplan løses globalt over hele markedet for 1–8 Gameweeks.
         - `stable` og `upside` er eksperimentelle nytteprofiler; `balanced` er standard.
         """
     )
@@ -329,7 +367,7 @@ def _sidebar() -> ImportedTeam | None:
     st.sidebar.caption("Lesebeskyttet beslutningsstøtte")
     with st.sidebar.form("team_form"):
         reference = st.text_input("Laglenke eller lag-ID", value=DEFAULT_TEAM)
-        horizon = st.select_slider("Prognosehorisont", options=[1, 2, 3], value=3,
+        horizon = st.select_slider("Prognosehorisont", options=list(range(1, 9)), value=3,
                                    format_func=lambda value: f"{value} GW")
         profile_label = st.selectbox("Risikoprofil", list(PROFILE_LABELS))
         submitted = st.form_submit_button("Last inn laget", type="primary", width="stretch")
@@ -341,6 +379,7 @@ def _sidebar() -> ImportedTeam | None:
             st.session_state["load_version"] = st.session_state.get("load_version", 0) + 1
             st.session_state["load_settings"] = (reference, int(horizon), profile)
             st.session_state["transfer_results"] = {}
+            st.session_state["multiweek_results"] = {}
 
     st.sidebar.divider()
     if st.sidebar.button("Oppdater prognosen", width="stretch"):
@@ -353,6 +392,7 @@ def _sidebar() -> ImportedTeam | None:
                 st.session_state["team"] = loaded
                 st.session_state["load_version"] = st.session_state.get("load_version", 0) + 1
                 st.session_state["transfer_results"] = {}
+                st.session_state["multiweek_results"] = {}
                 st.sidebar.success("Prognosen er oppdatert.")
         except AppError as exc:
             st.sidebar.error(str(exc))
@@ -375,6 +415,7 @@ def _sidebar() -> ImportedTeam | None:
                 team.bank = corrected_bank
                 team.free_transfers = corrected_ft
                 st.session_state["transfer_results"] = {}
+                st.session_state["multiweek_results"] = {}
             st.caption("Bruk tallene som vises inne i FPL hvis de avviker.")
         st.sidebar.caption(f"Prognose: {_forecast_label(team)}")
     st.sidebar.caption("Appen logger aldri inn eller endrer laget ditt.")
@@ -397,15 +438,15 @@ def main() -> None:
         st.subheader("Kom i gang")
         st.markdown(
             "1. Lim inn FPL-lenken i sidepanelet.\n"
-            "2. Velg 1–3 Gameweeks og risikoprofil.\n"
+            "2. Velg 1–8 Gameweeks og risikoprofil.\n"
             "3. Trykk **Last inn laget**."
         )
         st.info("Eksempellenken til laget ditt er allerede fylt inn.")
         return
 
     _render_header(team)
-    overview, lineup, transfers, market, method = st.tabs([
-        "Oversikt", "Startellever", "Bytter", "Marked", "Om modellen",
+    overview, lineup, transfers, multiweek, market, method = st.tabs([
+        "Oversikt", "Startellever", "Bytter", "Flerukersplan", "Marked", "Om modellen",
     ])
     with overview:
         _render_overview(team)
@@ -413,6 +454,8 @@ def main() -> None:
         _render_lineup(team)
     with transfers:
         _render_transfers(team)
+    with multiweek:
+        _render_multiweek(team)
     with market:
         _render_market(team)
     with method:

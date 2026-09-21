@@ -24,6 +24,8 @@ htmlcov/
 *.log
 .idea/
 .vscode/
+.claude/
+.codex/
 
 # Legacy local Streamlit configuration (React is the primary UI)
 .streamlit/
@@ -33,9 +35,46 @@ data-source/
 data/processed/player_fixture_features.csv
 
 data/raw/
+data/local/
 artifacts/
 
 # React dependencies and generated build output
 frontend/node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo
+frontend/playwright-report/
+frontend/test-results/
+
+# Node workspaces (root, packages/*, apps/mobile)
+node_modules/
+apps/mobile/.expo/
+apps/mobile/dist/
+apps/mobile/expo-env.d.ts
+apps/mobile/ios/
+apps/mobile/android/
+*.tsbuildinfo
+
+# Mobile signing credentials and platform service files
+*.cer
+*.p8
+*.p12
+*.pem
+*.key
+*.jks
+*.keystore
+*.mobileprovision
+credentials.json
+GoogleService-Info.plist
+google-services.json
+
+# Mobile build artifacts
+*.ipa
+*.apk
+*.aab
+*.xcarchive
+*.dSYM/
+
+# Additional local databases and JavaScript coverage
+*.sqlite
+*.sqlite3
+coverage/
