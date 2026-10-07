@@ -31,7 +31,7 @@ def _selection(team: ImportedTeam, squad_ids: set[int], event: int) -> dict:
     event_rows = weekly[weekly.forecast_event.eq(event)]
     squad = _expected_view(event_rows[event_rows.id.isin(squad_ids)])
     if len(squad) != 15:
-        raise AppError(f"Lagforslaget fant {len(squad)} av 15 spillere i GW{event}.")
+        raise AppError(f"The squad recommendation found {len(squad)} of 15 players in GW{event}.")
     lineup = optimal_lineup(squad)
     starters = lineup["starters"].copy()
     bench = lineup["bench"].copy()
@@ -61,7 +61,7 @@ def _wildcard_roadmap(team: ImportedTeam, squad_ids: set[int], events: list[int]
     """Plan ordinary post-Wildcard transfers from the optimized initial squad."""
     if len(events) <= 1:
         return {"weeks": [], "total_projected_points": 0.0,
-                "caveat": "Ingen senere Gameweeks finnes i den frosne prognosen."}
+                "caveat": "No later Gameweeks can be found in the frozen forecast."}
     owned = set(team.squad.id.astype(int))
     current_sale = team.squad.set_index("id").selling_price.astype(int).to_dict()
     selected = team.market[team.market.id.isin(squad_ids)].copy()
@@ -95,7 +95,7 @@ def recommend_squads(team: ImportedTeam) -> dict:
         weekly = team.market.assign(forecast_event=team.target_event)
     events = sorted(int(value) for value in weekly.forecast_event.unique())
     if not events:
-        raise AppError("Ingen komplette Gameweek-prognoser er tilgjengelige.")
+        raise AppError("No complete Gameweek forecasts are available.")
 
     free_hits = []
     for event in events:
@@ -121,11 +121,11 @@ def recommend_squads(team: ImportedTeam) -> dict:
         "free_hit_by_event": free_hits,
         "wildcard": wildcard,
         "method": (
-            "Eksakt FPL-lovlig optimering. Free Hit maksimerer én runde; Wildcard "
-            "vekter nærmeste runde høyest og får en ny optimal bytteplan etterpå."
+            "Exact FPL legal optimization. Free Hit maximizes one round; Wildcard "
+            "weights the nearest gameweek most heavily and then calculates a new optimal transfer plan."
         ),
         "caveat": (
-            "Forslagene bruker frosne forventede poeng, dagens priser og dagens "
-            "skadeinformasjon. Kjør på nytt før hver deadline."
+            "The proposals use frozen expected points, today's prices and today's "
+            "injury information. Recalculate before each deadline."
         ),
     }

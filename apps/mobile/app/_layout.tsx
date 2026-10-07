@@ -24,7 +24,7 @@ export default function RootLayout() {
               <Stack.Screen name="onboarding" options={{ presentation: "fullScreenModal" }} />
               <Stack.Screen
                 name="correction"
-                options={{ presentation: "modal", headerShown: true, title: "Korriger lag" }}
+                options={{ presentation: "modal", headerShown: true, title: "Edit squad" }}
               />
             </Stack>
           </SessionProvider>

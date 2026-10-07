@@ -21,14 +21,14 @@ export function formatSigned(value: number, digits = 1, suffix = ""): string {
 }
 
 export function formatRank(value: number | null | undefined): string {
-  return value == null ? "–" : new Intl.NumberFormat("nb-NO").format(value);
+  return value == null ? "–" : new Intl.NumberFormat("en-GB").format(value);
 }
 
 export function formatHoursRemaining(hours: number | null | undefined): string {
   return hours == null ? "–" : `${hours.toFixed(1)} t`;
 }
 
-const DATE_FORMATTER = new Intl.DateTimeFormat("nb-NO", {
+const DATE_FORMATTER = new Intl.DateTimeFormat("en-GB", {
   weekday: "short",
   day: "numeric",
   month: "short",

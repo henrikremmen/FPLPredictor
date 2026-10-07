@@ -1,66 +1,56 @@
-# TestFlight / App Store-sjekkliste
+# TestFlight / App Store checklist
 
-Denne sjekklisten dekker stegene fra en ferdig kodebase til en installerbar
-build. Steg merket **krever Apple-konto**, **krever hosting** eller **krever
-betaling** er ikke gjort av kodeendringer alene — de er manuelle handlinger
-kontoeieren må ta.
+This checklist covers the path from source code to an installable build.
+Steps marked as requiring an account, hosting or payment need action by the
+account owner; code changes alone do not complete them.
 
-## Uavhengighets-disclaimer
+## Independence disclaimer
 
-FPL Modell er **ikke tilknyttet, godkjent av eller sponset av** Premier
-League, Fantasy Premier League eller noen Premier League-klubb. Alle
-lagnavn, spillernavn og poeng vises som tekst hentet fra FPLs offentlige
-API — appen bruker **ingen Premier League-logoer, drakter, klubbmerker eller
-offisielle bilder**. Denne disclaimeren skal stå:
+FPL Model is **not affiliated with, endorsed by or sponsored by** the Premier
+League, Fantasy Premier League or any Premier League club. Team/player names
+and points are text from the public FPL API. The app uses no official Premier
+League logos, kits, club badges or photographs.
 
-- I appens onboarding- eller "Om"-skjerm.
-- I App Store-produktbeskrivelsen.
-- I personvernerklæringen og support-siden (se `privacy-policy.md`,
-  `support.md`).
+Include this disclaimer in onboarding/About, the App Store description, the
+privacy policy and the support page.
 
-## 1. Forutsetninger (krever Apple-konto)
+## 1. Accounts
 
-- [ ] Apple Developer-konto (individuell eller organisasjon) — **krever
-      betaling** (99 USD/år).
-- [ ] `eas login` med en Expo-konto — gratis, men **krever konto**.
-- [ ] `eas init` i `apps/mobile/` for å koble prosjektet til en ekte
-      EAS-prosjekt-ID (erstatter placeholder-IDen i `app.config.ts`).
-- [ ] Bekreft bundle-ID: `nb.fplmodell.app` (satt i `app.config.ts`). Endre
-      den ene plassen hvis du registrerer en annen reverse-DNS-ID i Apples
-      portal — den må være identisk der og i `app.config.ts`.
+- [ ] Apple Developer account, individual or organisation. The original checklist
+  records a USD 99/year fee; verify current pricing when registering.
+- [ ] Expo account and `eas login`.
+- [ ] Run `eas init` in `apps/mobile/` to replace the placeholder EAS project ID
+  in `app.config.ts` with a real project.
+- [ ] Confirm bundle ID `nb.fplmodell.app`. If you choose another reverse-DNS ID,
+  change it in `app.config.ts` and ensure it matches Apple's portal.
 
-## 2. Backend må være offentlig tilgjengelig (krever hosting)
+## 2. Public backend
 
-TestFlight-testere er ikke på ditt lokale Wi-Fi. Backenden må derfor kjøre
-et sted med en offentlig HTTPS-adresse før du bygger en preview/production
--profil — se `docs/deploy.md`. Sett den adressen i `apps/mobile/eas.json`
-under riktig profils `env.EXPO_PUBLIC_API_URL` (allerede forberedt med
-placeholder-domener der).
+TestFlight testers need a public HTTPS backend. Follow `docs/deploy.md` and set
+the appropriate profile's `env.EXPO_PUBLIC_API_URL` in `apps/mobile/eas.json`
+before building. The existing domains are placeholders.
 
-## 3. Ikoner, splash og metadata
+## 3. Assets and metadata
 
-- [ ] Bytt ut placeholder-ikonene i `apps/mobile/assets/` (Expo-standard) med
-      egendesignede ikoner. **Ingen Premier League-bilder eller -logoer.**
-- [ ] Skjermbilder for App Store-oppføringen (tas manuelt fra simulator eller
-      fysisk enhet — ikke generert av kodeendringer).
-- [ ] Produktbeskrivelse, søkeord og kategorivalg i App Store Connect.
-- [ ] Personvernerklæring publisert på en offentlig URL (fra
-      `privacy-policy.md`) og lenket i App Store Connect.
-- [ ] Support-URL publisert (fra `support.md`).
-- [ ] Svar ut "App Privacy"-skjemaet (utkast i `app-privacy-answers.md`).
+- [ ] Replace Expo placeholder icons in `apps/mobile/assets/` with original
+  artwork; do not use Premier League imagery or logos.
+- [ ] Capture App Store screenshots from a simulator or device.
+- [ ] Add description, keywords and category in App Store Connect.
+- [ ] Publish `privacy-policy.md` and link its public URL.
+- [ ] Publish `support.md` and provide its public URL.
+- [ ] Complete App Privacy; the draft is in `app-privacy-answers.md`.
 
-## 4. Bygg
+## 4. Build
 
 ```bash
 cd apps/mobile
-eas build --profile development --platform ios   # utvikling, installeres via development build
-eas build --profile preview --platform ios        # intern testing / TestFlight-forhåndsvisning
-eas build --profile production --platform ios     # App Store-innsending
+eas build --profile development --platform ios   # Development build
+eas build --profile preview --platform ios       # Internal preview
+eas build --profile production --platform ios    # App Store submission
 ```
 
-Det første kallet med en ny Apple-konto ber EAS om å generere eller
-importere signeringssertifikater — **krever Apple-konto-tilgang**, gjøres
-interaktivt av kontoeieren.
+The first build with a new Apple account asks EAS to generate or import signing
+credentials. This requires interactive access by the account owner.
 
 ## 5. TestFlight
 
@@ -68,24 +58,21 @@ interaktivt av kontoeieren.
 eas submit --profile production --platform ios
 ```
 
-- [ ] Fyll ut `appleId`, `ascAppId` og `appleTeamId` i `eas.json` (eller svar
-      interaktivt) — **krever Apple-konto**.
-- [ ] Legg til interne/eksterne testere i App Store Connect.
-- [ ] Eksterne testere krever Apples "Beta App Review" (kan ta 1–2 dager) —
-      **utenfor det kodeendringer kan garantere**.
+- [ ] Fill `appleId`, `ascAppId` and `appleTeamId` in `eas.json`, or answer the
+  interactive prompts using the Apple account.
+- [ ] Add internal/external testers in App Store Connect.
+- [ ] Allow time for Apple's Beta App Review for external testers. Approval and
+  review timing cannot be guaranteed by this repository.
 
-## 6. App Store-innsending
+## 6. App Store submission
 
-- [ ] Fyll ut alle metadatafelt i App Store Connect.
-- [ ] Send til review. Apple kan spørre om FPL-relatert innhold og
-      opphavsrett — ha uavhengighets-disclaimeren klar som svar.
-- [ ] Godkjenning er **ikke garantert av dette repoet** — det er en manuell
-      Apple-prosess.
+- [ ] Complete all metadata fields.
+- [ ] Submit for review; keep the independence disclaimer available if Apple
+  asks about FPL-related content or intellectual property.
+- [ ] Approval is an external Apple process, not a result of the code changes.
 
-## Hva som IKKE er bekreftet av dette arbeidet
+## Verification scope
 
-- Fysisk iPhone-testing, TestFlight-distribusjon og App Store-godkjenning er
-  **ikke utført** som en del av kodeendringene — de krever en Apple-konto,
-  et fysisk device eller ekstern review som ikke er tilgjengelig her. Det
-  som er verifisert er: `expo-doctor` (21/21), typecheck, og en vellykket
-  `expo export --platform ios`-bundling.
+The original mobile implementation verified `expo-doctor` (21/21), typechecking
+and an iOS export. Physical iPhone testing, TestFlight distribution and App Store
+approval were not performed as part of those code changes.

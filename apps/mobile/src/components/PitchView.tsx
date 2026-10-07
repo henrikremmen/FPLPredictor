@@ -54,7 +54,7 @@ export function BenchStrip({ bench }: { bench: Player[] }) {
   const ordered = [...bench].sort((a, b) => Number(a.bench_order ?? 0) - Number(b.bench_order ?? 0));
   return (
     <View style={styles.benchStrip}>
-      <Text style={typography.eyebrow}>Benk</Text>
+      <Text style={typography.eyebrow}>Bench</Text>
       <View style={styles.benchRow}>
         {ordered.map((player, index) => (
           <View key={player.id} style={styles.benchChip}>

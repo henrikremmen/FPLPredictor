@@ -27,13 +27,13 @@ from multiweek_planner import plan_multiweek
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TEAM = "https://fantasy.premierleague.com/en/entry/5139814/event/4"
 PROFILE_LABELS = {
-    "Balansert – forventede poeng": "balanced",
-    "Stabil – straffer bred usikkerhet": "stable",
-    "Oppside – vektlegger Q90": "upside",
+    "Balanced – expected points": "balanced",
+    "Stable – penalises wide uncertainty": "stable",
+    "Upside – emphasises Q90": "upside",
 }
 STATUS_LABELS = {
-    "a": "Tilgjengelig", "d": "Usikker", "i": "Skadet",
-    "s": "Suspendert", "u": "Utilgjengelig", "n": "Ikke i tropp",
+    "a": "Available", "d": "Doubtful", "i": "Injured",
+    "s": "Suspended", "u": "Unavailable", "n": "Not in the squad",
 }
 
 
@@ -78,7 +78,7 @@ def _deadline_label(value: str) -> str:
     timestamp = pd.to_datetime(value, utc=True, errors="coerce")
     if pd.isna(timestamp):
         return str(value)
-    return timestamp.tz_convert("Europe/Oslo").strftime("%d.%m.%Y kl. %H:%M")
+    return timestamp.tz_convert("Europe/Oslo").strftime("%d %b %Y at %H:%M")
 
 
 def _forecast_label(team: ImportedTeam) -> str:
@@ -95,7 +95,7 @@ def _forecast_label(team: ImportedTeam) -> str:
 
 def player_table(frame: pd.DataFrame, team: ImportedTeam,
                  price_column: str | None = None) -> pd.DataFrame:
-    """Create a compact Norwegian display frame without mutating model data."""
+    """Create a compact English display frame without mutating model data."""
     if frame.empty:
         return pd.DataFrame()
     ordered = frame.copy()
@@ -105,21 +105,21 @@ def player_table(frame: pd.DataFrame, team: ImportedTeam,
         ordered = ordered.sort_values(["_position_order", score], ascending=[True, False])
     shown = pd.DataFrame(index=ordered.index)
     mappings = [
-        ("position", "Pos"), ("name", "Spiller"), ("team", "Lag"),
-        ("opponent", "Motstander"),
+        ("position", "Pos"), ("name", "Player"), ("team", "Team"),
+        ("opponent", "Opponent"),
     ]
     for source, label in mappings:
         if source in ordered:
             shown[label] = ordered[source]
     if price_column and price_column in ordered:
-        shown["Pris (£m)"] = ordered[price_column].astype(float) / 10
+        shown["Price (£m)"] = ordered[price_column].astype(float) / 10
     if "recommended_points" in ordered:
-        shown["Forventet"] = ordered["recommended_points"].astype(float).round(2)
+        shown["Expected"] = ordered["recommended_points"].astype(float).round(2)
     if team.risk_profile != "balanced" and "decision_points" in ordered:
-        shown["Profilscore"] = ordered["decision_points"].astype(float).round(2)
+        shown["Profile score"] = ordered["decision_points"].astype(float).round(2)
     if "expected_60plus_appearances" in ordered and ordered["expected_60plus_appearances"].notna().any():
         values = ordered["expected_60plus_appearances"].astype(float)
-        shown["P(60+)" if team.horizon == 1 else "Forv. 60+"] = (
+        shown["P(60+)" if team.horizon == 1 else "Expected 60+"] = (
             (100 * values).round(0) if team.horizon == 1 else values.round(2)
         )
     if "point_range_q10_q90" in ordered and ordered["point_range_q10_q90"].notna().any():
@@ -127,9 +127,9 @@ def player_table(frame: pd.DataFrame, team: ImportedTeam,
     if "status" in ordered:
         shown["Status"] = ordered["status"].map(STATUS_LABELS).fillna(ordered["status"])
     if "role" in ordered:
-        shown["Rolle"] = ordered["role"]
+        shown["Role"] = ordered["role"]
     if "bench_order" in ordered:
-        shown.insert(0, "Benk", ordered["bench_order"])
+        shown.insert(0, "Bench", ordered["bench_order"])
     return shown.reset_index(drop=True)
 
 
@@ -137,16 +137,16 @@ def transfer_table(frame: pd.DataFrame, team: ImportedTeam) -> pd.DataFrame:
     if frame.empty:
         return pd.DataFrame()
     shown = pd.DataFrame({
-        "Selg": frame["out"], "Kjøp": frame["in"],
-        "Kjøpspris (£m)": frame["cost"].round(1),
-        "Rest (£m)": frame["money_left"].round(1),
-        "Forventet gevinst": frame["expected_gain"].round(2),
+        "Sell": frame["out"], "Buy": frame["in"],
+        "Purchase price (£m)": frame["cost"].round(1),
+        "Remaining (£m)": frame["money_left"].round(1),
+        "Expected gain": frame["expected_gain"].round(2),
     })
     if team.risk_profile != "balanced":
-        shown["Profilgevinst"] = frame["lineup_gain"].round(2)
+        shown["Profile gain"] = frame["lineup_gain"].round(2)
     shown["Hit"] = frame["hit"].astype(int)
-    shown["Netto"] = frame["net_gain"].round(2)
-    shown["Globalt optimum"] = frame["is_global_optimum"].map({True: "Ja", False: "Alternativ"})
+    shown["Net"] = frame["net_gain"].round(2)
+    shown["Global optimum"] = frame["is_global_optimum"].map({True: "Yes", False: "Alternativ"})
     return shown
 
 
@@ -162,7 +162,7 @@ def _player_card(row: pd.Series) -> str:
         f'<div class="player-card {card_class}">'
         f'<div class="player-name">{escape(str(row["name"]))}{role_html}</div>'
         f'<div class="player-meta">{escape(str(row["team"]))} · {escape(str(row.get("opponent", "")))}</div>'
-        f'<div class="player-meta"><b>{score:.2f}</b> forventede poeng</div>'
+        f'<div class="player-meta"><b>{score:.2f}</b> expected points</div>'
         "</div>"
     )
 
@@ -184,37 +184,37 @@ def _render_header(team: ImportedTeam) -> None:
               f"GW{team.target_event}–{team.target_event + team.horizon - 1}")
     st.markdown(
         f'<div class="hero"><h1>{escape(team.team_name)}</h1>'
-        f'<p>{escape(team.manager_name)} · Modellhorisont {target} · '
+        f'<p>{escape(team.manager_name)} · Forecast horizon {target} · '
         f'{escape(team.risk_profile)}</p></div>',
         unsafe_allow_html=True,
     )
     columns = st.columns(5)
     columns[0].metric("Bank", f"£{team.bank / 10:.1f}m")
-    columns[1].metric("Gratisbytter", f"ca. {team.free_transfers}")
-    columns[2].metric("Neste GW", team.target_event)
-    columns[3].metric("Frist", _deadline_label(team.deadline).split(" kl.")[0])
-    columns[4].metric("Prognose fra", _forecast_label(team))
+    columns[1].metric("Free transfers", f"ca. {team.free_transfers}")
+    columns[2].metric("Next GW", team.target_event)
+    columns[3].metric("Deadline", _deadline_label(team.deadline).split(" at")[0])
+    columns[4].metric("Forecast from", _forecast_label(team))
 
 
 def _render_overview(team: ImportedTeam) -> None:
     left, right = st.columns([1.55, 1])
     with left:
-        st.subheader("Troppen din")
+        st.subheader("Your squad")
         table = player_table(team.squad, team, "selling_price")
         st.dataframe(table, hide_index=True, width="stretch")
         st.download_button(
-            "Last ned tropp som CSV", table.to_csv(index=False).encode("utf-8"),
-            file_name=f"fpl_tropp_{team.entry_id}.csv", mime="text/csv",
+            "Download squad as CSV", table.to_csv(index=False).encode("utf-8"),
+            file_name=f"fpl_squad_{team.entry_id}.csv", mime="text/csv",
         )
     with right:
-        st.subheader("Modellpoeng")
+        st.subheader("Model points")
         chart = (team.squad[["name", "recommended_points"]]
                  .sort_values("recommended_points", ascending=False)
                  .set_index("name"))
         st.bar_chart(chart, color="#5b146f", height=430)
         st.info(
-            "Salgspriser og gratisbytter er estimert fra offentlig historikk. "
-            "Korriger dem i sidepanelet hvis FPL viser andre tall."
+            "Selling prices and free transfers are estimated from public history. "
+            "Correct them in the side panel if the FPL shows other numbers."
         )
 
 
@@ -222,13 +222,13 @@ def _render_lineup(team: ImportedTeam) -> None:
     source = team.lineup_squad if team.lineup_squad is not None else team.squad
     lineup = optimal_lineup(source)
     first, second, third = st.columns(3)
-    first.metric("Formasjon", lineup["formation"])
-    second.metric("Forventet inkl. kaptein", f'{lineup["expected_total"]:.2f}')
+    first.metric("Formation", lineup["formation"])
+    second.metric("Expected including Captain", f'{lineup["expected_total"]:.2f}')
     third.metric("C/VC-margin", f'{lineup["captain_margin"]:.2f}')
     if lineup["captain_margin"] < .5:
-        st.warning("Kapteinvalget har lav modellmargin. Behandle C/VC som et usikkert valg.")
+        st.warning("The captain choice has low model margin. Treat C/VC as an uncertain choice.")
     _render_formation(lineup["starters"])
-    st.subheader("Benk")
+    st.subheader("Bench")
     st.dataframe(player_table(lineup["bench"], team), hide_index=True, width="stretch")
 
 
@@ -241,121 +241,117 @@ def _transfer_key(team: ImportedTeam, number: int) -> tuple:
 
 
 def _render_transfers(team: ImportedTeam) -> None:
-    st.subheader("Bytteplan")
-    st.caption("Velg antall bytter. Beregningen bruker valgt horisont og risikoprofil.")
-    number = st.radio("Antall bytter", [1, 2, 3, 4, 5], horizontal=True, key="transfer_count")
+    st.subheader("Transfer plan")
+    st.caption("Choose the number of transfers. The calculation uses the selected horizon and risk profile.")
+    number = st.radio("Number of transfers", [1, 2, 3, 4, 5], horizontal=True, key="transfer_count")
     key = _transfer_key(team, int(number))
     cache = st.session_state.setdefault("transfer_results", {})
-    if st.button("Beregn beste plan", type="primary", width="stretch"):
-        with st.spinner("Søker gjennom lovlige bytter …"):
+    if st.button("Calculate best plan", type="primary", width="stretch"):
+        with st.spinner("Searching legal transfers…"):
             cache[key] = recommend_transfers(team, number=int(number))
     suggestions = cache.get(key)
     if suggestions is None:
-        st.info("Trykk «Beregn beste plan» for å starte søket.")
+        st.info("Click \"Calculate best plan\" to start the search.")
         return
     if suggestions.empty:
-        st.warning("Fant ingen gjennomførbar plan med dette antallet bytter.")
+        st.warning("No feasible plan was found for this number of transfers.")
         return
     best = suggestions.iloc[0]
-    verdict = "Modellen foretrekker å spare byttet" if best["net_gain"] <= 0 else "Beste plan"
+    verdict = "The model prefers to roll the transfer" if best["net_gain"] <= 0 else "Best plan"
     st.markdown(
         f'<div class="transfer-hero"><b>{escape(verdict)}</b><br>'
         f'{escape(str(best["out"]))} &nbsp;→&nbsp; {escape(str(best["in"]))}<br>'
-        f'<span class="muted">Netto modellgevinst {float(best["net_gain"]):.2f} · '
+        f'<span class="muted">Net model gain {float(best["net_gain"]):.2f} · '
         f'rest £{float(best["money_left"]):.1f}m · hit {int(best["hit"])}</span></div>',
         unsafe_allow_html=True,
     )
     table = transfer_table(suggestions, team)
     st.dataframe(table, hide_index=True, width="stretch")
     st.download_button(
-        "Last ned forslag som CSV", table.to_csv(index=False).encode("utf-8"),
-        file_name=f"fpl_byttestrategi_{team.entry_id}.csv", mime="text/csv",
+        "Download suggestions as CSV", table.to_csv(index=False).encode("utf-8"),
+        file_name=f"fpl_transfer_strategy_{team.entry_id}.csv", mime="text/csv",
     )
     if int(number) >= 2:
-        suffix = "; øvrige rader er brede reservealternativer" if int(number) == 2 else ""
-        st.caption(f"Forslaget er globalt optimalt{suffix}.")
+        suffix = "; the other rows are broad backup options" if int(number) == 2 else ""
+        st.caption(f"The proposal is globally optimal{suffix}.")
 
 
 def _render_multiweek(team: ImportedTeam) -> None:
-    st.subheader("Flerukersplan")
+    st.subheader("Multiweek plan")
     st.caption(
-        "Optimerer bytter, rullering av gratisbytter, startellever og kaptein samlet."
+        "Optimises transfers, rolling free transfers, starting XIs and captains together."
     )
     key = (*_transfer_key(team, 0), "multiweek")
     cache = st.session_state.setdefault("multiweek_results", {})
-    if st.button("Beregn flerukersplan", type="primary", width="stretch"):
+    if st.button("Calculate multiweek plan", type="primary", width="stretch"):
         try:
-            with st.spinner("Løser hele planhorisonten …"):
+            with st.spinner("Solving the full planning horizon…"):
                 cache[key] = plan_multiweek(team, weeks=team.horizon)
         except AppError as exc:
             st.error(str(exc))
     result = cache.get(key)
     if result is None:
-        st.info("Trykk «Beregn flerukersplan» for å starte optimeringen.")
+        st.info("Click \"Calculate multiweek plan\" to start optimisation.")
         return
     first, second = st.columns(2)
-    first.metric("Planlagt total", f'{result["total_projected_points"]:.2f}')
+    first.metric("Projected total", f'{result["total_projected_points"]:.2f}')
     second.metric("Gameweeks", len(result["weeks"]))
     for week in result["weeks"]:
         with st.expander(
             f'GW{week["event"]} · {week["formation"]} · '
-            f'{week["projected_points"]:.2f} poeng', expanded=True
+            f'{week["projected_points"]:.2f} points', expanded=True
         ):
-            outgoing = ", ".join(week["transfers_out"]) or "Ingen"
-            incoming = ", ".join(week["transfers_in"]) or "Ingen"
+            outgoing = ", ".join(week["transfers_out"]) or "None"
+            incoming = ", ".join(week["transfers_in"]) or "None"
             st.markdown(
-                f'**UT:** {outgoing}  \n**INN:** {incoming}  \n'
-                f'**Kaptein:** {week["captain"]} · **Bank:** £{week["bank"]:.1f}m · '
-                f'**FT før runden:** {week["free_transfers_before"]} · '
+                f'**OUT:** {outgoing}  \n**IN:** {incoming}  \n'
+                f'**Captain:** {week["captain"]} · **Bank:** £{week["bank"]:.1f}m · '
+                f'**FT before round:** {week["free_transfers_before"]} · '
                 f'**Hit:** −{week["hit"]}'
             )
-            st.caption("Startellever: " + " · ".join(week["starters"]))
+            st.caption("Starting XI: " + " · ".join(week["starters"]))
     st.warning(result["caveat"])
 
 
 def _render_market(team: ImportedTeam) -> None:
-    buy_tab, sell_tab = st.tabs(["Kjøpskandidater", "Salgskandidater"])
+    buy_tab, sell_tab = st.tabs(["Buy candidates", "Sell candidates"])
     with buy_tab:
         first, second, third = st.columns(3)
-        position = first.selectbox("Posisjon", ["Alle", "GK", "DEF", "MID", "FWD"])
+        position = first.selectbox("Position", ["All", "GK", "DEF", "MID", "FWD"])
         maximum = second.number_input(
-            "Makspris (£m)", min_value=3.0,
+            "Maximum price (£m)", min_value=3.0,
             max_value=float(team.market["price"].max() / 10),
             value=float(team.market["price"].max() / 10), step=.1,
         )
-        limit = third.slider("Antall kandidater", 5, 30, 12)
+        limit = third.slider("Number of candidates", 5, 30, 12)
         targets = transfer_targets(
-            team, None if position == "Alle" else position,
+            team, None if position == "All" else position,
             max_price=round(maximum * 10), limit=limit,
         )
         st.dataframe(player_table(targets, team, "price"), hide_index=True, width="stretch")
     with sell_tab:
         sells = sell_candidates(team, limit=15)
-        st.caption("Lavest modellscore øverst. Dette er kandidater til vurdering, ikke automatiske salg.")
+        st.caption("Lowest model scores first. These are candidates to review, not automatic sales.")
         st.dataframe(player_table(sells, team, "selling_price"), hide_index=True, width="stretch")
 
 
 def _render_method(team: ImportedTeam) -> None:
-    st.subheader("Hva appen gjør")
+    st.subheader("What the app does")
     st.markdown(
         """
-        - Leser bare offentlig FPL-data og utfører aldri bytter på kontoen din.
-        - Velger lovlig XI, kaptein, visekaptein og benkerekkefølge.
-        - Kontrollerer budsjett, posisjoner, klubbgrense, salgspris og eventuelle hits.
-        - Bytter og flerukersplan løses globalt over hele markedet for 1–8 Gameweeks.
-        - `stable` og `upside` er eksperimentelle nytteprofiler; `balanced` er standard.
+        Reads only public FPL data and never makes transfers on your account. Selects a legal XI, captain, vice-captain and bench order. Checks budget, positions, club limits, selling prices and hits. Transfers and multiweek plans are optimised globally across the market for 1–8 Gameweeks. `stable` and `upside` are experimental utility profiles; `balanced` is the default.
         """
     )
     st.warning(
-        "Modellen er et beslutningsverktøy, ikke en garanti. Skade-/lagnyheter er ikke fullt "
-        "modellert, og offentlig lagdata gir bare estimerte gratisbytter og salgspriser."
+        "The model is a decision tool, not a guarantee. Injury and team news are not fully "
+        "modelled, and public team data only provide estimated free transfers and selling prices."
     )
     st.code(str(team.forecast_path), language=None)
 
 
 def _load_team(reference: str, horizon: int, profile: str) -> ImportedTeam | None:
     try:
-        with st.spinner("Importerer laget og kobler på modellprognosen …"):
+        with st.spinner("Importing your team and loading its model forecast…"):
             return import_team(reference, ROOT, horizon=horizon, risk_profile=profile)
     except AppError as exc:
         st.error(str(exc))
@@ -363,14 +359,14 @@ def _load_team(reference: str, horizon: int, profile: str) -> ImportedTeam | Non
 
 
 def _sidebar() -> ImportedTeam | None:
-    st.sidebar.title("FPL Modell")
-    st.sidebar.caption("Lesebeskyttet beslutningsstøtte")
+    st.sidebar.title("FPL Model")
+    st.sidebar.caption("Read-only decision support")
     with st.sidebar.form("team_form"):
-        reference = st.text_input("Laglenke eller lag-ID", value=DEFAULT_TEAM)
-        horizon = st.select_slider("Prognosehorisont", options=list(range(1, 9)), value=3,
+        reference = st.text_input("Team URL or team ID", value=DEFAULT_TEAM)
+        horizon = st.select_slider("Forecast horizon", options=list(range(1, 9)), value=3,
                                    format_func=lambda value: f"{value} GW")
-        profile_label = st.selectbox("Risikoprofil", list(PROFILE_LABELS))
-        submitted = st.form_submit_button("Last inn laget", type="primary", width="stretch")
+        profile_label = st.selectbox("Risk profile", list(PROFILE_LABELS))
+        submitted = st.form_submit_button("Load team", type="primary", width="stretch")
     profile = PROFILE_LABELS[profile_label]
     if submitted:
         loaded = _load_team(reference, int(horizon), profile)
@@ -382,9 +378,9 @@ def _sidebar() -> ImportedTeam | None:
             st.session_state["multiweek_results"] = {}
 
     st.sidebar.divider()
-    if st.sidebar.button("Oppdater prognosen", width="stretch"):
+    if st.sidebar.button("Refresh forecast", width="stretch"):
         try:
-            with st.spinner("Henter et nytt offentlig snapshot. Dette kan ta rundt ett minutt …"):
+            with st.spinner("Getting a new public snapshot. This can take about a minute..."):
                 refresh_forecast(ROOT)
             settings = st.session_state.get("load_settings", (reference, int(horizon), profile))
             loaded = _load_team(*settings)
@@ -393,20 +389,20 @@ def _sidebar() -> ImportedTeam | None:
                 st.session_state["load_version"] = st.session_state.get("load_version", 0) + 1
                 st.session_state["transfer_results"] = {}
                 st.session_state["multiweek_results"] = {}
-                st.sidebar.success("Prognosen er oppdatert.")
+                st.sidebar.success("The forecast is up to date.")
         except AppError as exc:
             st.sidebar.error(str(exc))
 
     team = st.session_state.get("team")
     if team is not None:
         version = st.session_state.get("load_version", 0)
-        with st.sidebar.expander("Korriger offentlige estimater"):
+        with st.sidebar.expander("Adjust public estimates"):
             bank = st.number_input(
                 "Bank (£m)", min_value=0.0, max_value=20.0,
                 value=float(team.bank / 10), step=.1, key=f"bank_{version}",
             )
             free_transfers = st.number_input(
-                "Gratisbytter", min_value=0, max_value=5,
+                "Free transfers", min_value=0, max_value=5,
                 value=int(team.free_transfers), step=1, key=f"ft_{version}",
             )
             corrected_bank = round(float(bank) * 10)
@@ -416,37 +412,37 @@ def _sidebar() -> ImportedTeam | None:
                 team.free_transfers = corrected_ft
                 st.session_state["transfer_results"] = {}
                 st.session_state["multiweek_results"] = {}
-            st.caption("Bruk tallene som vises inne i FPL hvis de avviker.")
-        st.sidebar.caption(f"Prognose: {_forecast_label(team)}")
-    st.sidebar.caption("Appen logger aldri inn eller endrer laget ditt.")
+            st.caption("Use the numbers displayed inside the FPL if they differ.")
+        st.sidebar.caption(f"Forecast: {_forecast_label(team)}")
+    st.sidebar.caption("The app never logs in or changes your team.")
     return team
 
 
 def main() -> None:
     st.set_page_config(
-        page_title="FPL Modell", page_icon="⚽", layout="wide",
+        page_title="FPL Model", page_icon="⚽", layout="wide",
         initial_sidebar_state="expanded",
     )
     _style()
     team = _sidebar()
     if team is None:
         st.markdown(
-            '<div class="hero"><h1>FPL Modell</h1>'
-            '<p>Fra offentlig laglenke til startellever, kaptein og transferplan.</p></div>',
+            '<div class="hero"><h1>FPL Model</h1>'
+            '<p>From a public team link to a starting XI, captain and transfer plan.</p></div>',
             unsafe_allow_html=True,
         )
-        st.subheader("Kom i gang")
+        st.subheader("Get started")
         st.markdown(
-            "1. Lim inn FPL-lenken i sidepanelet.\n"
-            "2. Velg 1–8 Gameweeks og risikoprofil.\n"
-            "3. Trykk **Last inn laget**."
+            "1. Paste the FPL link into the side panel.\n"
+            "2. Choose 1-8 Gameweeks and Risk Profile.\n"
+            "3. Click **Load team**."
         )
-        st.info("Eksempellenken til laget ditt er allerede fylt inn.")
+        st.info("The example link of your team is already filled in.")
         return
 
     _render_header(team)
     overview, lineup, transfers, multiweek, market, method = st.tabs([
-        "Oversikt", "Startellever", "Bytter", "Flerukersplan", "Marked", "Om modellen",
+        "Overview", "Starting XI", "Transfers", "Multiweek plan", "Market", "About the model",
     ])
     with overview:
         _render_overview(team)

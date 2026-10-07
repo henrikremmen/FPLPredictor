@@ -104,7 +104,7 @@ def _next_market(team: ImportedTeam) -> pd.DataFrame:
 def _price_alerts(team: ImportedTeam, next_market: pd.DataFrame) -> dict:
     if "price_change_percent" not in next_market:
         return {"available": False, "owned_at_risk": [], "targets_rising": [],
-                "caveat": "FPLs Price Change Predictor finnes ikke i dette datasnapshotet."}
+                "caveat": "FPL's Price Change Predictor is not found in this data snapshot."}
     owned_ids = set(team.squad["id"].astype(int))
     frame = next_market.copy()
     frame["_price_now"] = pd.to_numeric(frame["price_change_percent"], errors="coerce")
@@ -129,8 +129,8 @@ def _price_alerts(team: ImportedTeam, next_market: pd.DataFrame) -> dict:
         "owned_at_risk": [_player(row) for _, row in falling.head(6).iterrows()],
         "targets_rising": [_player(row) for _, row in rising.head(6).iterrows()],
         "caveat": (
-            "Offisiell FPL-indikator, men fortsatt bare en prognose. Prisendringer skjer "
-            "ved midnatt britisk tid; ikke ta et tidlig bytte uten å veie skaderisiko."
+            "Official FPL indicator, but still just one forecast. Price changes happen "
+            "at midnight UK time; weigh injury risk before making an early transfer."
         ),
     }
 
@@ -148,11 +148,11 @@ def _captain_advice(lineup: dict) -> dict:
         "margin": round(margin, 2),
         "confidence": confidence,
         "reason": (
-            "Tydelig modellmargin; behold kapteinen med mindre lagnytt endrer minuttene."
+            "Clear model margin; keep the captain unless team news changes expected minutes."
             if confidence == "strong" else
-            "Kapteinsvalget er relativt jevnt. Bruk lagnytt og valgt risikoprofil som tiebreaker."
+            "Captain choices are close. Use team news and your chosen risk profile as the tiebreaker."
             if confidence == "close" else
-            "Modellen har en moderat fordel, men siste lagnytt er fortsatt viktig."
+            "The model has a moderate advantage, but the latest team news is still important."
         ),
     }
 
@@ -206,7 +206,7 @@ def _watchlists(team: ImportedTeam, next_market: pd.DataFrame) -> dict:
         "top_targets": [_player(row) for _, row in top.head(6).iterrows()],
         "differentials": [_player(row) for _, row in differentials.head(6).iterrows()],
         "value": [_player(row) for _, row in value.head(6).iterrows()],
-        "caveat": "Lavt eierskap er ikke verdi i seg selv; listen er filtrert på modellpoeng først.",
+        "caveat": "Low ownership is not value itself; the list is filtered on model points first.",
     }
 
 
@@ -233,7 +233,7 @@ def _transfer_warnings(next_market: pd.DataFrame, outgoing: list[str],
     by_name = next_market.drop_duplicates("name").set_index("name")
     if not global_optimum:
         warnings.append(
-            "Løseren fant en validert lovlig plan, men beviste ikke global optimalitet."
+            "The solver found a validated legal plan but did not prove global optimality."
         )
     for name in outgoing:
         if name not in by_name.index:
@@ -243,13 +243,13 @@ def _transfer_warnings(next_market: pd.DataFrame, outgoing: list[str],
         official = _number(row, "ep_next", np.nan)
         if np.isfinite(model) and np.isfinite(official) and official - model >= .5:
             warnings.append(
-                f"FPLs eget neste-rundeestimat for {name} er {official:.1f}, "
-                f"{official - model:.1f} over modellens {model:.1f}."
+                f"FPL's own next-gameweek estimate for {name} is {official:.1f}, "
+                f"{official - model:.1f} above the model's {model:.1f}."
             )
         price = _number(row, "price_change_projected_percent", np.nan)
         if np.isfinite(price) and price >= 100:
             warnings.append(
-                f"{name} er samtidig anslått til {price:.0f}% mot en mulig prisoppgang."
+                f"{name} is simultaneously estimated at {price:.0f}% against a possible price rise."
             )
     for name in incoming:
         if name not in by_name.index:
@@ -258,7 +258,7 @@ def _transfer_warnings(next_market: pd.DataFrame, outgoing: list[str],
         availability = _number(row, "availability", 1)
         if availability < .9 or str(row.get("status", "a")) != "a":
             warnings.append(
-                f"{name} har redusert tilgjengelighet ({availability:.0%}); kontroller lagnytt."
+                f"{name} has reduced availability ({availability:.0%}); check team news."
             )
     return list(dict.fromkeys(warnings))
 
@@ -281,7 +281,7 @@ def build_strategy_advice(
     weeks = min(max(1, team.horizon), len(known_events), 5)
     unrestricted_plan = planner(team, weeks=weeks, discount=.9)
     if not unrestricted_plan.get("weeks"):
-        raise AppError("Strategisenteret fikk ingen validert flerukersplan.")
+        raise AppError("The strategy centre did not have a validated multi-week plan.")
     plan = unrestricted_plan
     hit_guard = {
         "evaluated": False, "avoided": False, "model_gain_after_hit": None,
@@ -313,28 +313,28 @@ def build_strategy_advice(
         decision = "HIT" if hit else "TRANSFER"
         title = f"{', '.join(outgoing)} → {', '.join(incoming)}"
         reason = (
-            f"Flerukersoptimeringen finner at {len(outgoing)} bytte(r) nå gir beste "
-            f"sekvens over {weeks} GW. Planen inkluderer −{hit}."
+            f"Multiweek optimization finds that {len(outgoing)} transfer(s) now gives the best "
+            f"sequence over {weeks} GW. The plan includes −{hit}."
             if hit else
-            f"Flerukersoptimeringen foretrekker {len(outgoing)} bytte(r) nå framfor å rulle."
+            f"Multi-week optimization prefers {len(outgoing)} transfer(s) now rather than rolling."
         )
     else:
         decision = "HOLD" if team.free_transfers >= 5 else "ROLL"
-        title = "Hold laget" if decision == "HOLD" else "Rull gratisbyttet"
+        title = "Keep squad" if decision == "HOLD" else "Roll the free transfer"
         reason = (
-            "Du er på fem gratisbytter, så du kan ikke øke saldoen. Modellen finner likevel "
-            "ingen bedre lovlig endring i den kjente horisonten."
+            "You have five free transfers, so you cannot bank any more. The model still finds "
+            "no better legal change within the known horizon."
             if decision == "HOLD" else
-            f"Beste validerte {weeks}-GW-plan gjør ingen endring nå og beholder fleksibiliteten."
+            f"The best validated {weeks}-GW plan makes no change now and retains flexibility."
         )
     if hit_guard["avoided"]:
         measured = hit_guard["model_gain_after_hit"]
         reason += (
-            " En mer aggressiv plan tok hit, men "
-            + (f"merverdien etter trekket var bare {measured:.2f} " if measured is not None
-               else "merverdien kunne ikke valideres ")
-            + f"mot sikkerhetsbufferen på {hit_guard['required_uncertainty_buffer']:.2f}; "
-              "den er derfor forkastet."
+            " A more aggressive plan included a hit, but "
+            + (f"the additional gain after the hit was only {measured:.2f} " if measured is not None
+               else "the added value could not be validated ")
+            + f"against the uncertainty buffer of {hit_guard['required_uncertainty_buffer']:.2f}; "
+              "It is therefore rejected."
         )
     warnings = _transfer_warnings(
         next_market, outgoing, incoming, bool(plan.get("global_optimum", False))
@@ -365,8 +365,8 @@ def build_strategy_advice(
         names = ", ".join(player["name"] for player in health["flagged_starters"])
         actions.append({
             "priority": 1, "severity": "urgent", "category": "team_news",
-            "title": f"Avklar {names}",
-            "detail": "Minst én anbefalt starter er flagget eller har redusert spilletidssjanse.",
+            "title": f"Check {names}",
+            "detail": "At least one recommended starter is flagged or has a reduced chance of playing.",
             "view": "lineup",
         })
     actions.append({
@@ -375,23 +375,23 @@ def build_strategy_advice(
     })
     actions.append({
         "priority": 3, "severity": "decision", "category": "captain",
-        "title": f"Kaptein {captain['captain']['name']}",
+        "title": f"Captain {captain['captain']['name']}",
         "detail": captain["reason"], "view": "lineup",
     })
     if prices["owned_at_risk"] or prices["targets_rising"]:
         actions.append({
             "priority": 4, "severity": "monitor", "category": "price",
-            "title": "Kontroller prisbevegelser",
+            "title": "Check price changes",
             "detail": (
-                f"{len(prices['owned_at_risk'])} eide spiller(e) nær fall og "
-                f"{len(prices['targets_rising'])} relevante mål nær oppgang."
+                f"{len(prices['owned_at_risk'])} owned player(s) near fall and "
+                f"{len(prices['targets_rising'])} relevant targets near rise."
             ),
             "view": "strategy",
         })
     actions.append({
         "priority": 5, "severity": "check", "category": "deadline",
-        "title": "Gjør siste lagnytt-sjekk",
-        "detail": "Oppdater prognosen etter pressekonferanser og eventuelle midtukekamper.",
+        "title": "Make a final team-news check",
+        "detail": "Update the forecast after press conferences and any mid-week games.",
         "view": "overview",
     })
 
@@ -405,8 +405,8 @@ def build_strategy_advice(
     if expiry is not None and expiry - team.target_event <= 3:
         actions.append({
             "priority": 1, "severity": "urgent", "category": "chip",
-            "title": f"{len(available_chips)} chip(s) utløper etter GW{expiry}",
-            "detail": "Å spare dem lenger har ingen verdi; kjør chipanalysen nå.",
+            "title": f"{len(available_chips)} chip(s) expire after GW{expiry}",
+            "detail": "There is no value in saving them beyond expiry; run the chip analysis now.",
             "view": "chips",
         })
     actions.sort(key=lambda item: (item["priority"], item["category"]))
@@ -431,18 +431,18 @@ def build_strategy_advice(
         "actions": actions,
         "plan": plan,
         "principles": [
-            "Rull når marginalgevinsten er liten; gratisbytter gir mer fleksibilitet senere.",
-            "Vurder bytter i flerukersblokker, men beregn planen på nytt hver frist.",
-            "Bruk 15 spillbare spillere når rotasjon og benkdekning faktisk har verdi.",
-            "Bygg lagverdi tidlig uten å ta ukompensert skade- og benkingsrisiko.",
-            "Velg differensialer fordi prognosen er god, ikke bare fordi eierskapet er lavt.",
+            "Roll when the marginal gain is small; free transfers provide more flexibility later.",
+            "Evaluate transfers over multiple gameweeks, but recalculate before every deadline.",
+            "Use 15 playable players when rotation and bench coverage actually has value.",
+            "Build team value early without taking uncompensated injury and benching risk.",
+            "Choose differentials because the forecast is good, not just because the ownership is low.",
         ],
         "method": (
-            "Eksakt regelstyrt flerukersplan kombinert med modellpoeng, tilgjengelighet, "
-            "offentlig FPL-eierskap og den offisielle Price Change Predictor-indikatoren."
+            "Exact rule-controlled multi-week plan combined with model score, availability, "
+            "Public FPL ownership and the official Price Change Predictor indicator."
         ),
         "caveat": (
-            "Appen utfører aldri bytter. Gratisbytter fra offentlig historikk er et estimat; "
-            "kontroller saldoen og siste lagnytt i FPL før fristen."
+            "The app never makes transfers. Free transfers reconstructed from public history are an estimate; "
+            "check your balance and the latest team news in FPL before the deadline."
         ),
     }

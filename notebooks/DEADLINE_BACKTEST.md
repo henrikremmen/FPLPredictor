@@ -1,72 +1,37 @@
-# Deadline-backtest: datarapport, ikke modellresultater
+# Deadline backtest: source audit
 
-Åpne `05_deadline_backtest.ipynb` med prosjektets `.venv` og kjør alle celler.
-Notebooken er kjørt og inneholder tabeller og figurer. Den leser siste lagrede
-kilderevisjon uten nettverkskall. Hent en ny revisjon ved behov:
+`05_deadline_backtest.ipynb` audits historical evidence using `src/deadline_audit.py`. It does not substitute fixture-timed data for missing deadline snapshots.
 
-```sh
-.venv/bin/python src/deadline_audit.py
-```
+| Season | Gameweeks | Verified bootstrap snapshots | Approved deadline gameweeks |
+|---|---:|---:|---:|
+| 2022–23 | 38 | 38 | 0 |
+| 2023–24 | 38 | 38 | 0 |
+| 2024–25 | 38 | 38 | 0 |
+| 2025–26 | 38 | 38 | 0 |
 
-## Faktisk resultat
+The result is `DATA_REPORT_ONLY`: no deadline model was trained and no deadline scores were produced. This audit does not establish that suitable archives cannot exist elsewhere.
 
-| Sesong | Bootstrap før deadline | Komplett godkjente runder |
-|---|---:|---:|
-| 2022–23 | 38 | 0 |
-| 2023–24 | 38 | 0 |
-| 2024–25 | 38 | 0 |
-| 2025–26 | 38 | 0 |
+## Sources and evidence
 
-Dette utløser planens eksplisitte datarapport-alternativ. Ingen deadline-modell
-er trent, og ingen deadline-score er beregnet. Eksisterende kampbaserte
-prediksjoner er ikke brukt som erstatning.
+- [FPL-Armband backfill documentation](https://github.com/beeradb/FPL-Armband/blob/main/docs/backfill.md): Wayback bootstrap snapshots without complete fixture/history snapshots.
+- [Randdalf/fplcache](https://github.com/Randdalf/fplcache): bootstrap archives.
+- [TopMarx/fpl](https://github.com/TopMarx/fpl): a 2025 manifest recorded in July 2026 does not establish pre-deadline availability.
+- Historical vaastav data: useful match history, but timing must be independently verified.
 
-Kilderevisjonen undersøkte [FPL-Armband](https://github.com/beeradb/FPL-Armband/blob/main/docs/backfill.md),
-[fplcache](https://github.com/Randdalf/fplcache),
-[TopMarx/fpl](https://github.com/TopMarx/fpl) og
-[vaastav](https://github.com/vaastav/Fantasy-Premier-League).
-FPL-Armband sine historiske manifests peker til Wayback-captures av bootstrap;
-de dokumenterer ikke historiske fixtures og kampvise historikkversjoner.
-fplcache arkiverer også bootstrap. TopMarx sin undersøkte 2025-sesongmanifest
-er fra juli 2026; den dokumenterer ikke verdiene ved hver historiske deadline.
-Ingen påstand gjøres om at andre tilgjengelige arkiver ikke kan fylle hullene.
+The audit pins source commits and verifies 152 payloads against manifests, including decompressed SHA hashes, timestamps, seasons, deadlines, events and player registries. It does not refetch every Wayback response. Bootstrap data alone cannot approve a gameweek.
 
-Revisjonen pinner FPL-Armband-commit og laster ned 152 bootstrap-payloads med
-manifests. Den sjekker dekomprimert payload-SHA-256, archive-/capture-tid,
-sesong, deadline og event-tilstand i payloadet, samt spiller-ID, lag og
-posisjon. Dette verifiserer samsvar i kildearkivet; alle Wayback-originaler
-er ikke hentet på nytt uavhengig. Snapshot-alder vises, og ingen
-bootstrap-kontroll alene kan godkjenne en runde.
+Raw evidence is stored under `data/raw/deadline_audit/audit_*/`, with sidecars containing source URL, response status, download time and SHA. A current download timestamp is not evidence of historical availability. Reports include coverage flags and explicit approval status.
 
-Rådata og sidecars ligger i `data/raw/deadline_audit/audit_*/evidence`.
-Sidecar inneholder URL, HTTP-status, nedlastingstid og SHA-256. Nedlastingstid
-er ikke historisk tilgjengelighet. Coverage viser separate flagg og årsaker
-per runde. Notebooken lagrer en ny rapport under `artifacts/deadline_backtests`.
+## Feature and evaluation contracts
 
-## Kode levert og det som gjenstår
+`deadline_features` uses versioned registries, schedules and histories with a common UTC cutoff. Blank gameweeks and target outcomes remain separate from feature construction. `deadline_evaluation` fixes form, HGB and ensemble aggregation, player-ID captain tie-breaking and the bootstrap-defined candidate universe.
 
-- `deadline_features` har rene funksjoner for versjonerte registre, kampoppsett
-  og spiller-/laghistorikk. Den gjenskaper grunnvariablene og ensemblets ekstra
-  features ved en felles UTC-deadline, med separate blanke rader og separat fasit.
-- `deadline_evaluation` har låste form-/HGB-/ensemblemetoder, aggregering,
-  rangering, kaptein med ID-tie-break, kandidatsegment og gameweek-bootstrap.
-- Begge er grunnlaget for videre kildeintegrasjon, ikke en ferdig sertifisert
-  adapter fra bootstrap alene. Produksjonskobling, hele sesongfold-kjøringen
-  og modellartefakter er utsatt fordi ingen perioder kvalifiserer.
+Full chronological evaluation remains deferred until qualified data exists. It requires verified fixtures, versioned player history, complete labels, adapters and timing evidence. Do not force `audit_approved` to bypass missing evidence.
 
-For å aktivere en ekte backtest kreves verifiserte fixture-snapshots,
-versjonert kampvis historikk og komplett fasit, deretter en kildeadapter som
-normaliserer dem og knytter hver input til kildebevis. Ikke sett
-`audit_approved=True` manuelt for å omgå dette kravet. En gammel fullsesongfil
-med kickoff før deadline er ikke i seg selv tilgjengelighetsbevis.
+## Verification
 
-## Verifisering
-
-```sh
+```bash
 .venv/bin/python -m unittest discover -s tests -p 'test_deadline.py' -v
 ```
 
-Seks tester dekker strenge tidsgrenser/UTC, arkivhash, manglende registry,
-nye spillere, blanke/doble runder, endringer etter deadline, flyttede kamper,
-klubbskifte, komplett og unik fasit, kapteins-tie-break og like utvalg.
-Ingen syntetiske score presenteres som historiske resultater.
+Checks cover UTC cutoffs, hashes, registry changes, blanks and double gameweeks, rescheduled fixtures, transfers, unique labels, captain tie-breaking and equal candidate universes.

@@ -12,10 +12,10 @@ function statusTone(status: string): "default" | "warning" | "negative" {
 
 function statusLabel(status: string): string | null {
   if (status === "a") return null;
-  if (status === "d") return "Tvil";
-  if (status === "i") return "Skadet";
-  if (status === "s") return "Suspendert";
-  if (status === "u") return "Forlatt klubb";
+  if (status === "d") return "Doubtful";
+  if (status === "i") return "Injured";
+  if (status === "s") return "Suspended";
+  if (status === "u") return "Left club";
   return status;
 }
 
@@ -47,7 +47,7 @@ export function PlayerRow({ player, right }: PlayerRowProps) {
       </View>
       {right ?? (
         <View style={styles.numbers}>
-          <Text style={styles.points}>{formatPoints(player.decision_points ?? player.recommended_points)}p</Text>
+          <Text style={styles.points}>{formatPoints(player.decision_points ?? player.recommended_points)} pts</Text>
           <Text style={styles.price}>{formatMoney(player.price)}</Text>
         </View>
       )}

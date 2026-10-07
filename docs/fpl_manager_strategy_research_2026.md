@@ -1,265 +1,100 @@
-# Research: hvordan appen kan bli en bedre FPL-manager
+# Research: improving the app as an FPL manager
 
-Oppdatert 18. september 2026. En god spillerprognose, en god beslutningsmotor og
-en god ukentlig arbeidsflyt er tre forskjellige ting. Lav RMSE alene styrer ikke
-et FPL-lag godt.
+Updated 18 September 2026. Player prediction, decision optimization and the weekly workflow need separate evaluation. Low RMSE alone does not establish good FPL management.
 
-## Konklusjon
+## Priorities
 
-Appen bør optimalisere **beslutninger over tid**, ikke bare vise spillerne med
-høyest forventede poeng. Den mest verdifulle managerhjelpen er:
+Optimize decisions over time: compare rolling, transferring and taking hits; replan across multiple gameweeks; account for uncertain minutes and injuries; explain captain margins; show official price alerts; compare chips against alternatives and their future value; and provide a prioritized deadline checklist.
 
-1. et eksplisitt valg mellom å rulle, bytte og ta hit;
-2. flerukersplanlegging med ny beregning før hver frist;
-3. robusthet mot usikre minutter, skader og modellfeil;
-4. kapteinsvalg med margin og risiko, ikke bare nummer én på en liste;
-5. offisielle prisvarsler uten å oppmuntre til blinde tidlige bytter;
-6. chips vurdert mot alternativet og framtidig opsjonsverdi;
-7. en prioritert fristsjekkliste som sier hva manageren faktisk skal gjøre.
+The implemented strategy centre covers transfer banking, multiweek plans, captain margins, price alerts and deadline checks, with partial support for uncertainty and chip comparisons.
 
-Strategisenteret som nå er bygget inn i appen dekker punkt 1, 2, 4, 5 og 7,
-og deler av punkt 3 og 6.
+## Research and implications
 
-## Hva forskning og de beste managerne peker på
+### Patience and banked transfers
 
-### Tålmodighet og bankede bytter har reell verdi
+2025/26 winner Erik Ibsen took no hits, made no transfers in 15 of 38 gameweeks and banked transfers for coordinated changes. This supports requiring clear margins before recommending hits, without proving that hits are always wrong. [Champion interview](https://www.premierleague.com/en/news/4671784).
 
-2025/26-vinner Erik Ibsen tok ingen poengtrekk, gjorde null bytter i 15 av 38
-runder og brukte bankede bytter til større, koordinerte endringer. Dette beviser
-ikke at hits alltid er feil, men støtter at modellen bør kreve klar margin før
-den anbefaler minuspoeng. Kilde:
-[FPL champion: The secrets to my success](https://www.premierleague.com/en/news/4671784).
+Rolling must be a genuine optimization alternative. The strategy centre compares a hit plan against a no-hit plan and requires 2.0 additional model points per paid transfer after subtracting the four-point hit. Flexibility matters around injuries, fixture changes and premium-player moves.
 
-Konsekvens for appen:
+### Multiweek planning
 
-- «Rull» må være et reelt alternativ i samme optimering som ett eller flere
-  bytter.
-- En hit bør ikke godtas fordi punktestimatet er 0,1 bedre etter trekket.
-  Strategisenteret sammenligner nå hit-planen med en hit-fri plan og krever 2,0
-  ekstra modellpoeng per betalt bytte etter at −4 allerede er trukket.
-- Fleksibilitet er særlig verdifull rundt skader, terminlisteendringer og
-  planlagte premiumbytter.
+The winner planned premium changes in gameweek blocks. Research on around a million managers associates stronger performance with planning and consistent decisions; OpenFPL evaluates prospective forecasts over one to three rounds. Sources: [skill study](https://arxiv.org/abs/2009.01206), [OpenFPL](https://arxiv.org/abs/2508.09992), [champion transfer strategy](https://www.premierleague.com/en/news/4671982/fpl-champion-how-to-build-the-perfect-squad-and-make-the-best-transfers).
 
-### Planlegg i blokker, men ikke lat som framtiden er sikker
+Use a practical three-to-five-GW horizon, discount later weeks and recalculate after deadlines, injuries, price changes and fixture changes. Show scenario stability rather than treating a deterministic plan as certain.
 
-Vinneren beskrev at han planla spillere og premiumendringer i blokker av
-Gameweeks. En stor studie av rundt én million FPL-managere fant også at
-langsiktig planlegging og jevnt gode beslutninger skilte sterke managere fra
-svakere. OpenFPL viser samtidig nytte av prospektive prognoser over én til tre
-runder.
+### Bench flexibility and its cost
 
-Kilder:
+Ibsen prioritized 15 playable players and used six formations, but also benched many points. Measure playable coverage, expected bench points and whether the first substitute can cover an uncertain starter. Wildcard bench strength should reflect possible Bench Boost use. Otherwise, compare money tied up on the bench with the improvement it could buy in the starting XI.
 
-- [Identification of skill in an online game](https://arxiv.org/abs/2009.01206)
-- [OpenFPL](https://arxiv.org/abs/2508.09992)
-- [Championens transferstrategi](https://www.premierleague.com/en/news/4671982/fpl-champion-how-to-build-the-perfect-squad-and-make-the-best-transfers)
+### Captain points and rank risk
 
-Konsekvens for appen:
+The winner captained Haaland in 22 of 38 rounds while using differentials elsewhere. Effective ownership explains the rank exposure of opposing a popular captain. Sources: [captain and chip strategy](https://www.premierleague.com/ar/news/4672128/fpl-champion-how-to-pick-your-captain-and-maximise-your-chips), [FPL glossary](https://www.premierleague.com/en/news/2683145), [GW5 captain analysis](https://www.premierleague.com/en/news/4720208).
 
-- Tre til fem GW er normalt en bedre operativ horisont enn én eller åtte.
-- Senere uker bør diskonteres.
-- Planen må beregnes på nytt etter hver deadline, prisendring, skade og
-  terminlisteendring. Et veikart er ikke en kontrakt.
-- Appen bør etter hvert vise planens stabilitet på tvers av scenarier, ikke bare
-  ett deterministisk optimum.
+Show the top three options and their margins. Expected points remains the default objective; ownership describes risk and must not inflate predictions. Future rank objectives should use explicit user choices to chase or protect a position, with remaining gameweeks and rival data.
 
-### En spillbar benk gir fleksibilitet, men benkepenger har en kostnad
+### Price changes
 
-Ibsen prioriterte 15 spillbare spillere og brukte seks forskjellige formasjoner.
-Det ga dekning og rotasjon, men han benket også mange poeng. Lærdommen er ikke
-«bruk mest mulig på benken», men «kjenn marginalverdien av benken».
+Team value can be useful early, but chasing £0.1m can cost points through injury or rotation risk. The 2026/27 official Price Change Predictor indicates threshold progress; values above 100% do not guarantee a price change. Sources: [official predictor](https://www.premierleague.com/en/news/4680462), [champion transfer strategy](https://www.premierleague.com/en/news/4671982/fpl-champion-how-to-build-the-perfect-squad-and-make-the-best-transfers), [skill study](https://arxiv.org/abs/2009.01206).
 
-- Mål antall spillbare spillere, forventede benkepoeng og om første reserve kan
-  dekke en usikker starter.
-- På Wildcard må benkstyrke vurderes sammen med en mulig Bench Boost.
-- Uten planlagt Bench Boost bør en dyr reserve sammenlignes med hva pengene kan
-  gi i startelleveren.
+Use `price_change_percent`, projected changes and transfer flow from the FPL snapshot. Flag owned players approaching falls and relevant targets approaching rises. Account for purchase and selling prices, and balance early moves against midweek fixtures, uncertain minutes and pending news.
 
-### Kapteinen er både forventede poeng og rank-risiko
+### Chips and option value
 
-Den regjerende vinneren brukte Haaland som kaptein i 22 av 38 runder og advarte
-mot unødvendig kapteinsrisiko, men beholdt differensialer andre steder. FPLs
-effektive eierskap forklarer hvorfor en svært eid kaptein kan gi stor negativ
-rank-effekt dersom man går imot ham.
+In 2026/27, each season half has Wildcard, Free Hit, Triple Captain and Bench Boost. First-half chips expire at the GW19 deadline. Blank and double gameweeks offer opportunities, but strong single-gameweek opportunities also matter. Experts' GW6 Wildcard/GW7 Bench Boost plans were not unanimous on 18 September. Evaluate the user's squad rather than copying one calendar. Sources: [chip rules](https://www.premierleague.com/en/news/4679879/whats-happening-with-fpl-chips-in-202627), [chip opportunities](https://www.premierleague.com/en/news/4362085), [expert plans](https://www.premierleague.com/en/news/4685105).
 
-Kilder:
+Chip gain is the best chip plan minus the best legal normal plan. Wildcard evaluation spans multiple rounds and future transfers. Bench Boost evaluates four actual substitutes, minutes and budget cost. Triple Captain needs both upside and minutes confidence. Free Hit depends on the permanent squad's actual blanks and weak fixtures.
 
-- [Championens kapteins- og chipstrategi](https://www.premierleague.com/ar/news/4672128/fpl-champion-how-to-pick-your-captain-and-maximise-your-chips)
-- [FPL glossary](https://www.premierleague.com/en/news/2683145)
-- [GW5 captain analysis](https://www.premierleague.com/en/news/4720208)
+### Deadline information
 
-Konsekvens for appen:
+The deadline is 90 minutes before the first match. Press conferences, injury flags, midweek workload and expected lineups can change minutes more than small prediction differences. [Managing your FPL team](https://www.premierleague.com/en/news/2174899).
 
-- Vis marginen mellom de tre beste kapteinene.
-- Bruk forventede poeng som hovedregel. Eierskap beskriver risiko; det skal ikke
-  kunstig øke prognosen.
-- Senere bør totalrank, mini-ligaposisjon og runder igjen styre en eksplisitt
-  rank-utility. «Chasing» og «protecting» må være brukervalg.
+Prioritize flagged starters, refresh after relevant press conferences and fixtures, and display timestamps and changes. Expected-lineup feeds need timestamped prospective validation before influencing production predictions.
 
-### Lagverdi betyr mest tidlig, men prisjakt kan koste poeng
+### Defensive contributions
 
-Vinneren var mer aktiv i første halvdel for å bygge lagverdi. Historiske data
-viser også en positiv sammenheng mellom lagverdi ved halvspilt sesong og
-sluttpoeng. FPL har i 2026/27 lansert en offisiell Price Change Predictor.
-Verdier over 100 prosent antyder at terskelen passeres, men er ingen garanti.
+Defenders earn two points at ten CBIT actions; midfielders and forwards need 12 CBIRT actions. The award is capped at two points per match. Sources: [scoring explanation](https://www.premierleague.com/en/news/4361991), [2026/27 leaders](https://www.premierleague.com/en/news/4713244).
 
-Kilder:
+Model the probability of reaching the threshold, using role, opponent and expected match conditions. Explain expected points through minutes, clean sheets, goals, assists, bonus, saves and defensive contributions.
 
-- [Official Price Change Predictor](https://www.premierleague.com/en/news/4680462)
-- [Championens lagverdi og bytter](https://www.premierleague.com/en/news/4671982/fpl-champion-how-to-build-the-perfect-squad-and-make-the-best-transfers)
-- [Identification of skill in an online game](https://arxiv.org/abs/2009.01206)
+## Implemented functionality
 
-Konsekvens for appen:
+- React strategy centre with exact multiweek roll-versus-transfer choices.
+- Separate no-hit comparison and an uncertainty buffer.
+- Prioritized deadline checklist and squad health: playable players, flagged starters, bench coverage and club concentration.
+- Captain margins, vice-captain and three alternatives.
+- Official price indicators for owned fall candidates and relevant targets.
+- Watchlists for highest predictions, under-10% ownership and points per £m.
+- Known blanks/doubles, total points, overall rank and squad value.
 
-- Bruk de offisielle feltene `price_change_percent`, neste prognose og
-  transferstrømmen fra FPL-snapshotet.
-- Varsle om eide fallkandidater og relevante kjøpsmål som stiger.
-- Ikke anbefal et tidlig bytte bare for £0,1m dersom spilleren har midtukekamp,
-  usikre minutter eller nyhetsrisiko.
-- Verdsett kjøpspris og salgsverdi korrekt; opparbeidet verdi påvirker hvor
-  dyrt et sideveis bytte er å reversere.
+## Next priorities
 
-### Chips har opsjonsverdi og må vurderes mot et alternativ
+1. Scenario optimization across minutes, injuries and fixture outcomes, showing which transfers remain useful.
+2. Consistent expected-point decomposition.
+3. Optional authenticated state for authoritative cash, free transfers and purchase prices, without executing transfers.
+4. Expected lineups and material news changes since the last snapshot.
+5. Explicit probabilistic blank/double scenarios from cup and European schedules.
+6. User-selected mini-league and rank objectives.
+7. Pre-deadline advice, user-choice and outcome logs.
+8. Opt-in local, email or push alerts with materiality thresholds.
 
-I 2026/27 finnes Wildcard, Free Hit, Triple Captain og Bench Boost i hver
-sesonghalvdel. Første sett utløper etter GW19. Blank- og dobbelrunder er typiske
-muligheter, men første halvdel kan også gi gode enkeltkamper. Per 18. september
-peker flere eksperter på Wildcard i GW6 og mulig Bench Boost i GW7, men panelet
-er langt fra enstemmig. Appen må derfor regne på brukerens lag, ikke kopiere en
-universell kalender.
+Later work includes live automatic substitutions, bonus and defensive contributions; mini-league simulations; player locks/exclusions; planned-transfer calendars with replanning; and risk preferences based on explicit choices rather than short-term results.
 
-Kilder:
+## Data-source roles
 
-- [Official chip rules and strategy 2026/27](https://www.premierleague.com/en/news/4679879/whats-happening-with-fpl-chips-in-202627)
-- [Current chip opportunities](https://www.premierleague.com/en/news/4362085)
-- [Experts' current chip plans](https://www.premierleague.com/en/news/4685105)
-
-Konsekvens for appen:
-
-- Chipgevinst = optimal chip-score minus beste lovlige normalplan.
-- Wildcard skal bruke flere GW og inkludere framtidige bytter.
-- Bench Boost må ta hensyn til fire reelle benkespillere, minutter og bundet
-  budsjett.
-- Triple Captain trenger både høyt tak og høy sannsynlighet for minutter.
-- Free Hit må måles mot hvor mange blanke/svake spillere det permanente laget
-  faktisk har.
-
-### Deadlineinformasjon slår ofte en marginal modellforskjell
-
-FPL-fristen er 90 minutter før første kamp. Status, pressekonferanser,
-midtukebelastning og forventet startplass kan endre minutter langt mer enn en
-liten forskjell i forventede mål.
-
-Kilde: [Managing your FPL team](https://www.premierleague.com/en/news/2174899).
-
-- En flagget anbefalt starter skal overstyre den vanlige sjekklisten.
-- Prognosen bør oppdateres etter siste relevante pressekonferanse og kamp.
-- Expected-lineups-data må tidsstemples og valideres prospektivt før de får
-  påvirke modellen.
-- Appen bør vise når data sist ble oppdatert og hva som endret seg.
-
-### Nye poengregler gir enkelte spillere et høyere gulv
-
-Defensive contributions består i 2026/27. Forsvarere får to poeng ved minst ti
-CBIT, mens midtbanespillere og angripere trenger tolv CBIRT. Poengene er
-begrenset til to per kamp. Dette gir enkelte stoppere og defensive
-midtbanespillere et bedre gulv enn eldre modeller antar.
-
-Kilder:
-
-- [How defensive contribution points work](https://www.premierleague.com/en/news/4361991)
-- [Current 2026/27 DC leaders](https://www.premierleague.com/en/news/4713244)
-
-Konsekvens for appen:
-
-- Modellér sannsynligheten for å nå terskelen, ikke bare gjennomsnittlige
-  defensive aksjoner.
-- Rolle, motstand og forventet kampbilde kan forklare terskelsannsynligheten.
-- Vis poengdekomponering: minutter, clean sheet, mål, assist, bonus, redninger
-  og defensive bidrag.
-
-## Produktstatus etter gjennomgangen
-
-### Nå implementert
-
-- Nytt **Strategisenter** i React-appen.
-- Eksakt flerukersvalg mellom å rulle og å gjøre bytter.
-- Separat hit-fri scenarioanalyse med usikkerhetsbuffer.
-- Prioritert deadline-sjekkliste.
-- Troppshelse: spillbare spillere, flaggede startere, benk og klubbrisiko.
-- Kapteinsmargin, visekaptein og tre alternativer.
-- Offisiell FPL Price Change Predictor for eide fallkandidater og relevante mål.
-- Watchlists for høyest prognose, under ti prosent eierskap og verdi per £m.
-- Oversikt over blanks/doubles i den kjente horisonten.
-- Totalpoeng, totalrank og lagverdi fra offentlig laghistorikk.
-
-### Neste prioritet: høy verdi
-
-1. **Scenario- og robust optimering.** Kjør planen med lav/median/høy spilletid,
-   skade på nøkkelspiller og ulike kamputfall. Vis hvilke bytter som overlever.
-2. **Forklarbar poengdekomponering.** Vis hvorfor én spiller er 4,8 og en annen
-   4,2: minutter, clean sheet, mål, assist, bonus, DC og odds.
-3. **Eksakt brukerstatus via valgfri innlogging.** Offentlig historikk kan bare
-   estimere gratisbytter og anskaffelsespris. Hent autoritativ saldo uten å
-   utføre bytter.
-4. **Forventede lagoppstillinger og nyhetsdiff.** Varsle bare når startplass
-   eller minutter endrer seg materielt siden forrige snapshot.
-5. **Terminlistescenarier.** Modellér sannsynlige blanks/doubles fra cup- og
-   Europakamper før de er offisielt plassert, tydelig merket som scenarier.
-6. **Mini-liga- og rankmodus.** La brukeren velge maks forventede poeng, forsvare
-   ledelse eller jage differanse. Dette krever rivaldata og eksplisitt valg.
-7. **Beslutningslogg.** Lagre rådet før fristen, brukerens valg og utfallet.
-8. **Varsler.** Lokale/e-post/push-varsler for pris, skade, deadline og endret
-   anbefaling, med terskler for å unngå støy.
-
-### Senere prioritet
-
-- Live Gameweek-visning med autosubs, bonus og defensive bidrag.
-- Mini-liga-simulator med sannsynlighet for å hente eller forsvare en ledelse.
-- Hva-hvis-verktøy der brukeren kan låse, ekskludere eller tvinge en spiller.
-- Kalender for planlagte bytter og automatisk replanlegging.
-- Personlig risikokalibrering basert på eksplisitte valg, ikke kortsiktige
-  resultater.
-
-## Datakilder og riktig rolle
-
-| Kilde | Bruk | Viktig begrensning |
+| Source | Use | Limitation |
 |---|---|---|
-| Offentlig FPL API | pris, eierskap, status, DC, dødballer, offisiell prisindikator | gratisbytter er ikke autoritative uten autentisering |
-| FPL snapshots før deadline | prospektiv trening og evaluering | må være tidsstemplet før fristen |
-| Oddsmarked | lagmål, clean sheet, mål/assist-sannsynlighet | fjern bookmaker-margin og mål datadekning |
-| Understat/OpenFPL-type data | xG/xA, skudd og spillerform | roller og ligaoverganger krever forsiktighet |
-| Expected lineups | start- og minuttsannsynlighet | leverandøravhengig; må backtestes |
-| Offisielt lagnytt | skader, suspensjon, trenerutsagn | tekst må struktureres uten å overtolkes |
-| Cup/UEFA-terminliste | blank/double-scenarier og belastning | framtidige runder er sannsynligheter, ikke fakta |
+| Public FPL API | Prices, ownership, status, defensive contributions, set pieces and price indicators | Free transfers are not authoritative without authentication |
+| Pre-deadline FPL snapshots | Prospective training and evaluation | Evidence must establish availability before the deadline |
+| Betting markets | Team goals, clean sheets, goals and assists | Remove bookmaker margin and check coverage |
+| Understat/OpenFPL-style data | xG/xA, shots and player form | Handle role and league changes cautiously |
+| Expected lineups | Starting and minutes probabilities | Provider-dependent; needs validation |
+| Official team news | Injuries, suspensions and coach statements | Structure text without overstating certainty |
+| Cup/UEFA schedules | Blank/double scenarios and workload | Future schedules may be probabilistic |
 
-## Ting appen ikke bør gjøre
+Avoid treating three or four matches as stable skill, adding ownership to expected points, buying players solely for low ownership, chasing prices while ignoring risk, assuming any double-gameweek player beats a strong single-gameweek player, or promoting plausible features without prospective baseline comparisons. Claim global optimality only when the solver proves it.
 
-- Bruke rå form fra tre-fire kamper som stabil ferdighet.
-- Legge eierskap direkte inn i forventede poeng.
-- Anbefale en differensial bare fordi eierskapet er lavt.
-- Jage pris og ignorere midtukeskader eller benkingsrisiko.
-- Anta at to kamper automatisk gjør en svak DGW-spiller bedre enn en sterk
-  enkeltkamp-spiller.
-- Promotere nye features fordi de ser fotballmessig riktige ut; de må slå
-  baseline prospektivt og være kalibrerte.
-- Vise «globalt optimum» dersom løseren bare har funnet en validert incumbent.
+## Evaluation
 
-## Hvordan vi måler om appen faktisk blir bedre
+Measure net transfer points against holding, hit gains and losses, banked-transfer value, captain regret against feasible pre-deadline choices, chip gain against normal plans, price changes that block plans, recommendation stability 24/6/1 hours before the deadline, and calibration of minutes, clean sheets, goals, assists and defensive contributions.
 
-Følg både prognose- og beslutningsmetrikker:
-
-- netto poeng fra anbefalte bytter mot å holde;
-- poeng spart/tapt på hits;
-- verdien av bankede gratisbytter;
-- kapteinsregret mot realistiske pre-deadline-alternativer;
-- chipgevinst mot beste normalplan;
-- prisendringer som faktisk ville blokkert en plan;
-- anbefalingsstabilitet 24 t, 6 t og 1 t før deadline;
-- kalibrering av minutter, clean sheet, mål, assist og DC;
-- sluttresultat fra en full sesongsimulator med bare informasjon tilgjengelig
-  før hver deadline.
-
-Den viktigste testen er en låst, prospektiv «shadow season»: appen registrerer én
-anbefaling før hver deadline og får ikke omskrive historien etter at poengene er
-kjent.
+Evaluate a full season using only information available at each deadline. The key test is a locked prospective shadow season: record recommendations before deadlines and preserve them after results arrive.

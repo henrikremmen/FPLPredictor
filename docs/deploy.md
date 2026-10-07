@@ -1,76 +1,59 @@
-# Driftsette API-et
+# Running and deploying the API
 
-Dette dokumentet beskriver hvordan `src/api.py` (FastAPI-broen som både
-webappen og mobilappen snakker med) kjøres lokalt, på samme Wi-Fi som en
-fysisk iPhone, og bak en offentlig HTTPS-adresse. Ingen av trinnene under
-krever kodeendringer i mobilappen eller webappen — alt styres av
-miljøvariabler.
+`src/api.py` is the FastAPI backend shared by the web and mobile apps. The same
+code runs locally, on a LAN for a physical phone, or behind a public HTTPS URL.
+Configuration is controlled by environment variables.
 
-## Miljøvariabler
+## Environment variables
 
-| Variabel | Standard | Effekt |
+| Variable | Default | Effect |
 |---|---|---|
-| `FPL_API_HOST` | `127.0.0.1` | Sett til `0.0.0.0` for å lytte på alle nettverksgrensesnitt (nødvendig for en fysisk iPhone på samme Wi-Fi). |
-| `FPL_API_PORT` | `8000` | Porten uvicorn lytter på. |
-| `FPL_API_CORS_ORIGINS` | `localhost:5173/4173` (og 127.0.0.1) | Kommaseparert liste over opprinnelser nettleser-frontenden tillates fra. Native mobilklienter er ikke omfattet av CORS og trenger ikke stå her. |
-| `FPL_API_CORS_ORIGIN_REGEX` | (uskrevet) | Valgfritt regex-alternativ til `FPL_API_CORS_ORIGINS`, f.eks. for forhåndsvisnings-URL-er per commit. |
-| `DATABASE_URL` | (uskrevet → lokal SQLite) | Sett til en `postgresql://`-URL for at øktregisteret skal ligge i Postgres i stedet for en lokal fil. Krever `pip install psycopg2-binary`. |
-| `FPL_SESSIONS_DB_PATH` | `data/local/sessions.db` | Overstyrer SQLite-filstien; brukes også av testene (`:memory:`). |
+| `FPL_API_HOST` | `127.0.0.1` | Set to `0.0.0.0` to listen on all interfaces, including LAN connections. |
+| `FPL_API_PORT` | `8000` | Port used by uvicorn. |
+| `FPL_API_CORS_ORIGINS` | localhost and 127.0.0.1 on ports 5173/4173 | Comma-separated permitted browser origins. Native mobile clients are not subject to browser CORS. |
+| `FPL_API_CORS_ORIGIN_REGEX` | Unset | Optional origin regex, for example for preview deployments. |
+| `DATABASE_URL` | Unset; local SQLite | A `postgresql://` URL enables shared session storage. Requires `pip install psycopg2-binary`. |
+| `FPL_SESSIONS_DB_PATH` | `data/local/sessions.db` | SQLite path override; tests may use `:memory:`. |
 
-`.env` i prosjektroten (kopiert fra `.env.example`) dekker fortsatt de
-valgfrie eksterne datakildene (odds, football-data.org). Disse nøklene
-forlater aldri serveren — se «Hemmeligheter» under.
+The root `.env`, copied from `.env.example`, configures optional odds and
+football-data.org sources. Those keys stay on the server.
 
-## Kjøre lokalt for en fysisk iPhone på samme Wi-Fi
+## Physical iPhone on the same Wi-Fi
 
 ```bash
 FPL_API_HOST=0.0.0.0 .venv/bin/python run_app.py
 ```
 
-`run_app.py` skriver ut den lokale IP-adressen og en ferdig `.env`-linje for
-`apps/mobile`, f.eks.:
+The launcher prints the local IP and the setting for `apps/mobile/.env`:
 
-```
-Backend lytter på alle nettverk (0.0.0.0:8000).
-Fra en iPhone på samme Wi-Fi, sett apps/mobile/.env til EXPO_PUBLIC_API_URL=http://192.168.1.23:8000
+```dotenv
+EXPO_PUBLIC_API_URL=http://192.168.1.23:8000
 ```
 
-Telefonen må være på samme Wi-Fi-nettverk som maskinen som kjører backend.
-macOS-brannmuren kan be om tillatelse for `python`/`uvicorn` første gang;
-godkjenn den innkommende tilkoblingen.
+Use your actual LAN address. Restart Expo after changing the setting. Both
+devices must use the same Wi-Fi. Allow incoming Python/uvicorn connections if
+the macOS firewall requests permission.
 
-## Sesjoner overlever restart
+## Sessions and forecasts
 
-`STORE` i `src/api.py` holder importerte lag i minnet, men hver økt spores
-også i et durabelt register (`src/session_store.py`). Et lag som mangler i
-minnet — fordi API-et ble restartet — bygges automatisk på nytt fra
-entry-ID, horisont og risikoprofil, og lagrede manuelle korrigeringer under
-`data/local/team_overrides/` spilles inn igjen. Klienten merker ingen
-forskjell utover en marginalt tregere første forespørsel etter en restart.
+`STORE` in `src/api.py` caches imported teams in memory. A durable registry in
+`src/session_store.py` records entry ID, horizon and risk profile. After an API
+restart, a missing in-memory team is imported again and saved manual corrections
+from `data/local/team_overrides/` are reapplied.
 
-Standard lagring er en lokal SQLite-fil. Sett `DATABASE_URL` til en
-`postgresql://`-URL for delt, flerinstans-drift; skjema og spørringer i
-`session_store.py` er skrevet for å fungere uendret mot begge.
+SQLite is the default. Use `DATABASE_URL` with PostgreSQL for shared storage
+across instances; the registry supports both backends.
 
-## Delte prognosesnapshots
+All sessions read shared frozen forecasts from
+`data/raw/live_fpl/capture_*/forecast.csv`. Refreshing through
+`POST /api/forecast/refresh` or `POST /api/team/{id}/refresh` changes the shared
+forecast data. `RefreshGuard` serialises refreshes and enforces at least 30
+seconds between starts, preventing duplicate expensive requests in one process.
 
-Alle brukere/økter leser samme frosne prognose fra
-`data/raw/live_fpl/capture_*/forecast.csv`. Å oppdatere prognosen
-(`POST /api/forecast/refresh` eller `POST /api/team/{id}/refresh`) er derfor
-en operasjon som gjelder alle, ikke bare den som trykker knappen.
-`RefreshGuard` i `api.py` serialiserer og rate-begrenser disse kallene
-(ett om gangen, minimum 30 sekunder mellom kall) slik at flere mobilklienter
-som trykker «Oppdater» samtidig ikke gjør den dyre, eksterne innhentingen
-flere ganger eller trigger rate-limits hos FPL/odds-API-et.
-
-## Lange jobber og tidsavbrudd
-
-En prognoseoppdatering tar normalt rundt ett minutt. Sett tidsavbruddet i en
-eventuell reverse proxy (nginx, Caddy, en PaaS-plattforms edge-proxy) til
-minst 120 sekunder for `/api/forecast/refresh` og `/api/team/*/refresh`.
-`RefreshGuard` returnerer `409` hvis en oppdatering allerede pågår og `429`
-hvis forrige oppdatering var for nylig, slik at klienter kan vise en tydelig
-melding i stedet for å henge.
+A refresh normally takes around a minute. Set reverse-proxy timeouts to at
+least 120 seconds for `/api/forecast/refresh` and `/api/team/*/refresh`.
+The guard returns `409` if a refresh is in progress and `429` if the previous
+one started too recently.
 
 ## Docker
 
@@ -84,41 +67,31 @@ docker run --rm -p 8000:8000 \
   fpl-modell-api
 ```
 
-`data/`, `artifacts/` og `models/` er ikke bakt inn i imaget — de inneholder
-prognoser, sesjonsregisteret og trente modellartefakter som må overleve
-redeploys. Monter dem som volumer i produksjon. `Dockerfile` bruker det
-fulle `requirements.txt` (inkludert notebook-avhengigheter som ikke trengs i
-produksjon); et smalere `requirements-api.txt` er en fremtidig
-imagestørrelse-optimalisering, ikke noe dagens oppsett er avhengig av.
+Data, session registries and model artefacts are not baked into the image.
+Mount `data/`, `artifacts/` and `models/` as persistent volumes. The Dockerfile
+installs only `requirements.txt`; notebook tooling lives in
+`requirements-dev.txt`.
 
-## Offentlig HTTPS-backend
+## Public HTTPS backend
 
-API-et er transport-agnostisk: det bryr seg ikke om det nås via HTTP eller
-HTTPS, bare om `FPL_API_HOST`/`FPL_API_PORT` og CORS-listen er satt riktig.
-TLS termineres normalt av hosting-plattformen (Render, Fly.io, en
-reverse proxy foran Docker-containeren, osv.), ikke av uvicorn selv. Når
-API-et har en offentlig HTTPS-adresse, pek klientene dit:
+Terminate TLS at the hosting platform or reverse proxy, and configure the host,
+port and CORS settings appropriately.
 
-- Webfrontend: `frontend/src/api.ts` kaller relative `/api/...`-stier uten
-  egen base-URL. I dev proxyer Vite disse til `FPL_API_URL` (se
-  `frontend/vite.config.ts`). I produksjon server frontendens bygde filer
-  (`frontend/dist`) bak samme domene/reverse proxy som ruter `/api` videre
-  til backend-containeren, så koden trenger ikke vite noe om adressen.
-- Mobilapp: sett `EXPO_PUBLIC_API_URL=https://din-adresse` i
-  `apps/mobile/.env` eller som EAS-miljøvariabel per profil (se
-  `apps/mobile/eas.json`).
+- **Web:** `frontend/src/api.ts` calls relative `/api/...` paths. During
+  development, Vite proxies these to `FPL_API_URL` (see
+  `frontend/vite.config.ts`). In production, serve `frontend/dist` behind the
+  same origin and route `/api` to the backend.
+- **Mobile:** set `EXPO_PUBLIC_API_URL=https://your-backend.example` in
+  `apps/mobile/.env` for local development or in the appropriate EAS build
+  profile in `apps/mobile/eas.json`.
 
-Ingen kildekodeendring er nødvendig for å bytte fra lokal HTTP til en
-offentlig HTTPS-adresse.
+No client source changes are needed to switch backend addresses.
 
-## Hemmeligheter
+## Secrets and health checks
 
-`ODDS_API_KEY`, `ODDS_PLAYER_PROPS` og `FOOTBALL_DATA_API_KEY` leses bare av
-serverprosessen fra `.env`/miljøet. De sendes aldri til frontend eller
-mobilapp, lagres aldri i prognose-snapshots, og mobilappen har ingen egne
-API-nøkler i det hele tatt — den snakker utelukkende med denne backenden.
+`ODDS_API_KEY`, `ODDS_PLAYER_PROPS` and `FOOTBALL_DATA_API_KEY` are read by
+server-side capture code. API keys are not sent to the frontend/mobile app or
+stored in forecast snapshots. The mobile app communicates only with the backend.
 
-## Health check
-
-`GET /api/health` returnerer status, oppetid og antall økter i minnet-cachen.
-Bruk denne for containerorkestrerings-helsesjekker og oppetidsovervåking.
+`GET /api/health` returns status, uptime and the number of in-memory sessions
+for health checks and monitoring.

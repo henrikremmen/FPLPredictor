@@ -1,55 +1,51 @@
-# Chipstrategi: regler, metode og begrensninger
+# Chip strategy: rules, method and limitations
 
-## Regler som motoren håndhever
+## Rules enforced by the engine
 
-For 2026/27 finnes to sett med Wildcard, Free Hit, Triple Captain og Bench
-Boost: ett i hver sesonghalvdel. Første sett utløper før fristen i GW19 og et
-nytt sett blir tilgjengelig etterpå. Bare én chip kan brukes i samme Gameweek.
-Free Hit kan ikke brukes i GW1 eller i to Gameweeks på rad. Kilde:
-[Premier League, «What's happening with FPL chips in 2026/27?»](https://www.premierleague.com/en/news/4679879/whats-happening-with-fpl-chips-in-202627).
+The documented 2026/27 rules provide two sets of Wildcard, Free Hit, Triple
+Captain and Bench Boost, one per season half. The first expires before the GW19
+deadline. Only one chip can be played per Gameweek. Free Hit cannot be used in
+GW1 or in consecutive Gameweeks.
+Source: [Premier League chip rules](https://www.premierleague.com/en/news/4679879/whats-happening-with-fpl-chips-in-202627).
 
-Premier Leagues strategiguider beskriver de vanlige bruksområdene: Bench Boost
-og Triple Captain blir ofte sterkere i doble Gameweeks, Free Hit kan løse store
-blankrunder, og Wildcard bør gi varig verdi og kan sette opp en senere Bench
-Boost. Dette er heuristikker, ikke absolutte regler. Kilder:
-[ekspertplaner for 2026/27](https://www.premierleague.com/en/news/4685105) og
-[chipsekvenser brukt av FPL-vinneren](https://www.premierleague.com/en/news/4672128).
+Strategy guides suggest Bench Boost and Triple Captain for suitable double
+Gameweeks, Free Hit for major blank/double rounds, and Wildcard for sustained
+improvement, potentially followed by Bench Boost. These are heuristics, not
+absolute rules. Sources:
+[expert plans](https://www.premierleague.com/en/news/4685105) and
+[a winner's chip sequence](https://www.premierleague.com/en/news/4672128).
 
-## Hvordan poengverdien beregnes
+## Calculating points value
 
-Alle scenarier sammenlignes mot en normalplan som får bruke lagets estimerte
-gratisbytter. En MILP velger lovlig 15-mannstropp, startellever og kaptein under
-følgende begrensninger:
+Each scenario is compared with a normal plan using the team's estimated free
+transfers. A MILP selects a legal 15-player squad, starting XI and captain:
 
-- 2 keepere, 5 forsvarere, 5 midtbanespillere og 3 spisser
-- lovlig formasjon og maksimalt tre spillere per klubb
-- nåværende bank og individuelle estimerte salgspriser
-- én kaptein blant de elleve som starter
+- 2 goalkeepers, 5 defenders, 5 midfielders and 3 forwards.
+- Legal formation and no more than three players per club.
+- Current bank and individual estimated selling prices.
+- One captain selected from the starting XI.
 
-Chipgevinst er differansen fra normalplanen:
+Chip gain is measured against the normal plan:
 
-- Triple Captain: ett ekstra sett av kapteinens forventede poeng
-- Bench Boost: forventede poeng fra de fire benkespillerne
-- Free Hit: beste énrundetropp minus beste normale énrundeplan
-- Wildcard: beste permanente tropp minus normalplanen i hele prognosevinduet
-- Wildcard → Bench Boost: samlet optimal tropp for Wildcard nå og Bench Boost i
-  neste Gameweek
+- **Triple Captain:** one additional copy of the captain's expected points.
+- **Bench Boost:** points from the four bench players.
+- **Free Hit:** best single-gameweek squad minus the best normal plan.
+- **Wildcard:** best permanent squad minus the normal plan over the full window.
+- **Wildcard → Bench Boost:** jointly optimised squad for Wildcard now and Bench
+  Boost in the following Gameweek.
 
-Forsiktige bruksterskler hindrer små, usikre gevinster fra å bli merket
-`Spill`. Terskelen senkes nær utløpet av chipsettet. Resultatene `Spill`,
-`Vurder` og `Hold` er beslutningsstøtte, ikke sannsynligheter.
+Conservative thresholds stop small, uncertain gains being labelled **Play**.
+The threshold decreases near chip expiry. **Play**, **Consider** and **Hold**
+are decision support, not probabilities.
 
-## Hvorfor resultatet ikke er sesongoptimalt ennå
+## Horizon limitations
 
-Modellen ser maksimalt tre Gameweeks frem. Den har ikke sikre fremtidige
-blank-/dobbelrunder, cupresultater, skader eller framtidige lagnyheter. En
-virkelig sesongoptimal policy krever scenarioer for hele halvåret, eksplisitt
-usikkerhet og verdien av å vente. Relevant optimeringsforskning viser at slike
-flerperiodeproblemer kan formuleres matematisk, men et godt resultat er fortsatt
-avhengig av prognosekvalitet og framtidige fixture-scenarioer, se
-[Solving Fantasy Football Using Mathematical Optimisation](https://arxiv.org/abs/2505.02170)
-og [OpenFPL](https://arxiv.org/abs/2508.09992).
+The original chip analysis used a short three-Gameweek window. A finite forecast
+cannot establish season-optimal timing: future blanks/doubles, cup results,
+injuries and team news remain uncertain. A full-season policy needs scenarios,
+explicit uncertainty and a value for waiting. Relevant research includes
+[mathematical optimisation for FPL](https://arxiv.org/abs/2505.02170) and
+[OpenFPL](https://arxiv.org/abs/2508.09992).
 
-Neste naturlige steg er derfor å lagre ekte deadline-prognoser, bygge
-halvsesongscenarier for blanke og doble Gameweeks og kalibrere chiptersklene mot
-historiske beslutninger uten å lekke fasiten inn i prognosene.
+Next steps are genuine deadline forecasts, half-season blank/double scenarios
+and prospective calibration of chip thresholds without using outcomes as inputs.

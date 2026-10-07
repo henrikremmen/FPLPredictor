@@ -1,477 +1,362 @@
-# FPL-modell og beslutningsapp
+# FPL Model and Decision App
 
-Prosjektet trener en modell for neste Gameweek-poeng og har en lokal React-app
-som gjør prognosene om til FPL-valg. Appen er skrivebeskyttet mot FPL: den kan
-anbefale valg, men logger aldri inn eller utfører dem.
+This project predicts points for upcoming Fantasy Premier League Gameweeks and
+turns those forecasts into team decisions through a local React app. It uses
+public FPL data, never logs in to your account and never makes transfers for you.
 
-## Start webgrensesnittet
+## Start the web app
 
-Fra prosjektmappen:
+Run these commands from the project directory:
 
 ```bash
-.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -r requirements-dev.txt
 npm install --prefix frontend
 .venv/bin/python run_app.py
 ```
 
-Dette krever Node.js 20 eller nyere. Nettleseren åpner normalt automatisk på
-`http://127.0.0.1:5173`. API-dokumentasjon finnes på
-`http://127.0.0.1:8000/docs`. Laglenken din
-er fylt inn som eksempel; velg horisont og risikoprofil og trykk **Last inn
-laget**.
+Node.js 20 or later is required. The browser normally opens automatically at
+`http://127.0.0.1:5173`. API documentation is at `http://127.0.0.1:8000/docs`.
+Choose a forecast horizon and risk profile, then click **Load team**. A sample
+team URL is prefilled.
 
-Grensesnittet har faner for:
+The app includes:
 
-- tropp, priser, motstandere og modellpoeng
-- manageranalyse med sesongkurve, historiske Gameweek-tropper, poengkilder,
-  kaptein, benk, transfersving og utvikling i overall rank
-- miniligaanalyse med tabell, historisk ligarank, gap til leder, liga-EO,
-  differensialer og rank-trusler
-- global benchmark mot FPL-snitt, samlet eierskap og et merket stratifisert
-  utvalg av offentlige lag fra rank 1–10 000
-- anbefalt startellever, formasjon, kaptein, visekaptein og benk
-- ett til fem bytter, enten fritt optimert eller med 1–5 bestemte spillere
-  valgt ut, med en eksakt global MILP-plan og automatisk poengtrekk
-- flerukersplan for 1–8 GW med bytter, rullering av inntil fem gratisbytter,
-  startellever og kaptein i hver runde
-- filtrerbare kjøpskandidater og rangerte salgskandidater
-- kortsiktig chipanalyse for Wildcard, Free Hit, Triple Captain, Bench Boost og
-  sekvensen Wildcard → Bench Boost
-- egne Free Hit-lag for hver kjent Gameweek og et langsiktig Wildcard-lag med
-  XI, benk, kaptein og planlagte senere bytter
+- Squad, prices, opponents and model points.
+- Manager analysis: season performance, historical squads, sources of points,
+  captaincy, bench decisions, transfer swings and overall rank.
+- Mini-league standings, rank history, gaps, effective ownership (EO),
+  differentials and rank threats.
+- Global benchmarks and a labelled, stratified sample of teams ranked 1–10,000.
+- Recommended starting XI, formation, captain, vice-captain and bench order.
+- One to five transfers, either unrestricted or with selected outgoing players,
+  using a global MILP with points hits included.
+- Multiweek planning over 1–8 Gameweeks, including transfers, up to five banked
+  free transfers, starting XIs and captains.
+- Buy and sell candidates, short-term chip analysis, Free Hit squads and a
+  long-term Wildcard squad with a subsequent transfer plan.
 
-Bank og gratisbytter kan korrigeres i sidepanelet dersom de offentlige
-estimatene avviker fra tallene inne i FPL. Knappen **Oppdater prognosen** henter
-et nytt offentlig snapshot; dette kan ta rundt ett minutt. Appen logger aldri
-inn og kan ikke utføre bytter.
+Correct bank and free transfers in the sidebar if the estimates differ from
+FPL. **Refresh forecast** downloads a new public snapshot and usually takes
+about a minute. You can refresh before loading a team when FPL advances to a
+Gameweek for which no forecast exists; the app then imports the team again.
 
-Når FPL skifter til en ny Gameweek før appen har en prognose for den, kan
-**Oppdater prognose** også brukes før laget er lastet inn. Etter innhentingen
-lastes laget automatisk med den nye runden.
+Public team data do not show transfers made after the last deadline. Use
+**Edit squad** to correct this:
 
-Offentlige lagdata viser heller ikke bytter som er gjort etter siste deadline.
-Bruk derfor fanen **Korriger lag** når appen viser en gammel tropp:
+- **Already made** synchronises the squad with actual bank and remaining free
+  transfers, without charging for those moves again.
+- **New transfers** simulates changes using the app's active squad, calculating
+  the bank, remaining free transfers and any points hit.
 
-- **Allerede gjort** erstatter spillere og lagrer faktisk bank og antall
-  gratisbytter fra FPL, uten å belaste byttene på nytt.
-- **Nye bytter** simulerer nye endringer fra appens aktive lag og beregner bank,
-  gjenværende gratisbytter og eventuelt poengtrekk.
+The corrected squad is used by all decision tools. It is saved locally for the
+same FPL ID and Gameweek, survives forecast refreshes and can be removed with
+**Reset to FPL**. It never changes the real FPL team.
 
-Den korrigerte troppen brukes av laguttak, transferforslag, flerukersplan,
-strategisenter, Free Hit og Wildcard. Den lagres lokalt for samme FPL-ID og
-Gameweek, overlever prognoseoppdateringer og kan fjernes med **Tilbakestill til
-FPL**. Appen endrer fortsatt aldri det virkelige FPL-laget.
+The **Analysis** tab uses public data only. Historical outcomes and EO are
+separate from forward-looking forecasts. See
+[manager analytics research](docs/manager_analytics_research_2026.md) for methods
+and limitations.
 
-Fanen **Analyse** bruker bare offentlige data. Velg Gameweek for å se den
-låste 15-mannstroppen, hvem som ga gevinst eller tap mot miniligaens effective
-ownership, og hvilke benk-/kapteinsvalg som slo ut. Under **Risiko &
-differensialer** kombineres flerukersprognosen med liga-EO og EO i et
-topprank-utvalg. Metode, formler og begrensninger er dokumentert i
-`docs/manager_analytics_research_2026.md`.
+## Repository structure and commands
 
-## Prosjektstruktur og rotkommandoer
-
-Repoet er et lite monorepo. `src/` (Python-modell og FastAPI-bro) og
-`frontend/` (React-webapp) er de opprinnelige delene og er uendret i
-oppsettet sitt. Mobilappen legger til:
-
-```
-apps/mobile/          Expo/React Native-app (TypeScript, Expo Router)
-packages/api-client/  Typet fetch-klient mot src/api.py + typer
-packages/shared/      Delte konstanter og formattering (web + mobil)
+```text
+src/                 Python models, decision engine and FastAPI backend
+frontend/            React web app
+apps/mobile/         Expo/React Native app with TypeScript and Expo Router
+packages/api-client/ Typed client for src/api.py and shared API types
+packages/shared/     Shared constants and formatting
+notebooks/           Data exploration, model evaluation and forecast comparisons
 ```
 
-`packages/*` og `apps/*` er npm-workspaces (rot-`package.json`).
-`frontend/` er bevisst **ikke** en del av workspacet — den installeres og
-kjøres akkurat som før, uavhengig av mobilappen, slik at ingenting i den
-endret seg.
-
-Installer alt du trenger for mobil/monorepo-delen fra prosjektroten:
+`packages/*` and `apps/*` are npm workspaces. `frontend/` is installed and run
+separately. Install workspace dependencies from the repository root:
 
 ```bash
 npm install
 ```
 
-Deretter har roten noen få hjelpekommandoer (se `package.json`):
+Root commands are wrappers around the underlying app commands:
 
 ```bash
-npm run backend        # start API-et på 127.0.0.1 (samme som run_app.py alene)
-npm run backend:lan    # start API-et på 0.0.0.0, for en fysisk iPhone på samme Wi-Fi
-npm run web            # start React-webappen (frontend/)
-npm run mobile         # start Expo dev-serveren for apps/mobile
-npm run mobile:ios     # start Expo og åpne iOS-simulatoren
-npm run test:backend   # kjør hele Python-testsuiten
-npm run test:mobile    # kjør mobilappens Jest-tester
+npm run backend          # API on 127.0.0.1
+npm run backend:lan      # API on 0.0.0.0 for a phone on the same Wi-Fi
+npm run web              # React web app
+npm run mobile           # Expo development server
+npm run mobile:ios       # Expo and the iOS simulator
+npm run test:backend     # Python test suite
+npm run test:mobile      # Mobile Jest tests
 npm run typecheck:mobile
+npm run typecheck:shared
 ```
 
-Disse er tynne wrappere rundt de samme kommandoene som er dokumentert lenger
-ned (`.venv/bin/python run_app.py`, `npm --prefix frontend run dev`,
-`npx expo start` i `apps/mobile/`) — bruk enten roten eller de underliggende
-kommandoene, de gjør det samme.
+## Mobile app
 
-## Mobilapp (Expo/React Native)
+`apps/mobile` is a native React Native app, not a WebView. All budget,
+selling-price, position, club-limit, transfer, hit and optimisation calculations
+run in the shared backend. The app stores the FPL ID, horizon, risk profile and
+market preferences locally with `AsyncStorage`; this version has no user accounts.
 
-`apps/mobile` er en ekte native React Native-app (ikke en WebView rundt
-webappen) bygget med Expo, TypeScript og Expo Router. Den bruker samme
-backend som webappen (`src/api.py`) via `packages/api-client` — **all**
-beregning (budsjett, salgspris, posisjoner, klubbgrense, gratisbytter, hits,
-MILP-optimering) skjer på serveren, appen viser bare resultatet. Den lagrer
-FPL-ID, horisont, risikoprofil og markedsfiltre lokalt på telefonen
-(`AsyncStorage`) og har ingen brukerkonto i denne versjonen.
-
-### Expo-serveren vs. FastAPI-backenden
-
-To separate ting kjører samtidig når du utvikler:
-
-- **FastAPI-backenden** (`src/api.py`, port 8000) gjør selve jobben: henter
-  FPL-data, kjører modellen, optimerer bytter. Både webappen og mobilappen
-  er rene klienter mot denne.
-- **Expo-serveren** (`npx expo start`) er kun et utviklingsverktøy: den
-  bundler JavaScript/TypeScript-koden til mobilappen og serverer den til
-  Expo Go, en simulator eller en development build over samme Wi-Fi/USB. Den
-  finnes ikke i en ferdig App Store-bygd app — der er koden allerede bundlet
-  inn i selve appen.
-
-Mobilappen snakker **aldri** til Expo-serveren for FPL-data — kun til
+FastAPI performs the data retrieval and calculations. The Expo development
+server only bundles the mobile JavaScript/TypeScript code and serves it to Expo
+Go, a simulator or a development build. A released App Store build bundles that
+code inside the app and does not need the Expo server. Mobile API requests go to
 `EXPO_PUBLIC_API_URL`.
 
-### Kom i gang lokalt (simulator, samme Mac som backend)
+### Local simulator
 
 ```bash
-cp apps/mobile/.env.example apps/mobile/.env   # EXPO_PUBLIC_API_URL=http://127.0.0.1:8000
-.venv/bin/python run_app.py                     # start backend i ett terminalvindu
-cd apps/mobile && npx expo start                # start Expo i et annet
+cp apps/mobile/.env.example apps/mobile/.env
+.venv/bin/python run_app.py
+cd apps/mobile && npx expo start
 ```
 
-Trykk `i` for iOS-simulator (krever Xcode) eller `w` for web-forhåndsvisning.
-iOS-simulatoren kan nå `127.0.0.1` direkte fordi den deler nettverk med
-Mac-en.
+Use separate terminals for the backend and Expo. Press `i` for the iOS simulator
+(requires Xcode), or `w` for a web preview. The simulator can reach the Mac's
+`127.0.0.1` address.
 
-### Fysisk iPhone på samme Wi-Fi
-
-Simulatoren og en fysisk iPhone er ikke det samme nettverket som
-`127.0.0.1` — backenden må lytte på alle grensesnitt, og appen må pekes på
-maskinens faktiske IP:
+### Physical iPhone on the same Wi-Fi
 
 ```bash
 npm run backend:lan
-# eller: FPL_API_HOST=0.0.0.0 .venv/bin/python run_app.py
+# Alternatively:
+FPL_API_HOST=0.0.0.0 .venv/bin/python run_app.py
 ```
 
-Dette skriver ut noe slikt:
+The launcher prints a local address to put in `apps/mobile/.env`, for example:
 
+```dotenv
+EXPO_PUBLIC_API_URL=http://192.168.1.23:8000
 ```
-Backend lytter på alle nettverk (0.0.0.0:8000).
-Fra en iPhone på samme Wi-Fi, sett apps/mobile/.env til EXPO_PUBLIC_API_URL=http://192.168.1.23:8000
-```
 
-Kopier den `EXPO_PUBLIC_API_URL`-linjen inn i `apps/mobile/.env`, start Expo
-på nytt, og åpne appen i **Expo Go** (App Store) ved å skanne QR-koden Expo
-viser i terminalen — telefonen og Mac-en må være på samme Wi-Fi, og
-macOS-brannmuren kan be om tillatelse for `python`/`uvicorn` første gang.
+Restart Expo after changing it. Open Expo Go on your phone and scan the QR code.
+The Mac and phone must use the same Wi-Fi; allow incoming Python/uvicorn
+connections if the macOS firewall prompts you.
 
-### Development build
+### Development builds, TestFlight and production
 
-Expo Go dekker det aller meste, men støtter ikke alle native moduler i et
-fremtidig oppsett. En development build er den anbefalte hovedløsningen for
-videre arbeid:
+Expo Go supports the current workflow but may not support future native modules.
+For a development build:
 
 ```bash
 cd apps/mobile
 eas build --profile development --platform ios
 ```
 
-Dette **krever en Apple-konto og en innlogget `eas`-CLI**
-(`eas login`) — se `docs/mobile/app-store-checklist.md` for hele kjeden fram
-til TestFlight og App Store. Uten Apple-konto kan du fortsatt utvikle og
-teste fullt ut via Expo Go eller iOS-simulatoren.
+This requires an Apple account and an authenticated EAS CLI (`eas login`). See
+[the App Store checklist](docs/mobile/app-store-checklist.md).
 
-### TestFlight og produksjons-API
-
-TestFlight-testere er ikke på ditt lokale Wi-Fi, så en `preview`- eller
-`production`-bygd app trenger en offentlig HTTPS-backend (se
-`docs/deploy.md`). Adressen settes **per EAS-profil**, ikke i koden — rediger
-`env.EXPO_PUBLIC_API_URL` for riktig profil i `apps/mobile/eas.json`, ikke
-`apps/mobile/.env` (som kun brukes lokalt av `expo start`).
+TestFlight testers need a public HTTPS backend; see [deployment](docs/deploy.md).
+Set `env.EXPO_PUBLIC_API_URL` for each profile in `apps/mobile/eas.json`.
+`apps/mobile/.env` is used for local development with Expo.
 
 ```bash
-eas build --profile preview --platform ios     # intern testing
-eas build --profile production --platform ios  # App Store-innsending
+eas build --profile preview --platform ios
+eas build --profile production --platform ios
 eas submit --profile production --platform ios
 ```
 
-Full sjekkliste, inkludert hvilke steg som krever Apple-konto, hosting eller
-betaling: `docs/mobile/app-store-checklist.md`. Personvernerklæring,
-support-side-utkast og App Privacy-svar: `docs/mobile/`.
+Draft privacy, support and App Privacy documents are in `docs/mobile/`.
 
-### Mobiltester og kvalitetsporter
+### Mobile checks
 
 ```bash
 cd apps/mobile
-npm run typecheck     # tsc --noEmit
-npm run lint          # expo lint
-npm test              # jest (jest-expo)
-npx expo-doctor        # SDK/avhengighets-/metro-konfig-sjekker
-npx expo export --platform ios   # verifiserer at appen faktisk bundler
+npm run typecheck
+npm run lint
+npm test
+npx expo-doctor
+npx expo export --platform ios
 ```
 
-## Alternativ: terminalappen
-
-Terminalversjonen er fortsatt tilgjengelig:
+## Terminal app
 
 ```bash
 .venv/bin/python src/fpl_app.py "https://fantasy.premierleague.com/en/entry/5139814/event/4"
 ```
 
-Den importerer de 15 spillerne fra den offentlige laglenken og viser en meny
-for:
-
-1. lagoversikt med modellpoeng, priser og neste motstander
-2. startellever, formasjon, kaptein, visekaptein og benkerekkefølge
-3. beste lovlige enkeltbytter
-4. beste lovlige flerbytter
-5. kjøpskandidater
-6. salgskandidater
-7. global flerukersplan
-
-Den nyeste prognosen kan hentes og fryses før appen åpnes:
+The interactive menu provides squad details, lineup and captain selection,
+single and multiple transfers, buy candidates, sell candidates and multiweek
+planning. Direct commands are also available:
 
 ```bash
 .venv/bin/python src/fpl_app.py "5139814" --refresh
-```
-
-Dette henter offentlig FPL-data for alle spillere og kan ta rundt ett minutt.
-Hvis bare modellen er endret, kan siste komplette råsnapshot gjenbrukes uten
-nye API-kall:
-
-```bash
-.venv/bin/python src/capture_fpl.py --rescore-latest
-```
-
-Liveprognosen bruker en beslutningsvoktet produksjonsartefakt: poengmotoren må
-både passere vanlige prediksjonsporter og en historisk FPL-optimering med
-budsjett, posisjoner, klubbgrense, startellever og kaptein. P(60+)-modellen
-evalueres og refittes separat, slik at den ikke bestemmer poengrangeringen.
-
-## Direkte kommandoer
-
-Menyen kan hoppes over, for eksempel:
-
-```bash
 .venv/bin/python src/fpl_app.py "5139814" --action lineup
 .venv/bin/python src/fpl_app.py "5139814" --action transfers --max-transfers 5
 .venv/bin/python src/fpl_app.py "5139814" --action targets --position MID --max-price 7.0
 .venv/bin/python src/fpl_app.py "5139814" --action sells
-.venv/bin/python src/fpl_app.py "5139814" --horizon 3 --action transfers --max-transfers 5
 .venv/bin/python src/fpl_app.py "5139814" --horizon 3 --action transfers --risk-profile stable
 .venv/bin/python src/fpl_app.py "5139814" --horizon 8 --action plan
 .venv/bin/python src/fpl_app.py "5139814" --action lineup --risk-profile upside
 ```
 
-`--horizon 2` til `--horizon 8` summerer nåværende prognoser over flere
-Gameweeks for kjøp og salg. Fanen **Flerukersplan** optimerer hele sekvensen av
-tropp, bytter, startellever og kaptein. Vanlig **Laguttak** gjelder fortsatt
-bare neste Gameweek. Flerukersfilen opprettes av `--refresh`; eldre snapshots
-med bare tre runder må derfor oppdateres før en lengre horisont kan velges.
+`--horizon 2` through `--horizon 8` sums forecasts over multiple Gameweeks.
+Lineup selection still concerns the next Gameweek. Older snapshots may contain
+only three rounds; refresh to obtain a longer horizon.
 
-Risikoprofilene endrer beslutningsscore, ikke modellens forventede poeng:
-
-- `balanced` bruker forventede poeng og er standard
-- `stable` trekker fra `0,1 × (Q90−Q10)` og foretrekker smalere modellspenn
-- `upside` bruker `0,7 × forventning + 0,3 × Q90` og søker en høyere øvre hale
-
-`stable` slo balanced med 85 poeng over de to valideringssesongene og 20 poeng
-i 2025–26-testen. `upside` vant 64 poeng i validering, men tapte 28 i testen;
-der økte 90-persentilen fra 76,0 til 79,8 samtidig som variasjonen steg.
-Profilene er derfor valgfrie nyttefunksjoner, ikke nye forventede poeng eller
-garantier om risiko. En separat sekvensiell transferkontroll er beskrevet under
-modellkommandoene.
-
-## Hva beslutningslaget validerer
-
-- 15 spillere med 2 keepere, 5 forsvarere, 5 midtbanespillere og 3 spisser
-- lovlig startellever: 1 keeper, 3–5 forsvarere, 2–5 midtbanespillere og 1–3 spisser
-- inn- og utgående spiller har samme posisjon
-- kjøp holder seg innenfor bank + estimert salgspris
-- maksimalt tre spillere fra samme klubb
-- minus fire poeng per bytte utover estimerte gratisbytter
-
-Enkeltbyttesøket vurderer hele spillermarkedet. For to bytter løses topplanen
-globalt med en flerukers MILP, mens appen også viser praktiske reserveplaner.
-For tre til fem bytter vises den eksakte globale planen over hele markedet.
-
-Reglene er basert på [FPLs offisielle spilleregler](https://fantasy.premierleague.com/help/rules)
-og Premier Leagues forklaring av [bytter og salgspris](https://www.premierleague.com/en/news/2174907).
-
-## Viktige begrensninger
-
-- Forslagene rangeres på modellens poeng for **neste Gameweek**, ikke en
-  flerukershorisont, med mindre `--horizon 2` til `--horizon 8` velges.
-- En offentlig laglenke gir ikke eksakt salgspris eller saldoen av gratisbytter.
-  Appen rekonstruerer kjøpspris fra offentlig historikk, bruker FPLs prisregel og
-  estimerer gratisbytter fra laghistorikken. Kontroller disse to tallene i FPL før
-  du bekrefter et bytte.
-- Modellpoeng justeres ned ved et kjent `chance_of_playing_next_round`-flagg, men
-  modellen inneholder ikke en full nyhets- eller skadeanalyse.
-- Den eksisterende modellen er eksperimentell og er trent med historiske
-  pre-fixture-features. Den er ikke en garanti for faktiske poeng.
-- Appen logger aldri inn og utfører aldri endringer i FPL-laget.
-- Flerukersplanen bruker dagens kjøps- og salgspriser som konstante gjennom
-  horisonten. Kjør planen på nytt etter hver deadline og prisendring.
-
-## Deadline-snapshots og valgfrie datakilder
-
-`capture_fpl.py` fryser nå flere offisielle pre-deadline-felt: status og
-spillesjanse, pris-/transfertrend, dødballrekkefølge, lagstyrke,
-forsvarsbidrag, CBI, taklinger, gjenvinninger, kort, bonus og xG/xA/xGI/xGC.
-Råresponsene hashes og lagres med mottakstid, slik at senere trening kan bevise
-hva som faktisk var kjent før deadline.
-
-Standardoppsettet er manuell innhenting. Knappen **Oppdater prognose** i
-webappen, eller `--refresh` i kommandolinjeappen, henter FPL-data og alle
-konfigurerte valgfrie API-kilder før den lager en ny frosset prognose:
+If only the model has changed, rescore the latest complete raw snapshot without
+making new API calls:
 
 ```bash
-.venv/bin/python src/fpl_app.py "5139814" --refresh
+.venv/bin/python src/capture_fpl.py --rescore-latest
 ```
 
-Kjør oppdateringen så nær deadline som det er praktisk. Det er ikke nødvendig
-med daglig innhenting for å bruke appen, men snapshots fra flere ferdigspilte
-Gameweeks er nødvendige før odds- og belastningsfeltene kan trenes og valideres
-som modellfeatures.
+## Risk profiles and decision constraints
 
-Automatisk innhenting er valgfritt. Samleren kan kjøres hvert femte minutt og
-tar ett idempotent snapshot rundt 24, 6 og 1 time før hver deadline:
+Profiles change the decision score, not the model's expected points:
+
+- `balanced`: expected points; the default.
+- `stable`: expected points minus `0.1 × (Q90−Q10)`.
+- `upside`: `0.7 × expected points + 0.3 × Q90`.
+
+In the original decision benchmark, `stable` gained 85 points across the two
+validation seasons and 20 in the 2025–26 test. `upside` gained 64 in validation
+but lost 28 in the test; its 90th percentile rose from 76.0 to 79.8 with higher
+variation. These are optional utility functions, not new expected-point
+estimates or guarantees about risk.
+
+The decision engine enforces:
+
+- A 15-player squad: 2 goalkeepers, 5 defenders, 5 midfielders and 3 forwards.
+- A legal XI: 1 goalkeeper, 3–5 defenders, 2–5 midfielders and 1–3 forwards.
+- Matching positions for incoming and outgoing players.
+- Purchases within bank plus estimated selling proceeds.
+- A maximum of three players per club.
+- A four-point hit per transfer beyond the estimated free-transfer allowance.
+
+Single-transfer searches cover the full market. For two transfers, the top
+plan is solved globally and broad backup options are also shown. For three to
+five transfers, the app returns the exact global plan over the market.
+See [FPL rules](https://fantasy.premierleague.com/help/rules) and
+[transfer and selling-price guidance](https://www.premierleague.com/en/news/2174907).
+
+## Limitations
+
+Public team links do not expose exact selling prices, bank or current free
+transfers. These are reconstructed from public history and must be checked in
+FPL. Known availability flags reduce recommended points, but the model does not
+perform a complete injury or news analysis. Multiweek plans hold current prices
+constant and use current injury information; recalculate after each deadline
+and material update. The model is experimental and trained on historical
+pre-fixture features, not a fully verified deadline dataset.
+
+## Snapshots and optional data sources
+
+`capture_fpl.py` freezes status, playing chances, prices, transfers, set-piece
+order, team strength, defensive contributions, CBI, tackles, recoveries, cards,
+bonus and expected-goal statistics. Raw responses have hashes and receipt times
+to establish what was known before the deadline.
+
+Refresh manually near the deadline. Daily collection is not required for app
+use, but multiple completed Gameweeks of snapshots are needed to validate
+odds and workload features. Optional automatic checkpoints are available:
 
 ```bash
 .venv/bin/python src/deadline_collector.py --watch
+.venv/bin/python src/deadline_collector.py --check
 ```
 
-Alternativt kan cron kjøre en enkel kontroll hvert tiende minutt:
+The collector checks for idempotent snapshots around 24, 6 and 1 hour before
+each deadline. For example, run a check every ten minutes with cron:
 
 ```cron
-*/10 * * * * cd /absolutt/sti/til/fplmodell && .venv/bin/python src/deadline_collector.py --check >> deadline_collector.log 2>&1
+*/10 * * * * cd /absolute/path/to/fplmodell && .venv/bin/python src/deadline_collector.py --check >> deadline_collector.log 2>&1
 ```
 
-Ingen `.env` er nødvendig for de offisielle FPL-dataene. Kopier
-`.env.example` til `.env` bare dersom de valgfrie kildene skal brukes:
+Official FPL endpoints need no `.env` file. For optional sources, copy
+`.env.example` to `.env` and configure:
 
-```bash
-cp .env.example .env
-```
+- `ODDS_API_KEY`: de-vigged consensus match-result and over/under 2.5 odds,
+  converted to expected team goals and clean-sheet probabilities.
+- `ODDS_PLAYER_PROPS=1`: additional, more credit-intensive anytime-goalscorer
+  and over/under 0.5 assists calls; primarily US bookmakers and currently
+  retained as research signals.
+- `FOOTBALL_DATA_API_KEY`: cross-competition schedules from football-data.org.
 
-- `ODDS_API_KEY` henter og de-vigger konsensus for kampvinner og over 2,5 mål.
-  Dette omregnes også til forventede lagmål og clean-sheet-sannsynligheter.
-- `ODDS_PLAYER_PROPS=1` aktiverer de mer kredittkrevende eventkallene for
-  anytime-målscorer og over/under 0,5 assists. Props dekker primært amerikanske
-  bookmakere og lagres foreløpig som forskningssignaler.
-- `FOOTBALL_DATA_API_KEY` henter cup-, Europa- og landskampbelastning fra
-  football-data.org.
+Missing keys skip the optional source and are recorded in the manifest.
+Keys are excluded from Git and snapshots. Automated text/LLM news analysis is
+not implemented. Individual international minutes and travel are not modelled.
 
-Nøklene lagres aldri i snapshots eller Git; `.env` er ignorert. Manglende
-nøkler stopper ikke innhentingen, men registreres som en hoppet valgfri kilde i
-manifestet. Tekstbasert nyhets-/LLM-tolkning er med vilje ikke implementert.
+## Historical market model
 
-### Historisk markedsmodell
-
-The Odds API-nøkkelen på gratisplan gir liveodds, men ikke det betalte
-historikkendepunktet. Modelltreningen bruker derfor gratis, historiske
-pre-closing-markedsgjennomsnitt fra football-data.co.uk for 2020/21–2025/26.
-Closing-kolonnene brukes ikke, fordi de kan inneholde informasjon som kom etter
-FPL-deadline. Kildens råfiler og SHA-256 lagres under
+The free Odds API plan provides live odds, not paid historical endpoints.
+Training instead uses football-data.co.uk pre-closing market averages for
+2020/21–2025/26. Closing columns are excluded because they may contain
+post-deadline information. Raw files and hashes are saved under
 `data/raw/historical_odds/football_data_uk/`.
-
-Benchmarken kan reproduseres med:
 
 ```bash
 PYTHONPATH=src .venv/bin/python src/market_models.py --root .
 ```
 
-Den sammenligner incumbent, en lik grunnmodell uten odds, ren markedsmodell,
-lineær modell og tre faste blandingsvekter med kronologisk validering. 2025/26
-holdes utenfor modellvalget. Den valgte produksjonsmodellen bruker markedsmodellen
-per kamp når odds finnes og faller tilbake til incumbent for kamper uten odds.
+The benchmark compares the incumbent, the same baseline without odds, a market
+model, a linear model and three fixed blends using chronological validation.
+2025/26 is held out from model selection. The production model uses market
+predictions when odds are available and falls back to the incumbent otherwise.
 
-Football-data.orgs gratisdekning ga bare komplett Champions League-historikk fra
-2023/24 og mangler Europa League, Conference League, FA Cup og ligacupen. En
-separat CL-belastningsmodell ble derfor testet, men ikke aktivert: den forbedret
-verken RMSE, candidate-RMSE eller topp-25-utvelgelsen i begge evalueringssesonger.
+Free football-data.org coverage provided complete Champions League history
+only from 2023/24, without Europa League, Conference League, FA Cup or League
+Cup coverage. The tested CL workload model did not improve RMSE, candidate
+RMSE and top-25 selection across both evaluation seasons, so it was not enabled.
 
-Den detaljerte modellrevisjonen, Konsa-diagnosen, feature-ablasjonen og
-prioritert dataveikart ligger i
-[docs/model_research_2026.md](docs/model_research_2026.md).
+See [model research](docs/model_research_2026.md),
+[product research](docs/product_feature_research_2026.md) and
+[manager strategy research](docs/fpl_manager_strategy_research_2026.md).
 
-Produktresearchen om hvilke analyse- og planleggingsfunksjoner FPL-brukere
-etterspør, gapet mot dagens app og en prioritert implementeringsrekkefølge
-ligger i
-[docs/product_feature_research_2026.md](docs/product_feature_research_2026.md).
+## Chip strategy
 
-## Chipstrategi
+Each chip is compared with the best normal plan using available free transfers
+and the same legality constraints. Free Hit and Wildcard optimise the squad;
+Triple Captain adds another copy of the captain's points; Bench Boost adds the
+bench. Wildcard → Bench Boost is optimised jointly.
 
-Chipmotoren måler hver chip mot den beste vanlige planen med tilgjengelige
-gratisbytter. Den bruker samme budsjett-, posisjons-, klubb-, laguttaks- og
-kapteinsregler som byttemotoren. Wildcard og Free Hit får en optimal tropp,
-Triple Captain får ett ekstra sett kapteinspoeng, og Bench Boost legger til
-benkens prognose. Wildcard → Bench Boost optimeres samlet som en sekvens.
+The documented 2026/27 rules provide one chip set per season half. The first
+set must be used before the GW19 deadline. Only one chip can be used per
+Gameweek, and Free Hit cannot be used in consecutive Gameweeks.
+See [the official rules](https://www.premierleague.com/en/news/4679879/whats-happening-with-fpl-chips-in-202627).
 
-FPL 2026/27 gir ett sett Wildcard, Free Hit, Triple Captain og Bench Boost i
-hver sesonghalvdel. Første sett må brukes før GW19-fristen, bare én chip kan
-brukes per Gameweek, og Free Hit kan ikke brukes i to påfølgende Gameweeks.
-Implementasjonen følger [Premier Leagues offisielle 2026/27-regler](https://www.premierleague.com/en/news/4679879/whats-happening-with-fpl-chips-in-202627).
+Chip advice is explicitly limited to the available horizon. A short forecast
+cannot establish season-optimal timing or anticipate every later blank/double
+Gameweek. **Play** is a strong model signal, not proof of optimal timing.
+See [chip methodology](docs/chip_strategy.md).
 
-Analysen er med hensikt merket **kort horisont**. Med bare 1–3 prognostiserte
-Gameweeks kan den finne poengmaksimum i det kjente vinduet, men den kan ikke
-vite om en senere blank- eller dobbelrunde blir bedre. Bruk derfor `Spill` som
-et sterkt modellsignal, ikke som bevis på sesongoptimal timing. Metode og
-forskningsvalg er dokumentert i [docs/chip_strategy.md](docs/chip_strategy.md).
+## Training and model evaluation
 
-## Modell og data
-
-Historiske data bygger på
+Historical data use
 [vaastav/Fantasy-Premier-League](https://github.com/vaastav/Fantasy-Premier-League).
-Liveprognoser lages av `src/capture_fpl.py`, mens beslutningsappen ligger i
-`src/fpl_app.py`.
-
-Kjør den utvidede modellbenchmarken og den automatiske promoteringsporten med:
+Live forecasts are generated by `src/capture_fpl.py`; the decision app is in
+`src/fpl_app.py`. Production promotion requires both prediction-quality gates
+and a historical budget/position/club/lineup/captain backtest. The P(60+) model
+is evaluated and refitted separately from points ranking.
 
 ```bash
 .venv/bin/python src/nextgen_models.py
-```
-
-Forskningsbenchmarkene for rikere features og komponentmodellen kjøres med:
-
-```bash
 .venv/bin/python src/model_lab.py
 .venv/bin/python src/component_benchmark.py
 ```
 
-`model_lab.py` sammenligner incumbent med CatBoost og, når systembiblioteket
-finnes, LightGBM. På macOS trenger LightGBM OpenMP; godta først Xcode-lisensen
-og installer biblioteket manuelt dersom importen feiler:
+`model_lab.py` compares the incumbent with CatBoost and, when available,
+LightGBM. On macOS, LightGBM requires OpenMP; if needed:
 
 ```bash
 sudo xcodebuild -license accept
 brew install libomp
 ```
 
-CatBoost forbedret enkelte topp- og kapteinsmål, men tapte samlet RMSE på den
-urørte 2025/26-holdouten og ble derfor ikke promotert. LightGBM hoppes trygt
-over dersom `libomp` mangler; feilen skrives i benchmarkens `settings.json`.
-Å øke fra 500 til 800 iterasjoner med grunnere trær forbedret topp-25-utvalget,
-men ikke den primære kandidat-RMSE-en; lengre trening alene var altså ikke nok.
+CatBoost improved some top-selection and captain metrics but lost overall RMSE
+on the untouched 2025/26 holdout and was not promoted. Missing `libomp` causes
+LightGBM to be skipped and the error recorded in `settings.json`. Increasing
+training from 500 to 800 iterations with shallower trees improved top-25
+selection but not the primary candidate RMSE.
 
-Komponentmodellen lærer minutter, mål, assists, clean sheet, innslupne mål,
-redninger, bonus, kort og forsvarsbidrag separat, og setter dem sammen med FPLs
-poengregler. Monte Carlo gir forventning, Q10/Q50/Q90 og sannsynlighet for minst
-5 eller 10 poeng. På 66 valideringsrunder ga dens lovlige tropp/XI/kaptein
-12 flere faktiske poeng enn incumbent, men 95 %-intervallet for forbedringen
-inkluderte null. På etablerte kandidater dekket Q10–Q90 85,3 % i 2025/26.
-Artefakten er derfor fortsatt merket `production_eligible: false` og må samle
-prospektive snapshots under dagens forsvarsbidragsregler før eventuell bruk.
+The component model separately learns minutes, goals, assists, clean sheets,
+goals conceded, saves, bonus, cards and defensive contributions, then applies
+FPL scoring rules. Monte Carlo produces expected points, Q10/Q50/Q90 and the
+probability of at least 5 or 10 points. Its legal squad/XI/captain selection
+scored 12 more points over 66 validation rounds, but the 95% interval included
+zero. Q10–Q90 covered 85.3% of established candidates in 2025/26. It remains
+`production_eligible: false` pending prospective validation under current rules.
 
-Kjør deretter den begrensede beslutningsbenchmarken og bygg en refittet
-produksjonsmodell på alle ferdige sesonger:
+Further evaluation and refitting commands:
 
 ```bash
 .venv/bin/python src/decision_backtest.py
@@ -484,64 +369,55 @@ produksjonsmodell på alle ferdige sesonger:
 .venv/bin/python src/capture_fpl.py --rescore-latest
 ```
 
-Beslutningsbenchmarken laster historiske priser og klubber fra kilderepoet og
-løser uttaket eksakt med `scipy.optimize.milp`. Historisk `value` er samlet etter
-Gameweek og er derfor ikke en sertifisert deadline-pris; resultatet brukes som
-en streng utrullingsport, ikke som en full sesongsimulering.
+Historical `value` prices are collected after the Gameweek and are not
+certified deadline prices. The decision backtest is a strict deployment gate,
+not a fully certified season simulation. Q10–Q90 coverage was 85.5% in
+validation and 85.0% in the 2025–26 test. Summing fixture quantiles over multiple
+weeks is a decision heuristic, not a calibrated multiweek interval.
 
-Kvantilmodellen estimerer Q10, median og Q90. Disse er betingede
-modellkvantiler, ikke et garantert konfidensintervall. På etablerte kandidater
-dekket Q10–Q90 85,5 % i validering og 85,0 % i 2025–26-testen.
-For flere Gameweeks summeres kampkvantilene som en beslutningsheuristikk; summen
-er ikke et kalibrert flerukersintervall.
+The sequential simulator starts profiles with the same squad and handles bank,
+individual selling prices, C/VC and legal autosubs. It uses the historical limit
+of two banked free transfers in 2023–24, five from 2024–25 and the 2025–26 AFCON
+reset to five after GW15. A MILP jointly chooses the final squad, XI and captain,
+including purchases that need a funding transfer.
 
-Den sekvensielle simulatoren starter profilene fra samme tropp og håndterer
-bank, individuell salgspris, C/VC og lovlige autosubs. Den bruker historisk
-korrekt grense på to oppsparte gratisbytter i 2023–24, fem fra 2024–25, og
-AFCON-påfyllet til fem etter GW15 i 2025–26. Når flere bytter er tilgjengelige,
-velger en eksakt MILP sluttropp, XI og kaptein samlet; dette fanger blant annet
-premiumkjøp som krever et finansieringsbytte.
-
-Resultatet er følsomt for alternativkostnaden per brukt gratisbytte:
-
-| Minimum modellgevinst per bytte | balanced | stable | upside | Vinner |
+| Minimum model gain per transfer | balanced | stable | upside | Winner |
 |---:|---:|---:|---:|---|
-| 0,0 | 5 631 | **5 773** (+142) | 5 565 (−66) | stable |
-| 1,0 | 5 502 | **5 740** (+238) | 5 577 (+75) | stable |
-| 2,0 | **5 563** | 5 424 (−139) | 5 543 (−20) | balanced |
+| 0.0 | 5,631 | **5,773** (+142) | 5,565 (−66) | stable |
+| 1.0 | 5,502 | **5,740** (+238) | 5,577 (+75) | stable |
+| 2.0 | **5,563** | 5,424 (−139) | 5,543 (−20) | balanced |
 
-Ved terskel 1,0 vant `stable` alle tre sesonger, men ved 2,0 tapte den samlet
-klart. Terskel 1,0 er undersøkt retrospektivt og kan derfor ikke brukes som en
-ny produksjonsstandard uten en separat, prospektiv beslutningstest. Simulatoren
-er dessuten fortsatt nærsynt: den optimaliserer neste Gameweek, ikke hele
-fixtureblokken. Regelimplementasjonen følger Premier Leagues beskrivelser av
-[fem oppsparte bytter fra 2024–25](https://www.premierleague.com/en/news/4059225)
-og [AFCON-påfyllet i 2025–26](https://www.premierleague.com/en/news/4461660).
+At 1.0, `stable` won all three seasons; at 2.0 it lost overall. These thresholds
+were explored retrospectively and cannot become a new default without a separate
+prospective test. The simulator still optimises the next Gameweek, not the whole
+fixture block. Rule sources:
+[five banked transfers](https://www.premierleague.com/en/news/4059225) and
+[AFCON allocation](https://www.premierleague.com/en/news/4461660).
 
-Kjør alle tester med:
+## Tests and notebooks
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -v
-```
-
-Kjør en ekte Chromium-test mot lokalt API, live FPL-lag og den aktive
-prognoseartefakten med:
-
-```bash
+npm --prefix frontend run build
 npm --prefix frontend run test:e2e:live
 ```
 
-Denne testen importerer laget med åtte Gameweeks og kontrollerer laguttak,
-marked, bytter og at flerukersplanen faktisk viser åtte runder. Den krever
-nettverk og en aktiv prognose, og er derfor en eksplisitt live-test fremfor en
-isolert enhetstest.
+The Chromium live test requires network access and an active forecast. It imports
+a team with an eight-Gameweek horizon and checks lineup, market, transfers and
+all eight planned rounds.
 
-## Managerstrategi og beslutningsstøtte
+Open [prediction vs actual](notebooks/07_prediction_vs_actual.ipynb) with the
+project's `.venv` kernel and run all cells. Choose a Gameweek and a genuinely
+pre-deadline snapshot to compare model/app points with final official points,
+minutes, goals, assists and bonus. Pending or missing results are not treated
+as zero. The notebook includes plots, MAE/RMSE, cross-round summaries and CSV
+export. Notebook outputs are cleared in source control; rerun locally to
+regenerate tables and charts in English.
 
-React-appen har et strategisenter som samler flerukersvalget mellom å rulle,
-bytte og ta hit, troppshelse, kapteinsmargin, deadline-sjekkliste, offisielle
-prisvarsler og modellfiltrerte watchlists. Hit-planer sammenlignes med et eget
-scenario uten poengtrekk og må ha en usikkerhetsbuffer før de anbefales.
+## Weekly strategy support
 
-Se `docs/fpl_manager_strategy_research_2026.md` for forskningsgrunnlaget, dagens
-produktstatus og prioritert videre veikart.
+The strategy centre combines rolling/transferring/hits, squad health, captain
+margin, deadline checks, official price indicators and model-filtered watchlists.
+Hit plans are compared against a separate no-hit scenario and need an uncertainty
+buffer before they are recommended. Further research and priorities are in
+[manager strategy research](docs/fpl_manager_strategy_research_2026.md).

@@ -1,57 +1,28 @@
-# Modellforsøk
+# Baseline model results
 
-Åpne `01_dummy_baseline.ipynb`, `02_ridge_baseline.ipynb` og
-`03_hist_gradient_boosting.ipynb` med prosjektets `.venv`. Notebookene deler
-datakontroller, feature-policy og evaluering i `src/model_experiments.py`.
-De inneholder kjørte tabeller og figurer. Nye kjøringer lagres separat under
-`artifacts/models/`, inkludert modellen og kolonnene den forventer.
+The baseline notebooks are `01_dummy_baseline.ipynb`, `02_ridge_baseline.ipynb` and `03_hist_gradient_boosting.ipynb`. Shared experiments live in `src/model_experiments.py`. Run them with the project's `.venv`; notebook outputs can be regenerated locally.
 
-## Resultater
+## Chronological evaluation
 
-Valg av features, treningsvindu og parameter ble gjort på 2024–25, med RMSE
-som kriterium for forventede poeng. Alle varianter finnes i notebookene.
+Features, training windows and parameters were selected on 2024–25 validation RMSE. Selected models were then refitted through 2024–25 and evaluated on 2025–26.
 
-| Modell | Validering RMSE | Validering MAE | Holdout RMSE | Holdout MAE |
+| Model | Validation RMSE | Validation MAE | Holdout RMSE | Holdout MAE |
 |---|---:|---:|---:|---:|
-| Dummy, gjennomsnitt | 2,311 | 1,436 | 2,352 | 1,501 |
-| Ridge | 1,926 | 1,035 | 1,943 | 1,002 |
-| HistGradientBoosting | 1,928 | 1,008 | 1,936 | 0,969 |
+| Dummy | 2.311 | 1.436 | 2.352 | 1.501 |
+| Ridge | 1.926 | 1.035 | 1.943 | 1.002 |
+| HGB | 1.928 | 1.008 | 1.936 | 0.969 |
 
-Ridge valgte alpha=100 og trening på 2023–24. Boosting valgte 7 blad og
-trening på 2022–23 + 2023–24. Begge valgte context-settet med 34 features:
-spilletid, FPL/ICT-form, underliggende angrep, keeper/forsvar, posisjon,
-hjemme/borte og lag/motstander. Deretter ble valgt treningsvindu utvidet med
-2024–25 og modellene evaluert på 2025–26.
+Ridge selected alpha 100 and training on 2023–24. HGB selected seven leaves and training on 2022–23 plus 2023–24. Both selected 34 contextual features covering minutes, FPL/ICT form, underlying attack, goalkeeper/defensive statistics, position, home/away, team and opponent.
 
-Valideringsforskjellen i RMSE er svært liten og dokumenterer ingen sikker
-vinner. Ridge er den forklarbare referansen. Boosting er en lovende kandidat
-for videre utvikling, med lavere MAE og litt bedre rangering. Det er ikke
-grunnlag for å kaste Ridge. Permutasjon av `minutes_last1` ga klart størst
-økning i boostingmodellens valideringsfeil. Flere tidsfold og vurdering av
-usikkerhet bør komme før større modellvalg.
+The difference is small. Ridge offers a more interpretable reference; HGB has lower MAE and useful ranking performance. `minutes_last1` is its most important feature.
 
-## Hva resultatene betyr
+## Timing and interpretation
 
-- SAFE-kolonner er kandidater, ikke en garanti for tilgjengelighet ved
-  FPL-deadline. Historikken er forskjøvet per kamp. En kamp senere i samme
-  gameweek kan ha historikk fra en tidligere kamp i runden. Resultatene her
-  gjelder prediksjon før hver kamp. Deadline-backtesting krever at alle
-  historiske input rekonstrueres ved deadline.
-- 2025–26 er allerede undersøkt i utforskningsnotebooken og er ikke en urørt
-  bekreftende test. Denne sammenligningen tuner ikke på den sesongen.
-- 322 Assistant Manager-rader i 2024–25 er utelatt. Null minutter beholdes.
-  Omtrent 60 prosent av radene har null poeng; samlet MAE alene er derfor
-  utilstrekkelig. Rapportene viser posisjon, faktisk spilletid, gameweek,
-  kalibrering og topp-k-rangering.
-- Topp-k summerer doble kamper per spiller/gameweek, men er retrospektiv og
-  har ingen budsjett-, lag- eller posisjonsbegrensninger. Dummy-topplister er
-  vilkårlige ved lik prediksjon. Dette er ikke en FPL-strategibacktest.
-- Markedsfeatures og xP er utelatt. `position` og `was_home` er eksplisitte
-  REVIEW-unntak. `target_points` og andre kamputfall går aldri inn i X.
-- Imputering, skalering og fjerning av konstante/tomme features tilpasses
-  treningsdata. xG/xA per 90 har mye NaN ved liten/ingen tidligere spilletid;
-  det behandles som manglende data, ikke null prestasjon.
+- SAFE features are calculated before each fixture. They are not certified deadline features: later fixtures in a double gameweek can incorporate earlier results from that gameweek.
+- The 2025–26 season has already been explored and is no longer a pristine holdout. Do not tune further on it.
+- The dataset excludes 322 Assistant Manager rows from 2024–25 and retains zero-minute players. Roughly 60% of outcomes are zero points; segmented metrics matter.
+- Top-k metrics aggregate double-gameweek points retrospectively and do not enforce a legal squad or budget.
+- Historical `xP` and market fields are excluded. Position and home/away fields require explicit timing review. Targets never enter X.
+- Preprocessing fits training data only. Missing xG stays missing rather than becoming zero.
 
-Neste nyttige forbedring er historikk ved FPL-deadline og validering på flere
-tidligere tidsperioder. Det vil gi et sikrere grunnlag enn å utvide til flere
-hundre features ut fra den ene holdout-sesongen.
+Next steps are more chronological folds and verified deadline-history snapshots. See `IMPROVED_RESULTS.md`, `NEXTGEN_RESULTS.md` and `DEADLINE_BACKTEST.md` for subsequent experiments and limitations.

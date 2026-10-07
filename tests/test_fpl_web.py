@@ -24,7 +24,7 @@ def player(player_id: int, name: str, position: str, points: float) -> dict:
 class FPLWebTests(unittest.TestCase):
     def setUp(self):
         self.squad = pd.DataFrame([
-            player(1, "Keeper", "GK", 4.0),
+            player(1, "Goalkeeper", "GK", 4.0),
             player(2, "Defender", "DEF", 5.0),
         ])
         self.team = ImportedTeam(
@@ -37,10 +37,10 @@ class FPLWebTests(unittest.TestCase):
 
     def test_player_table_formats_model_data_without_mutating_source(self):
         shown = player_table(self.squad, self.team, "selling_price")
-        self.assertEqual(shown.iloc[0]["Spiller"], "Keeper")
-        self.assertEqual(shown.iloc[0]["Pris (£m)"], 5.5)
+        self.assertEqual(shown.iloc[0]["Player"], "Goalkeeper")
+        self.assertEqual(shown.iloc[0]["Price (£m)"], 5.5)
         self.assertEqual(shown.iloc[0]["P(60+)"], 75.0)
-        self.assertIn("Profilscore", shown)
+        self.assertIn("Profile score", shown)
         self.assertNotIn("_position_order", self.squad)
 
     def test_transfer_table_marks_exact_plan(self):
@@ -50,8 +50,8 @@ class FPLWebTests(unittest.TestCase):
             "net_gain": 2.5, "is_global_optimum": True,
         }])
         shown = transfer_table(raw, self.team)
-        self.assertEqual(shown.iloc[0]["Globalt optimum"], "Ja")
-        self.assertEqual(shown.iloc[0]["Profilgevinst"], 2.5)
+        self.assertEqual(shown.iloc[0]["Global optimum"], "Yes")
+        self.assertEqual(shown.iloc[0]["Profile gain"], 2.5)
 
     def test_streamlit_empty_state_smoke(self):
         from streamlit.testing.v1 import AppTest

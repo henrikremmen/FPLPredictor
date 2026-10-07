@@ -19,13 +19,13 @@ export default function Pitch() {
             <>
               <View style={styles.header}>
                 <Text style={typography.title}>{data.lineup.formation}</Text>
-                <Text style={styles.subtitle}>GW{data.target_event} · optimalt laguttak</Text>
+                <Text style={styles.subtitle}>GW{data.target_event} · optimal lineup</Text>
               </View>
               <Card>
                 <View style={styles.statRow}>
-                  <Stat label="Forventet" value={formatPoints(data.lineup.expected_total)} tone="positive" />
-                  <Stat label="Prognose (m/ kaptein)" value={formatPoints(data.lineup.projected_total)} />
-                  <Stat label="Kapteinsmargin" value={formatPoints(data.lineup.captain_margin)} />
+                  <Stat label="Expected" value={formatPoints(data.lineup.expected_total)} tone="positive" />
+                  <Stat label="Forecast (including captain)" value={formatPoints(data.lineup.projected_total)} />
+                  <Stat label="Captain margin" value={formatPoints(data.lineup.captain_margin)} />
                 </View>
                 <Text style={styles.caption}>
                   C {captain?.name ?? "–"} · VC {vice?.name ?? "–"}

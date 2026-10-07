@@ -15,13 +15,13 @@ export default function Strategy() {
   const [view, setView] = useState<PanelView>("strategy");
   return (
     <Screen>
-      <Text style={typography.title}>Strategisenter</Text>
+      <Text style={typography.title}>Strategy centre</Text>
       <Segmented
         value={view}
         onChange={setView}
         options={[
           { value: "strategy", label: "Strategi" },
-          { value: "plan", label: "Flerukersplan" },
+          { value: "plan", label: "Multiweek plan" },
           { value: "chips", label: "Chips" },
         ]}
       />
@@ -48,12 +48,12 @@ function StrategyPanel() {
             <Text style={typography.eyebrow}>GW{data.target_event}</Text>
             <Text style={typography.heading}>{data.headline}</Text>
             <Text style={styles.caption}>
-              Deadline om {data.deadline.hours_remaining != null ? `${data.deadline.hours_remaining.toFixed(1)} t` : "ukjent tid"}
+              Deadline om {data.deadline.hours_remaining != null ? `${data.deadline.hours_remaining.toFixed(1)} t` : "unknown time"}
             </Text>
           </Card>
 
           {data.actions.length > 0 ? (
-            <Section title="Anbefalte handlinger">
+            <Section title="Recommended actions">
               <View style={{ gap: spacing.sm }}>
                 {data.actions.map((action, index) => (
                   <Card key={index}>
@@ -68,7 +68,7 @@ function StrategyPanel() {
             </Section>
           ) : null}
 
-          <Section title="Bytteanbefaling">
+          <Section title="Transfer recommendation">
             <Card>
               <Text style={styles.actionTitle}>{data.transfer.title}</Text>
               <Text style={styles.caption}>{data.transfer.reason}</Text>
@@ -78,8 +78,8 @@ function StrategyPanel() {
                 </Text>
               ) : null}
               <View style={styles.statRow}>
-                <Text style={styles.caption}>Kostnad: {data.transfer.hit ? `−${data.transfer.hit}` : "0"}</Text>
-                <Text style={styles.caption}>Tillit: {data.transfer.confidence}</Text>
+                <Text style={styles.caption}>Cost: {data.transfer.hit ? `−${data.transfer.hit}` : "0"}</Text>
+                <Text style={styles.caption}>Confidence: {data.transfer.confidence}</Text>
               </View>
               {data.transfer.warnings.map((warning, index) => (
                 <Text key={index} style={styles.warning}>
@@ -89,7 +89,7 @@ function StrategyPanel() {
             </Card>
           </Section>
 
-          <Section title="Kaptein">
+          <Section title="Captain">
             <Card>
               <Text style={styles.actionTitle}>
                 C {data.captain.captain.name} · VC {data.captain.vice_captain.name}
@@ -98,10 +98,10 @@ function StrategyPanel() {
             </Card>
           </Section>
 
-          <Section title="Troppshelse" subtitle={data.squad_health.rating}>
+          <Section title="Squad health" subtitle={data.squad_health.rating}>
             <Card>
               <Text style={styles.caption}>
-                {data.squad_health.playable_players} spillbare · {data.squad_health.flagged_players.length} flagget
+                {data.squad_health.playable_players} Playable · {data.squad_health.flagged_players.length} flagged
               </Text>
               {data.squad_health.flagged_starters.map((player) => (
                 <Text key={player.id} style={styles.warning}>
@@ -112,28 +112,28 @@ function StrategyPanel() {
           </Section>
 
           {data.price_alerts.available ? (
-            <Section title="Prisvarsler">
+            <Section title="Price alerts">
               <Card>
                 {data.price_alerts.owned_at_risk.map((player) => (
                   <Text key={player.id} style={styles.warning}>
-                    Fallende: {player.name}
+                    Falling: {player.name}
                   </Text>
                 ))}
                 {data.price_alerts.targets_rising.map((player) => (
                   <Text key={player.id} style={styles.body}>
-                    Stigende: {player.name}
+                    Rising: {player.name}
                   </Text>
                 ))}
               </Card>
             </Section>
           ) : null}
 
-          <Section title="Watchlist" subtitle="Topp mål">
+          <Section title="Watchlist" subtitle="Top targets">
             <Card>
               {data.watchlists.top_targets.slice(0, 8).map((player) => (
                 <View key={player.id} style={styles.watchRow}>
                   <Text style={styles.body}>{player.name}</Text>
-                  <Text style={styles.caption}>{formatPoints(player.decision_points)}p</Text>
+                  <Text style={styles.caption}>{formatPoints(player.decision_points)} pts</Text>
                 </View>
               ))}
             </Card>
@@ -159,7 +159,7 @@ function PlanPanel() {
           <>
             <Card>
               <View style={styles.statRow}>
-                <Text style={styles.caption}>Total: {formatPoints(data.total_projected_points)}p</Text>
+                <Text style={styles.caption}>Total: {formatPoints(data.total_projected_points)} pts</Text>
                 {data.global_optimum ? <Badge label="Global optimum" tone="positive" /> : null}
               </View>
               <Text style={styles.caption}>{data.caveat}</Text>
@@ -186,15 +186,15 @@ function PlanWeekCard({ week }: { week: PlanWeek }) {
           {week.transfers_out.join(", ")} → {week.transfers_in.join(", ")}
         </Text>
       ) : (
-        <Text style={styles.caption}>Ingen bytter (rull)</Text>
+        <Text style={styles.caption}>No transfers (roll)</Text>
       )}
       <View style={styles.statRow}>
         <Text style={styles.caption}>Bank {formatMoney(week.bank)}</Text>
         <Text style={styles.caption}>FT {week.free_transfers_before}</Text>
-        <Text style={styles.caption}>{week.hit ? `Hit −${week.hit}` : "Ingen hit"}</Text>
+        <Text style={styles.caption}>{week.hit ? `Hit −${week.hit}` : "No hit"}</Text>
       </View>
-      <Text style={styles.caption}>Kaptein: {week.captain}</Text>
-      <Text style={styles.body}>{formatPoints(week.projected_points)}p</Text>
+      <Text style={styles.caption}>Captain: {week.captain}</Text>
+      <Text style={styles.body}>{formatPoints(week.projected_points)} pts</Text>
     </Card>
   );
 }
@@ -215,7 +215,7 @@ function ChipsPanel() {
         {(data) => (
           <>
             <Card>
-              <Text style={typography.eyebrow}>Anbefaling</Text>
+              <Text style={typography.eyebrow}>Recommendation</Text>
               <Text style={typography.heading}>{data.recommendation}</Text>
               <Text style={styles.caption}>{data.summary}</Text>
             </Card>
@@ -229,7 +229,7 @@ function ChipsPanel() {
                     </View>
                     <Text style={styles.caption}>{candidate.reason}</Text>
                     <Text style={styles.caption}>
-                      GW{candidate.event} · gevinst {formatPoints(candidate.gain)}p · terskel {formatPoints(candidate.threshold, 1)}
+                      GW{candidate.event} · gain {formatPoints(candidate.gain)} pts · threshold {formatPoints(candidate.threshold, 1)}
                     </Text>
                   </Card>
                 ))}
@@ -239,7 +239,7 @@ function ChipsPanel() {
         )}
       </QueryState>
 
-      <Section title="Wildcard-tropp" subtitle="Foreslått fullopptrukket lag">
+      <Section title="Wildcard squad" subtitle="Recommended full squad">
         <QueryState query={squads}>
           {(data) => (
             <Card>
@@ -247,7 +247,7 @@ function ChipsPanel() {
                 {data.wildcard.formation} · C {data.wildcard.captain}
               </Text>
               <Text style={styles.caption}>
-                {formatMoney(data.wildcard.money_left)} igjen · {formatPoints(data.wildcard.projected_points)}p
+                {formatMoney(data.wildcard.money_left)} remaining · {formatPoints(data.wildcard.projected_points)} pts
               </Text>
               <Text style={styles.body}>{data.wildcard.squad.map((player) => player.name).join(", ")}</Text>
             </Card>

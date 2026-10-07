@@ -148,7 +148,7 @@ class FPLAppTests(unittest.TestCase):
     def test_invalid_manual_change_does_not_mutate_team(self):
         original_ids = self.team.squad.id.tolist()
         original_bank = self.team.bank
-        with self.assertRaisesRegex(AppError, "samme posisjon"):
+        with self.assertRaisesRegex(AppError, "same position"):
             apply_manual_squad_changes(
                 self.team, [{"out_id": 12, "in_id": 17}], "synchronize",
                 bank=0, free_transfers=0,
@@ -246,11 +246,11 @@ class FPLAppTests(unittest.TestCase):
         self.assertEqual(suggestions.iloc[0]["in"], "M6")
 
     def test_targeted_transfer_rejects_invalid_selection(self):
-        with self.assertRaisesRegex(AppError, "likt antall"):
+        with self.assertRaisesRegex(AppError, "equal the number"):
             recommend_transfers(self.team, number=2, forced_outgoing=[11])
-        with self.assertRaisesRegex(AppError, "aktive troppen"):
+        with self.assertRaisesRegex(AppError, "active squad"):
             recommend_transfers(self.team, number=1, forced_outgoing=[16])
-        with self.assertRaisesRegex(AppError, "flere ganger"):
+        with self.assertRaisesRegex(AppError, "several times"):
             recommend_transfers(self.team, number=2, forced_outgoing=[11, 11])
 
     def test_best_two_transfer_plan_is_globally_optimized(self):

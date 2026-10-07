@@ -18,15 +18,15 @@ export default function Analytics() {
 
   return (
     <Screen>
-      <Text style={typography.title}>Analyse</Text>
+      <Text style={typography.title}>Analysis</Text>
       <Segmented
         value={tab}
         onChange={setTab}
         options={[
           { value: "manager", label: "Manager" },
           { value: "gameweek", label: "GW" },
-          { value: "league", label: "Miniliga" },
-          { value: "decisions", label: "EO/Differensial" },
+          { value: "league", label: "Mini-league" },
+          { value: "decisions", label: "EO/Differentials" },
         ]}
       />
       <QueryState query={analytics}>
@@ -81,19 +81,19 @@ function ManagerTab({ data }: { data: ManagerAnalytics }) {
       <Card>
         <Text style={typography.eyebrow}>{data.team_name}</Text>
         <View style={styles.statRow}>
-          <Stat label="Totalpoeng" value={String(data.summary.total_points)} />
+          <Stat label="Total points" value={String(data.summary.total_points)} />
           <Stat label="Rank" value={formatRank(data.summary.overall_rank)} />
-          <Stat label="Persentil" value={data.summary.percentile != null ? formatPercent(100 - data.summary.percentile) : "–"} />
+          <Stat label="Percentile" value={data.summary.percentile != null ? formatPercent(100 - data.summary.percentile) : "–"} />
         </View>
         <View style={styles.statRow}>
-          <Stat label="Snitt/GW" value={data.summary.average_points.toFixed(1)} />
-          <Stat label="Mot globalt snitt" value={data.summary.points_vs_global_average.toFixed(1)} tone={data.summary.points_vs_global_average >= 0 ? "positive" : "negative"} />
+          <Stat label="Average/GW" value={data.summary.average_points.toFixed(1)} />
+          <Stat label="Vs global average" value={data.summary.points_vs_global_average.toFixed(1)} tone={data.summary.points_vs_global_average >= 0 ? "positive" : "negative"} />
         </View>
       </Card>
       <Section title="Global benchmark" subtitle={data.global_benchmark.sample_label}>
         <Card>
           <Text style={styles.caption}>
-            {data.global_benchmark.sample_size} lag i utvalget · snitt {data.global_benchmark.sample_average_total ?? "–"}
+            {data.global_benchmark.sample_size} teams in sample · average {data.global_benchmark.sample_average_total ?? "–"}
           </Text>
           {data.global_benchmark.ownership.slice(0, 6).map((row) => (
             <View key={row.id} style={styles.watchRow}>
@@ -108,10 +108,10 @@ function ManagerTab({ data }: { data: ManagerAnalytics }) {
           {data.timeline.slice(-8).map((row) => (
             <View key={row.event} style={styles.timelineRow}>
               <Text style={styles.body}>GW{row.event}</Text>
-              <Text style={styles.body}>{row.points}p</Text>
+              <Text style={styles.body}>{row.points} pts</Text>
               <Text style={[styles.caption, { color: row.vs_average >= 0 ? colors.accent : colors.danger }]}>
                 {row.vs_average >= 0 ? "+" : ""}
-                {row.vs_average.toFixed(0)} vs snitt
+                {row.vs_average.toFixed(0)} vs average
               </Text>
             </View>
           ))}
@@ -127,20 +127,20 @@ function GameweekTab({ data }: { data: ManagerAnalytics }) {
     <>
       <Card>
         <Text style={typography.eyebrow}>GW{gw.event}</Text>
-        <Text style={typography.heading}>{gw.points} poeng</Text>
-        <Text style={styles.caption}>Tapt benkpoeng: {gw.missed_bench_points}</Text>
+        <Text style={typography.heading}>{gw.points} points</Text>
+        <Text style={styles.caption}>Missed bench points: {gw.missed_bench_points}</Text>
       </Card>
-      <Section title="Beste bidragsytere">
+      <Section title="Best contributors">
         <Card>
           {gw.best_contributors.map((player) => (
             <View key={player.id} style={styles.watchRow}>
               <Text style={styles.body}>{player.name}</Text>
-              <Text style={styles.caption}>{player.effective_points}p</Text>
+              <Text style={styles.caption}>{player.effective_points} pts</Text>
             </View>
           ))}
         </Card>
       </Section>
-      <Section title="Gevinst mot liga">
+      <Section title="Gains against the League">
         <Card>
           {gw.top_gains.map((row) => (
             <View key={row.id} style={styles.watchRow}>
@@ -164,7 +164,7 @@ function LeagueTab({ data }: { data: ManagerAnalytics }) {
   if (!data.league) {
     return (
       <Card>
-        <Text style={styles.caption}>Ingen miniliga tilgjengelig for dette laget ennå.</Text>
+        <Text style={styles.caption}>No mini-league is available for this team yet.</Text>
       </Card>
     );
   }
@@ -174,20 +174,20 @@ function LeagueTab({ data }: { data: ManagerAnalytics }) {
       <Card>
         <Text style={typography.eyebrow}>{league.name}</Text>
         <View style={styles.statRow}>
-          <Stat label="Din rank" value={formatRank(league.your_rank)} />
-          <Stat label="Gap til leder" value={league.gap_to_leader != null ? String(league.gap_to_leader) : "–"} />
+          <Stat label="Your Rank" value={formatRank(league.your_rank)} />
+          <Stat label="Gap to Leader" value={league.gap_to_leader != null ? String(league.gap_to_leader) : "–"} />
           <Badge label={league.mode} />
         </View>
         <Text style={styles.caption}>{league.advice}</Text>
       </Card>
-      <Section title="Tabell">
+      <Section title="Table">
         <Card>
           {league.standings.slice(0, 10).map((row) => (
             <View key={row.entry} style={styles.watchRow}>
               <Text style={[styles.body, row.is_you && { color: colors.accent }]}>
                 {row.rank ?? "–"}. {row.team_name}
               </Text>
-              <Text style={styles.caption}>{row.total_points}p</Text>
+              <Text style={styles.caption}>{row.total_points} pts</Text>
             </View>
           ))}
         </Card>
@@ -201,7 +201,7 @@ function DecisionRow({ player }: { player: AnalyticsDecisionPlayer }) {
     <View style={styles.watchRow}>
       <Text style={styles.body}>{player.name}</Text>
       <Text style={styles.caption}>
-        Liga-EO {formatPercent(player.league_effective_ownership)} · Topp-EO {formatPercent(player.top10k_effective_ownership)}
+        Liga-EO {formatPercent(player.league_effective_ownership)} · Top EO {formatPercent(player.top10k_effective_ownership)}
       </Text>
     </View>
   );
@@ -211,21 +211,21 @@ function DecisionsTab({ data }: { data: ManagerAnalytics }) {
   const decisions = data.decisions;
   return (
     <>
-      <Section title="Differensialer">
+      <Section title="Differentials">
         <Card>
           {decisions.differentials.map((player) => (
             <DecisionRow key={player.id} player={player} />
           ))}
         </Card>
       </Section>
-      <Section title="Rank-trusler">
+      <Section title="Rank threats">
         <Card>
           {decisions.threats.map((player) => (
             <DecisionRow key={player.id} player={player} />
           ))}
         </Card>
       </Section>
-      <Section title="Kapteinsmatrise">
+      <Section title="Captain matrix">
         <Card>
           {decisions.captain_matrix.map((player) => (
             <DecisionRow key={player.id} player={player} />

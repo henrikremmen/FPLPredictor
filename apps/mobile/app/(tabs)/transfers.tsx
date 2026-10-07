@@ -35,7 +35,7 @@ export default function Transfers() {
 
   return (
     <Screen>
-      <Text style={typography.title}>Bytter</Text>
+      <Text style={typography.title}>Transfers</Text>
 
       <View style={styles.countRow}>
         {COUNTS.map((count) => (
@@ -55,14 +55,14 @@ export default function Transfers() {
       </View>
 
       <View style={styles.modeRow}>
-        <ModeButton label="Fri optimering" active={!targeted} onPress={() => toggleTargeted(false)} />
-        <ModeButton label="Målrettet salg" active={targeted} onPress={() => toggleTargeted(true)} />
+        <ModeButton label="Unrestricted optimisation" active={!targeted} onPress={() => toggleTargeted(false)} />
+        <ModeButton label="Targeted sales" active={targeted} onPress={() => toggleTargeted(true)} />
       </View>
 
       {targeted ? (
         <QueryState query={team}>
           {(data) => (
-            <Section title="Velg spillere som skal selges" subtitle={`${selected.length}/${number} valgt`}>
+            <Section title="Select players to be sold" subtitle={`${selected.length}/${number} selected`}>
               <Card>
                 {data.squad.map((player) => {
                   const isSelected = selected.includes(player.id);
@@ -76,7 +76,7 @@ export default function Transfers() {
                     >
                       <Text style={[styles.selectName, isSelected && { color: colors.accent }]}>{player.name}</Text>
                       <Text style={styles.selectMeta}>{player.position}</Text>
-                      {isSelected ? <Badge label="Valgt" tone="positive" /> : null}
+                      {isSelected ? <Badge label="Selected" tone="positive" /> : null}
                     </Pressable>
                   );
                 })}
@@ -87,8 +87,8 @@ export default function Transfers() {
       ) : null}
 
       {ready ? (
-        <Section title="Byttealternativer">
-          <QueryState query={plans} isEmpty={(data) => data.plans.length === 0} emptyLabel="Fant ingen lovlige byttealternativer.">
+        <Section title="Transfer options">
+          <QueryState query={plans} isEmpty={(data) => data.plans.length === 0} emptyLabel="No legal transfer options were found.">
             {(data) => (
               <View style={{ gap: spacing.sm }}>
                 {data.plans.slice(0, 10).map((plan, index) => (
@@ -100,9 +100,9 @@ export default function Transfers() {
                       {plan.is_global_optimum ? <Badge label="Global optimum" tone="positive" /> : null}
                     </View>
                     <View style={styles.planStats}>
-                      <PlanStat label="Netto gevinst" value={formatPoints(plan.net_gain)} />
-                      <PlanStat label="Kostnad" value={plan.hit ? `−${plan.hit}` : "0"} />
-                      <PlanStat label="Penger igjen" value={formatMoney(plan.money_left)} />
+                      <PlanStat label="Net gain" value={formatPoints(plan.net_gain)} />
+                      <PlanStat label="Cost" value={plan.hit ? `−${plan.hit}` : "0"} />
+                      <PlanStat label="Money remaining" value={formatMoney(plan.money_left)} />
                     </View>
                   </Card>
                 ))}
@@ -111,7 +111,7 @@ export default function Transfers() {
           </QueryState>
         </Section>
       ) : (
-        <Text style={styles.caption}>Velg {number} spiller(e) som skal selges for å se forslag.</Text>
+        <Text style={styles.caption}>Select {number} player(s) to be sold to see suggestions.</Text>
       )}
     </Screen>
   );

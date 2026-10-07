@@ -33,9 +33,9 @@ class StrategyAdvisorTests(unittest.TestCase):
         row["ep_next"] = 2.8
         warnings = _transfer_warnings(pd.DataFrame([row]), ["P1"], [], False)
         self.assertEqual(len(warnings), 3)
-        self.assertTrue(any("global optimalitet" in warning for warning in warnings))
-        self.assertTrue(any("FPLs eget" in warning for warning in warnings))
-        self.assertTrue(any("prisoppgang" in warning for warning in warnings))
+        self.assertTrue(any("global optimality" in warning for warning in warnings))
+        self.assertTrue(any("FPL's own" in warning for warning in warnings))
+        self.assertTrue(any("price rise" in warning for warning in warnings))
 
     def test_builds_roll_decision_health_captain_and_price_radar(self):
         positions = ["GK"] * 2 + ["DEF"] * 5 + ["MID"] * 5 + ["FWD"] * 3

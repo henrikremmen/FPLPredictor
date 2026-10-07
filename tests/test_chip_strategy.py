@@ -73,9 +73,9 @@ class ChipStrategyTests(unittest.TestCase):
                       if row["chip"] == "triple_captain" and row["event"] == 5)
         self.assertEqual(triple["gain"], 10.0)
         self.assertIn(result["recommendation"], [
-            "Triple Captain i GW5", "Triple Captain i GW6",
-            "Wildcard i GW5", "Wildcard → Bench Boost i GW5",
-            "Spar chips foreløpig",
+            "Triple Captain in GW5", "Triple Captain in GW6",
+            "Wildcard in GW5", "Wildcard → Bench Boost in GW5",
+            "Save chips for now",
         ])
         self.assertTrue(result["horizon_limited"])
 

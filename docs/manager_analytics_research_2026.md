@@ -1,131 +1,98 @@
-# Manageranalyse, miniliga og rank-risk
+# Manager analytics, mini-leagues and rank risk
 
-Oppdatert 18. september 2026. Målet er å støtte beslutningene til en ambisiøs
-FPL-manager uten innlogging eller private API-endepunkter.
+Updated 18 September 2026. The aim is to support ambitious FPL managers using
+public endpoints, without login or access to private account data.
 
-## Hva en god analyse må skille mellom
+## Separate outcomes from decision quality
 
-1. **Resultat:** faktiske poeng, totalrank, ligarank og lagverdi.
-2. **Prosess:** kapteinsvalg, benkevalg, hits og umiddelbar transfersving.
-3. **Relativ effekt:** hva et spillerpoeng var verdt mot akkurat feltet.
-4. **Fremtidig beslutning:** modellforventning kombinert med liga- og
-   topprank-EO, tilgjengelighet, pris og horisont.
+1. **Outcome:** actual points, overall rank, league rank and team value.
+2. **Process:** captaincy, bench decisions, hits and immediate transfer swings.
+3. **Relative impact:** the value of a player's points against the relevant field.
+4. **Future decisions:** model expectations, league/top-rank EO, availability,
+   price and planning horizon.
 
-Poeng alene kan ikke fortelle om beslutningen var god. Et modellsterkt valg kan
-gi et dårlig enkeltutfall, mens et svakt valg kan lykkes. Appen viser derfor
-både historisk utfall og fremoverskuende forventning.
+A strong decision can have a bad outcome and vice versa. The app therefore shows
+historical results alongside forward-looking expectations.
 
 ## Effective ownership
 
-Premier Leagues egen ordliste definerer en differensial som en spiller under
-10 prosent eierskap og EO som startandel pluss kapteinsandel. Høy EO betyr at
-et avkastende spiller du ikke har kan skade ranken, mens lav EO gir større
-positiv rankeffekt dersom du eier spilleren:
-
-- https://www.premierleague.com/en/news/2683145
-
-For en konkret liga beregner appen den mer generelle og eksakte formen:
+The [Premier League glossary](https://www.premierleague.com/en/news/2683145)
+defines a differential as a player below 10% ownership and EO as starting share
+plus captain share. The app uses the general multiplier formulation:
 
 ```text
-EO = 100 × sum(poengmultiplikator) / antall analyserte managere
-relativt spillerbidrag = spillerpoeng × (din multiplikator − EO / 100)
+EO = 100 × sum(points multipliers) / number of analysed managers
+relative player contribution = player points × (your multiplier − EO / 100)
 ```
 
-Dette håndterer benk, kaptein, Triple Captain og Bench Boost uten egne
-spesialregler. Summen over alle spillere viser omtrent hvor mye laget vant eller
-tapte mot ligaens gjennomsnittlige tellende XI, før individuelle transferhits.
+This handles the bench, captaincy, Triple Captain and Bench Boost. Summed across
+players, relative contribution approximates gains/losses against the league's
+average scoring lineup, before individual transfer hits.
 
-EO må måles i riktig felt. LiveFPL beskriver hvorfor topprank-EO kan avvike mye
-fra samlet globalt eierskap og bruker selv utvalg på tvers av ranknivåer:
+EO must describe the relevant field.
+[LiveFPL's explanation](https://www.livefpl.com/blog/fpl-effective-ownership)
+shows why top-rank EO differs from overall ownership. The app displays:
 
-- https://www.livefpl.com/blog/fpl-effective-ownership
+- Overall FPL ownership.
+- Exact mini-league EO, or a labelled sample for leagues above 100 members.
+- A stratified sample of 25 public teams around ranks 1, 2,500, 5,000, 7,500 and
+  10,000. This is an indicator, not a census of the top 10,000.
 
-Appen viser derfor tre forskjellige signaler:
+## Captaincy and risk
 
-- samlet globalt eierskap fra FPL
-- eksakt EO i miniligaen, eller et merket utvalg i ligaer over 100 medlemmer
-- et stratifisert utvalg på 25 offentlige lag rundt rank 1, 2 500, 5 000,
-  7 500 og 10 000
+[FPL winner Ali Jahangirov](https://www.premierleague.com/en/news/3527473)
+discusses captaincy when protecting a position or chasing. A popular captain
+reduces relative variance; a model-backed alternative can help close a gap.
 
-Topprank-utvalget er en indikator, ikke en full opptelling av topp 10 000.
+- **Protect:** league leader; prioritise expected points and major EO threats.
+- **Balanced:** early/mid-season or a manageable gap; expected points first,
+  differentials only when supported by the model.
+- **Chase:** at least 20 points behind with eight or fewer rounds remaining;
+  consider model-backed differentials and an alternative captain.
 
-## Kaptein og risikoprofil
+The captain matrix's isolated rank advantage is
+`model points × (2 − league EO/100)`. It does not subtract the opportunity cost
+of not captaining the second-best candidate, so it cannot determine captaincy alone.
 
-FPL-vinner Ali Jahangirov fremhever at kapteinen bør ses i lys av om manageren
-jager eller forsvarer en posisjon. Populær kaptein reduserer varians; et
-modellsterkt avvik kan være riktig når en må hente inn et gap:
+## Public data
 
-- https://www.premierleague.com/en/news/3527473
+- `entry/{id}/history/`: points, rank, hits, bench and value by Gameweek.
+- `entry/{id}/event/{gw}/picks/`: locked squad, bench and captain.
+- `event/{gw}/live/`: actual player points and minutes.
+- `entry/{id}/transfers/`: incoming and outgoing players.
+- `leagues-classic/{id}/standings/`: league standings and overall-rank sample.
+- `bootstrap-static/`: ownership, Gameweek averages and player metadata.
 
-Appen bruker dette slik:
+Endpoint reference: [FPL API documentation](https://github.com/jakesmith1997-sfc/fpl-api).
+Public picks appear only after the deadline. Exact authenticated bank, free
+transfers and pending moves remain outside the analysis.
 
-- **Protect:** ligaleder; prioriter forventede poeng og store EO-trusler.
-- **Balanced:** tidlig/midt i sesongen eller håndterbart gap; forventede poeng
-  først, differensialer bare med modellstøtte.
-- **Chase:** minst 20 poeng bak med åtte eller færre runder igjen; større vekt
-  på modellsterke liga-differensialer og avvikende kaptein.
+## App tabs
 
-Kapteinsmatrisens isolerte rank-edge er
-`modellpoeng × (2 − liga-EO/100)`. Den rangerer ikke alene kapteinsvalget, fordi
-den ikke trekker fra alternativkostnaden ved å ikke kapteine nest beste spiller.
+**Season:** points against the global average, cumulative difference, overall
+rank and percentile, best/worst round, value, positional contributions,
+captain bonus/opportunity, bench points, hits, gross transfer swings and
+comparison with the stratified sample.
 
-## Offentlig datagrunnlag
+**Gameweek:** the actual 15-player historical squad, minutes, raw/counting
+points, global ownership and league EO; largest positive and negative relative
+contributions, including players the manager did not own.
 
-Analysen bruker disse lesbare FPL-endepunktene:
+**Mini-league:** standings, gap, rank history, league template, starting/captain
+shares, EO and explicit protect/balanced/chase mode.
 
-- `entry/{id}/history/`: poeng, rank, hits, benk og verdi per Gameweek
-- `entry/{id}/event/{gw}/picks/`: låst squad, benk og kaptein
-- `event/{gw}/live/`: faktiske spillerpoeng og minutter
-- `entry/{id}/transfers/`: spillere inn og ut
-- `leagues-classic/{id}/standings/`: miniligatabell og overall-utvalg
-- `bootstrap-static/`: globalt eierskap, Gameweek-snitt og spillermetadata
+**Risk & differentials:** model-backed unowned players with low league EO,
+high-projection unowned threats, owned-player leverage and the captain matrix,
+using both league and sampled top-rank EO.
 
-Endepunktene er dokumentert og live-verifisert her:
+## Performance and interpretation
 
-- https://github.com/jakesmith1997-sfc/fpl-api
+Responses are cached for five minutes. Independent histories/picks use at most
+eight concurrent requests. A missing rival endpoint reduces the sample rather
+than failing the entire report. Large leagues are capped at 100 managers and
+labelled as samples.
 
-Offentlige picks blir først tilgjengelige etter deadline. Autentisert bank,
-gratisbytter og ventende transfers er derfor fortsatt utenfor analysen.
-
-## Fanene
-
-### Sesong
-
-- poeng mot globalt Gameweek-snitt og kumulativ differanse
-- overall rank, rankflytt og persentil
-- beste/svakeste runde, lagverdi og posisjonsbidrag
-- kapteinsbonus, estimert kapteinsmulighet, benkepoeng, hits og brutto
-  transfersving
-- benchmark mot det stratifiserte topprank-utvalget
-
-### Gameweek
-
-- den faktiske 15-mannstroppen fra valgfri historisk Gameweek
-- minutter, råpoeng, tellende poeng, globalt eierskap og liga-EO
-- største positive og negative relative spillere, også spillere manageren ikke
-  eide
-
-### Miniliga
-
-- tabell, gap til leder og historisk ligarank
-- league template, startandel, kapteinsandel og EO
-- eksplisitt protect/balanced/chase-modus
-
-### Risiko og differensialer
-
-- modellsterke, ikke-eide spillere med lav liga-EO
-- høyt projiserte, ikke-eide rank-trusler
-- egen leverage og kapteinsmatrise
-- både liga-EO og EO i topprank-utvalget
-
-## Ytelse og pålitelighet
-
-FPL-svar caches i fem minutter. Uavhengige picks og historikker hentes med
-maks åtte samtidige forespørsler. Ett manglende rivalendepunkt (for eksempel en
-manager som startet senere) skal redusere utvalget, ikke velte hele analysen.
-Store ligaer begrenses til 100 managere og merkes som utvalg.
-
-Transfer-sving er brutto poengforskjell mellom spiller inn og ut i samme runde;
-det er ikke en kausal vurdering og inkluderer ikke fremtidige poeng. Kapteins-
-mulighet sammenligner med beste spiller i egen tellende XI og er en retrospektiv
-mulighetskostnad, ikke et mål på kvaliteten på informasjonen før deadline.
+Transfer swing is the same-round gross points difference between incoming and
+outgoing players. It is not causal and excludes future points. Captain
+opportunity compares against the best player in the scoring XI; it is a
+retrospective opportunity cost, not a measure of pre-deadline information quality.

@@ -44,7 +44,7 @@ def parse_entry_reference(value: str) -> tuple[int, int | None]:
         return int(value), None
     match = ENTRY_PATTERN.search(value)
     if not match:
-        raise AppError("Ugyldig lagreferanse. Lim inn en FPL-lenke eller et numerisk lag-ID.")
+        raise AppError("Invalid team reference. Paste an FPL URL or a numeric team ID.")
     return int(match.group(1)), int(match.group(2)) if match.group(2) else None
 
 
@@ -121,7 +121,7 @@ class FPLClient:
             response.raise_for_status()
             return response.json()
         except (requests.RequestException, ValueError) as exc:
-            raise AppError(f"Kunne ikke hente FPL-data ({endpoint}): {exc}") from exc
+            raise AppError(f"Could not fetch FPL data ({endpoint}): {exc}") from exc
 
     def initial_prices(self, player_ids: Iterable[int], started_event: int) -> dict[int, int]:
         """Approximate initial acquisition price from public player history."""
@@ -180,8 +180,8 @@ def latest_forecast(root: Path, target_event: int) -> Path:
         if events.tolist() == [target_event]:
             return path
     raise AppError(
-        f"Fant ingen modellprognose for GW{target_event}. "
-        "Oppdater prognosen først (--refresh i terminalappen)."
+        f"No model forecast found for GW{target_event}. "
+        "Refresh the forecast first (--refresh in the terminal app)."
     )
 
 
@@ -201,7 +201,7 @@ def _opponents(fixtures: list[dict], teams: dict[int, str], events: list[int]) -
         home, away = int(fixture["team_h"]), int(fixture["team_a"])
         prefix = f"GW{event}:" if len(events) > 1 else ""
         result.setdefault(home, []).append(f"{prefix}{teams[away]} (H)")
-        result.setdefault(away, []).append(f"{prefix}{teams[home]} (B)")
+        result.setdefault(away, []).append(f"{prefix}{teams[home]} (A)")
     return {team: " + ".join(names) for team, names in result.items()}
 
 
@@ -215,9 +215,9 @@ def build_market(bootstrap: dict, fixtures: list[dict], forecast_path: Path,
         forecasts = forecasts[forecasts["GW"].isin(events)]
     if horizon > 1 or source == horizon_path:
         if source == forecast_path and horizon > 1:
-            raise AppError("Flerukersprognosen mangler. Kjør appen med --refresh først.")
+            raise AppError("The multi-week forecast is missing. Run the app with --refresh first.")
         if forecasts["GW"].nunique() < horizon:
-            raise AppError(f"Prognosen inneholder ikke alle {horizon} ønskede Gameweeks.")
+            raise AppError(f"The forecast does not contain all {horizon} requested Gameweeks.")
     optional = [column for column in [
         "expected_60plus_appearances", "expected_appearances",
         "prediction_q10", "prediction_q50", "prediction_q90",
@@ -322,14 +322,14 @@ def apply_risk_profile(market: pd.DataFrame, profile: str) -> pd.DataFrame:
     Stable penalises wide Q10–Q90 ranges; upside blends the mean with Q90.
     """
     if profile not in {"balanced", "stable", "upside"}:
-        raise AppError("Risikoprofil må være balanced, stable eller upside.")
+        raise AppError("Risk profile must be balanced, stable or upside.")
     result = market.copy()
     if profile == "balanced":
         result["decision_points"] = result["recommended_points"]
         return result
     required = ["recommended_q10", "recommended_q90"]
     if any(column not in result or result[column].isna().any() for column in required):
-        raise AppError("Valgt risikoprofil krever en prognose med Q10–Q90.")
+        raise AppError("The selected risk profile requires a forecast with Q10–Q90.")
     if profile == "stable":
         width = result["recommended_q90"] - result["recommended_q10"]
         result["decision_points"] = result["recommended_points"] - .1 * width
@@ -378,7 +378,7 @@ def import_team(reference: str, root: Path, client: FPLClient | None = None,
                 horizon: int = 1, risk_profile: str = "balanced") -> ImportedTeam:
     client = client or FPLClient()
     if not 1 <= horizon <= 8:
-        raise AppError("Prognosehorisonten må være mellom 1 og 8 Gameweeks.")
+        raise AppError("The forecast horizon must be between 1 and 8 Gameweeks.")
     entry_id, requested_event = parse_entry_reference(reference)
     entry = client.get(f"entry/{entry_id}/")
     bootstrap = client.get("bootstrap-static/")
@@ -387,11 +387,11 @@ def import_team(reference: str, root: Path, client: FPLClient | None = None,
     current_event = int(entry.get("current_event") or 0)
     event = requested_event or current_event
     if event <= 0:
-        raise AppError("Laget har ingen ferdig eller aktiv Gameweek å importere ennå.")
+        raise AppError("The team has no completed or active Gameweek to import yet.")
     picks = client.get(f"entry/{entry_id}/event/{event}/picks/")
     target = next((row for row in bootstrap["events"] if row.get("is_next")), None)
     if target is None:
-        raise AppError("FPL har ikke publisert en neste Gameweek ennå.")
+        raise AppError("FPL hasn't published a next Gameweek yet.")
     target_event = int(target["id"])
     forecast_path = latest_forecast(root, target_event)
     market = apply_risk_profile(
@@ -420,7 +420,7 @@ def import_team(reference: str, root: Path, client: FPLClient | None = None,
     def squad_for(player_market: pd.DataFrame) -> pd.DataFrame:
         result = pick_frame.merge(player_market, on="id", how="left", validate="one_to_one")
         if result["name"].isna().any():
-            raise AppError("Minst én spiller i laget finnes ikke lenger i dagens FPL-register.")
+            raise AppError("At least one player in the team is no longer in the current FPL register.")
         result["purchase_price"] = result["id"].map(purchase).astype(int)
         result["selling_price"] = [
             selling_price(int(purchase[player_id]), int(current_prices[player_id]))
@@ -438,8 +438,8 @@ def import_team(reference: str, root: Path, client: FPLClient | None = None,
         entry_id=entry_id,
         event=event,
         target_event=target_event,
-        manager_name=manager or f"Lag {entry_id}",
-        team_name=entry.get("name", f"Lag {entry_id}"),
+        manager_name=manager or f"Team {entry_id}",
+        team_name=entry.get("name", f"Team {entry_id}"),
         bank=bank,
         free_transfers=estimate_free_transfers(
             history, current_event, int(entry.get("started_event", 1))
@@ -464,19 +464,19 @@ def import_team(reference: str, root: Path, client: FPLClient | None = None,
 
 def _validate_holdings(market: pd.DataFrame, player_ids: list[int]) -> pd.DataFrame:
     if len(player_ids) != 15 or len(set(player_ids)) != 15:
-        raise AppError("Troppen må inneholde 15 unike spillere.")
+        raise AppError("The squad must contain 15 unique players.")
     selected = market[market["id"].isin(player_ids)].copy()
     if len(selected) != 15:
         missing = sorted(set(player_ids) - set(selected["id"].astype(int)))
-        raise AppError(f"Spillere finnes ikke i dagens marked: {missing}")
+        raise AppError(f"Players are not present in today’s market: {missing}")
     counts = selected["position"].value_counts().to_dict()
     if counts != SQUAD_POSITION_COUNTS:
         raise AppError(
-            "Troppen må ha 2 keepere, 5 forsvarere, 5 midtbanespillere og 3 spisser."
+            "The squad must have 2 goalkeepers, 5 defenders, 5 midfielders and 3 forwards."
         )
     clubs = selected["team_id"].astype(int).value_counts()
     if len(clubs) and int(clubs.max()) > 3:
-        raise AppError("Troppen kan ha maksimalt tre spillere fra samme klubb.")
+        raise AppError("The squad can have a maximum of three players from the same club.")
     return selected
 
 
@@ -495,7 +495,7 @@ def _frame_for_holdings(template: pd.DataFrame, market: pd.DataFrame,
     for holding in holdings:
         player_id = int(holding["id"])
         if player_id not in by_id.index:
-            raise AppError(f"Spiller {player_id} finnes ikke i dagens prognose.")
+            raise AppError(f"Player {player_id} is not in the current forecast.")
         market_row = by_id.loc[player_id]
         if isinstance(market_row, pd.DataFrame):
             market_row = market_row.iloc[0]
@@ -554,35 +554,35 @@ def apply_manual_squad_changes(team: ImportedTeam, changes: list[dict], mode: st
                                free_transfers: int | None = None) -> dict:
     """Synchronize completed FPL moves or apply new simulated session moves."""
     if mode not in {"synchronize", "apply_transfers"}:
-        raise AppError("Ukjent korrigeringsmodus.")
+        raise AppError("Unknown correction mode.")
     if not changes:
-        raise AppError("Velg minst ett spillerbytte.")
+        raise AppError("Select at least one transfer.")
     if len(changes) > 5:
-        raise AppError("Maksimalt fem spillerbytter kan lagres samtidig.")
+        raise AppError("A maximum of five transfers can be saved at once.")
     squad = team.squad.set_index("id", drop=False)
     market = team.market.drop_duplicates("id").set_index("id", drop=False)
     outgoing = [int(change["out_id"]) for change in changes]
     incoming = [int(change["in_id"]) for change in changes]
     if len(set(outgoing)) != len(outgoing) or len(set(incoming)) != len(incoming):
-        raise AppError("Samme spiller kan ikke brukes i flere bytter.")
+        raise AppError("The same player cannot be used in multiple transfers.")
     owned = set(squad.index.astype(int))
     if not set(outgoing).issubset(owned):
-        raise AppError("Minst én spiller som skal ut er ikke i troppen.")
+        raise AppError("At least one outgoing player is not in the squad.")
     if set(incoming) & owned:
-        raise AppError("Minst én spiller som skal inn er allerede i troppen.")
+        raise AppError("At least one incoming player is already in the squad.")
     if not set(incoming).issubset(set(market.index.astype(int))):
-        raise AppError("Minst én spiller som skal inn finnes ikke i markedet.")
+        raise AppError("At least one incoming player is not in the market.")
     for out_id, in_id in zip(outgoing, incoming):
         if squad.loc[out_id, "position"] != market.loc[in_id, "position"]:
-            raise AppError("Hvert bytte må være mellom spillere i samme posisjon.")
+            raise AppError("Each transfer must be between players in the same position.")
         if "can_select" in market and not bool(market.loc[in_id, "can_select"]):
-            raise AppError(f"{market.loc[in_id, 'name']} kan ikke velges i FPL nå.")
+            raise AppError(f"{market.loc[in_id, 'name']} can't be selected in the FPL now.")
 
     sales = sum(int(squad.loc[player_id, "selling_price"]) for player_id in outgoing)
     purchases = sum(int(market.loc[player_id, "price"]) for player_id in incoming)
     calculated_bank = int(team.bank + sales - purchases)
     if mode == "apply_transfers" and calculated_bank < 0:
-        raise AppError("Byttene er ikke innenfor tilgjengelig budsjett.")
+        raise AppError("The transfers exceed the available budget.")
 
     holdings = []
     incoming_by_out = dict(zip(outgoing, incoming))
@@ -606,7 +606,7 @@ def apply_manual_squad_changes(team: ImportedTeam, changes: list[dict], mode: st
     before_free = int(team.free_transfers)
     if mode == "synchronize":
         if bank is None or free_transfers is None:
-            raise AppError("Oppgi faktisk bank og gjenværende gratisbytter etter byttene.")
+            raise AppError("Enter the actual bank and remaining free transfers after the moves.")
         new_bank = int(bank)
         new_free_transfers = int(free_transfers)
         hit = 0
@@ -615,9 +615,9 @@ def apply_manual_squad_changes(team: ImportedTeam, changes: list[dict], mode: st
         new_free_transfers = max(0, before_free - len(changes))
         hit = max(0, len(changes) - before_free) * 4
     if new_bank < 0:
-        raise AppError("Banken kan ikke være negativ.")
+        raise AppError("The bank cannot be negative.")
     if not 0 <= new_free_transfers <= 5:
-        raise AppError("Gratisbytter må være mellom 0 og 5.")
+        raise AppError("Free transfers must be between 0 and 5.")
 
     set_team_holdings(team, holdings)
     team.bank = new_bank
@@ -678,7 +678,7 @@ def load_team_override(root: Path, team: ImportedTeam) -> bool:
         team.team_value = int(team.squad["selling_price"].sum() + team.bank)
         return True
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
-        raise AppError(f"Lagret lagkorrigering er ugyldig: {exc}") from exc
+        raise AppError(f"Saved squad correction is invalid: {exc}") from exc
 
 
 def clear_team_override(root: Path, entry_id: int) -> None:
@@ -690,11 +690,11 @@ def clear_team_override(root: Path, entry_id: int) -> None:
 def optimal_lineup(squad: pd.DataFrame) -> dict:
     """Maximise next-GW recommended points under FPL formation rules."""
     if len(squad) != 15:
-        raise AppError(f"Forventet 15 spillere, fant {len(squad)}.")
+        raise AppError(f"Expected 15 players, found {len(squad)}.")
     keepers = squad[squad["position"].eq("GK")]
     outfield = squad[~squad["position"].eq("GK")]
     if len(keepers) != 2:
-        raise AppError("Troppen har ikke nøyaktig to keepere.")
+        raise AppError("The squad does not have exactly two goalkeepers.")
     score_column = "decision_points" if "decision_points" in squad else "recommended_points"
     goalkeeper = keepers.sort_values([score_column, "id"], ascending=[False, True]).iloc[0]
     ranked = {
@@ -721,7 +721,7 @@ def optimal_lineup(squad: pd.DataFrame) -> dict:
             if score > best_score or (score == best_score and (best_ids is None or ids < best_ids)):
                 best_ids, best_score = ids, score
     if best_ids is None:
-        raise AppError("Fant ingen lovlig startellever i troppen.")
+        raise AppError("No legal starting XI was found in the squad.")
     starters = squad[squad["id"].isin([int(goalkeeper["id"]), *best_ids])].copy()
     starters = starters.sort_values(
         ["position", score_column, "id"],
@@ -868,7 +868,7 @@ def _exact_transfer_plan(team: ImportedTeam, weekly_source: pd.DataFrame,
     if result.status == 2:
         return None
     if not result.success or result.x is None:
-        raise AppError(f"Eksakt {number}-bytteoptimering feilet: {result.message}")
+        raise AppError(f"Exact {number}-transfer optimisation failed: {result.message}")
 
     primary_row = csr_matrix(objective.reshape(1, -1))
     secondary_matrix = vstack([matrix, primary_row], format="csr")
@@ -893,7 +893,7 @@ def _exact_transfer_plan(team: ImportedTeam, weekly_source: pd.DataFrame,
     outgoing = tuple(sorted(owned - selected))
     incoming = tuple(sorted(selected - owned))
     if len(outgoing) != number or len(incoming) != number:
-        raise AppError(f"Eksakt optimering ga ikke {number} bytter.")
+        raise AppError(f"Exact optimization did not provide {number} transfers.")
     market_by_id = frame.set_index("id")
     squad_by_id = team.squad.set_index("id")
     new_total = sum(_lineup_total_records(
@@ -939,18 +939,18 @@ def recommend_transfers(team: ImportedTeam, number: int = 1, limit: int = 8,
     the exact joint MILP and return its global optimum.
     """
     if number not in range(1, 6):
-        raise AppError("Antall bytter må være mellom ett og fem.")
+        raise AppError("The number of transfers must be between one and five.")
     squad, market = team.squad, team.market
     owned = set(squad["id"].astype(int))
     raw_forced = tuple(int(player_id) for player_id in (forced_outgoing or ()))
     forced = tuple(dict.fromkeys(raw_forced))
     if len(forced) != len(raw_forced):
-        raise AppError("Samme spiller kan ikke velges flere ganger.")
+        raise AppError("The same player cannot be chosen several times.")
     if forced and len(forced) != number:
-        raise AppError("Antall valgte spillere må være likt antall bytter.")
+        raise AppError("The number of selected players must equal the number of transfers.")
     unknown = set(forced) - owned
     if unknown:
-        raise AppError("Alle valgte spillere må finnes i den aktive troppen.")
+        raise AppError("All selected players must be present in the active squad.")
     weekly_source = team.weekly_market if team.weekly_market is not None else market.assign(
         forecast_event=team.target_event
     )
@@ -1114,7 +1114,7 @@ def points(value: float) -> str:
 
 def print_table(frame: pd.DataFrame, columns: list[tuple[str, str, object]]) -> None:
     if frame.empty:
-        print("Ingen gyldige forslag funnet.")
+        print("No valid suggestions found.")
         return
     shown = pd.DataFrame()
     for source, title, formatter in columns:
@@ -1123,25 +1123,25 @@ def print_table(frame: pd.DataFrame, columns: list[tuple[str, str, object]]) -> 
 
 
 def show_overview(team: ImportedTeam) -> None:
-    estimate = " (estimat fra offentlig historikk)"
-    print(f"\n{team.manager_name} – {team.team_name} | importert fra GW{team.event}")
+    estimate = " (estimate from public history)"
+    print(f"\n{team.manager_name} – {team.team_name} | imported from GW{team.event}")
     target_label = (f"GW{team.target_event}" if team.horizon == 1 else
                     f"GW{team.target_event}–{team.target_event + team.horizon - 1}")
-    print(f"Modellmål: {target_label} | neste frist {team.deadline}")
-    print(f"Risikoprofil: {team.risk_profile}")
-    print(f"Bank: {money(team.bank)} | gratisbytter: ca. {team.free_transfers}{estimate}")
-    print(f"Prognose: {team.forecast_path}")
+    print(f"Forecast target: {target_label} | next deadline {team.deadline}")
+    print(f"Risk profile: {team.risk_profile}")
+    print(f"Bank: {money(team.bank)} | free transfers: approx. {team.free_transfers}{estimate}")
+    print(f"Forecast: {team.forecast_path}")
     columns = [
-        ("position", "Pos", None), ("name", "Spiller", None), ("team", "Lag", None),
-        ("opponent", "Motstander", None), ("selling_price", "Salgspris*", money),
-        ("recommended_points", "Anb. poeng", points),
+        ("position", "Pos", None), ("name", "Player", None), ("team", "Team", None),
+        ("opponent", "Opponent", None), ("selling_price", "Selling price*", money),
+        ("recommended_points", "Recommended points", points),
     ]
     if team.risk_profile != "balanced":
-        columns.append(("decision_points", "Profilscore", points))
+        columns.append(("decision_points", "Profile score", points))
     if "recommended_q10" in team.squad and team.squad["recommended_q10"].notna().any():
         columns.append(("point_range_q10_q90", "Q10–Q90*", None))
     if team.squad["expected_60plus_appearances"].notna().any():
-        title = "P(60+)" if team.horizon == 1 else "Forv. 60+"
+        title = "P(60+)" if team.horizon == 1 else "Expected 60+"
         formatter = ((lambda x: f"{100 * x:.0f}%") if team.horizon == 1 else points)
         columns.append(("expected_60plus_appearances", title, formatter))
     columns.append(("status", "Status", None))
@@ -1150,43 +1150,43 @@ def show_overview(team: ImportedTeam) -> None:
     print_table(team.squad.sort_values(["position", score_column],
                                       key=lambda col: col.map(POSITION_ORDER) if col.name == "position" else col,
                                       ascending=[True, False]), columns)
-    print("* estimert fra offentlig kjøpshistorikk og FPLs salgsprisregel")
+    print("* estimated from public purchase history and FPL sales price rule")
     if "recommended_q10" in team.squad and team.squad["recommended_q10"].notna().any():
-        print("* Q10–Q90 er modellkvantiler, ikke et garantert konfidensintervall")
+        print("* Q10–Q90 are model quantiles, not a guaranteed confidence interval")
 
 
 def show_lineup(team: ImportedTeam) -> None:
     lineup = optimal_lineup(team.lineup_squad if team.lineup_squad is not None else team.squad)
-    print(f"\nAnbefalt startellever GW{team.target_event}: {lineup['formation']}")
+    print(f"\nRecommended starting XI for GW{team.target_event}: {lineup['formation']}")
     columns = [
-        ("position", "Pos", None), ("name", "Spiller", None), ("team", "Lag", None),
-        ("opponent", "Motstander", None), ("recommended_points", "Anb. poeng", points),
+        ("position", "Pos", None), ("name", "Player", None), ("team", "Team", None),
+        ("opponent", "Opponent", None), ("recommended_points", "Recommended points", points),
     ]
     if team.risk_profile != "balanced":
-        columns.append(("decision_points", "Profilscore", points))
+        columns.append(("decision_points", "Profile score", points))
     if ("expected_60plus_appearances" in lineup["starters"] and
             lineup["starters"]["expected_60plus_appearances"].notna().any()):
         columns.append(("expected_60plus_appearances", "P(60+)", lambda x: f"{100 * x:.0f}%"))
     if ("recommended_q10" in lineup["starters"] and
             lineup["starters"]["recommended_q10"].notna().any()):
         columns.append(("point_range_q10_q90", "Q10–Q90", None))
-    columns.append(("role", "Rolle", None))
+    columns.append(("role", "Role", None))
     print_table(lineup["starters"], columns)
-    print(f"Forventet startellever inkl. kapteinsdobling: {lineup['expected_total']:.2f}")
+    print(f"Expected starting XI including captain doubling: {lineup['expected_total']:.2f}")
     if team.risk_profile != "balanced":
-        print(f"{team.risk_profile}-profilscore inkl. kaptein: {lineup['projected_total']:.2f}")
-        print("Profilscore er en eksplorativ nyttefunksjon, ikke forventede FPL-poeng.")
+        print(f"{team.risk_profile}-profile score including captain: {lineup['projected_total']:.2f}")
+        print("Profile score is an exploratory utility function, not expected FPL points.")
     if lineup["captain_margin"] < 0.5:
-        unit = "poeng" if team.risk_profile == "balanced" else "profilpoeng"
-        print(f"Kapteinvalget har lav modellmargin ({lineup['captain_margin']:.2f} {unit}); "
-              "behandle C/VC som et usikkert valg.")
-    print("\nBenk (keeper, deretter innbytterrekkefølge):")
+        unit = "points" if team.risk_profile == "balanced" else "profile points"
+        print(f"The captain choice has a small model margin ({lineup['captain_margin']:.2f} {unit}); "
+              "treat C/VC as an uncertain choice.")
+    print("\nBench (goalkeeper, then substitution order):")
     bench_columns = [
-        ("bench_order", "Rekkefølge", None), ("position", "Pos", None),
-        ("name", "Spiller", None), ("recommended_points", "Anb. poeng", points),
+        ("bench_order", "Order", None), ("position", "Pos", None),
+        ("name", "Player", None), ("recommended_points", "Recommended points", points),
     ]
     if team.risk_profile != "balanced":
-        bench_columns.append(("decision_points", "Profilscore", points))
+        bench_columns.append(("decision_points", "Profile score", points))
     if ("expected_60plus_appearances" in lineup["bench"] and
             lineup["bench"]["expected_60plus_appearances"].notna().any()):
         bench_columns.append(
@@ -1200,47 +1200,47 @@ def show_lineup(team: ImportedTeam) -> None:
 
 def show_transfers(team: ImportedTeam, number: int = 1) -> None:
     suggestions = recommend_transfers(team, number=number)
-    print(f"\nBeste lovlige forslag med {number} bytte{'r' if number > 1 else ''}:")
+    print(f"\nBest legal proposals with {number} transfer{'s' if number > 1 else ''}:")
     columns = [
-        ("out", "Selg", None), ("in", "Kjøp", None), ("cost", "Kjøpspris", lambda x: f"£{x:.1f}m"),
-        ("money_left", "Rest", lambda x: f"£{x:.1f}m"),
+        ("out", "Sell", None), ("in", "Buy", None), ("cost", "Purchase price", lambda x: f"£{x:.1f}m"),
+        ("money_left", "Remaining", lambda x: f"£{x:.1f}m"),
     ]
     if team.risk_profile == "balanced":
-        gain_label = "GW-gevinst" if team.horizon == 1 else "Horisontgevinst"
+        gain_label = "GW gain" if team.horizon == 1 else "Horizon gain"
         columns.append(("lineup_gain", gain_label, points))
     else:
         columns.extend([
-            ("expected_gain", "Forv. gevinst", points),
-            ("lineup_gain", "Profilgevinst", points),
+            ("expected_gain", "Expected gain", points),
+            ("lineup_gain", "Profile gain", points),
         ])
     columns.extend([
-        ("hit", "Hit", lambda x: str(int(x))), ("net_gain", "Netto", points),
+        ("hit", "Hit", lambda x: str(int(x))), ("net_gain", "Net", points),
     ])
     print_table(suggestions, columns)
     if not suggestions.empty and suggestions.iloc[0]["net_gain"] <= 0:
-        print("Modellen foretrekker å spare byttet: ingen plan har positiv netto profilgevinst.")
+        print("The model prefers to roll the transfer: no plan has a positive net profile gain.")
     else:
-        label = "neste Gameweek" if team.horizon == 1 else f"de neste {team.horizon} Gameweekene"
-        print(f"Merk: rangeringen summerer {label}; den modellerer ikke prisendringer senere i perioden.")
+        label = "the next Gameweek" if team.horizon == 1 else f"the next {team.horizon} Gameweeks"
+        print(f"Note: the rating sums {label}; it does not model price changes later in the period.")
         if team.risk_profile != "balanced":
-            print("Profilgevinst er en eksplorativ nytteverdi, ikke forventede FPL-poeng.")
+            print("Profile gain is an exploratory utility value, not expected FPL points.")
         if number >= 2:
-            print(f"Første {number}-bytteforslag er globalt optimalt under modellscore og valgte Gameweeks.")
+            print(f"First {number}-transfer suggestion is globally optimal for the model score and selected Gameweeks.")
             if number == 2:
-                print("De øvrige forslagene kommer fra en bred, modellrangert kandidatliste.")
+                print("The other suggestions come from a broad candidate list ranked by the model.")
 
 
 def show_multiweek(team: ImportedTeam) -> None:
     from multiweek_planner import plan_multiweek
 
     result = plan_multiweek(team, weeks=team.horizon)
-    print(f'\nGlobal flerukersplan: {result["total_projected_points"]:.2f} modellpoeng')
+    print(f'\nGlobal multi-week plan: {result["total_projected_points"]:.2f} model points')
     for week in result["weeks"]:
-        outgoing = ", ".join(week["transfers_out"]) or "ingen"
-        incoming = ", ".join(week["transfers_in"]) or "ingen"
+        outgoing = ", ".join(week["transfers_out"]) or "none"
+        incoming = ", ".join(week["transfers_in"]) or "none"
         print(
             f'GW{week["event"]} | {week["formation"]} | '
-            f'{week["projected_points"]:.2f} | UT: {outgoing} | INN: {incoming} | '
+            f'{week["projected_points"]:.2f} | OUT: {outgoing} | IN: {incoming} | '
             f'C: {week["captain"]} | bank £{week["bank"]:.1f}m | hit {week["hit"]}'
         )
         print("  XI: " + ", ".join(week["starters"]))
@@ -1249,17 +1249,17 @@ def show_multiweek(team: ImportedTeam) -> None:
 
 def show_targets(team: ImportedTeam, position: str | None = None,
                  max_price: int | None = None) -> None:
-    print("\nBeste kjøpskandidater etter anbefalte poeng:")
+    print("\nTop buy candidates by recommended points:")
     targets = transfer_targets(team, position, max_price)
     columns = [
-        ("position", "Pos", None), ("name", "Spiller", None), ("team", "Lag", None),
-        ("opponent", "Motstander", None), ("price", "Pris", money),
-        ("recommended_points", "Anb. poeng", points),
+        ("position", "Pos", None), ("name", "Player", None), ("team", "Team", None),
+        ("opponent", "Opponent", None), ("price", "Price", money),
+        ("recommended_points", "Recommended points", points),
     ]
     if team.risk_profile != "balanced":
-        columns.append(("decision_points", "Profilscore", points))
+        columns.append(("decision_points", "Profile score", points))
     if targets["expected_60plus_appearances"].notna().any():
-        title = "P(60+)" if team.horizon == 1 else "Forv. 60+"
+        title = "P(60+)" if team.horizon == 1 else "Expected 60+"
         formatter = ((lambda x: f"{100 * x:.0f}%") if team.horizon == 1 else points)
         columns.append(("expected_60plus_appearances", title, formatter))
     if "recommended_q10" in targets and targets["recommended_q10"].notna().any():
@@ -1269,73 +1269,73 @@ def show_targets(team: ImportedTeam, position: str | None = None,
 
 
 def show_sells(team: ImportedTeam) -> None:
-    print("\nSalgskandidater (lavest neste-GW-prognose først):")
+    print("\nSell candidates (lowest next-GW forecast first):")
     columns = [
-        ("position", "Pos", None), ("name", "Spiller", None),
-        ("selling_price", "Salgspris*", money), ("recommended_points", "Anb. poeng", points),
+        ("position", "Pos", None), ("name", "Player", None),
+        ("selling_price", "Selling price*", money), ("recommended_points", "Recommended points", points),
     ]
     if team.risk_profile != "balanced":
-        columns.append(("decision_points", "Profilscore", points))
-    columns.extend([("opponent", "Motstander", None), ("status", "Status", None)])
+        columns.append(("decision_points", "Profile score", points))
+    columns.extend([("opponent", "Opponent", None), ("status", "Status", None)])
     print_table(sell_candidates(team), columns)
-    print("* estimert fra offentlig kjøpshistorikk og FPLs salgsprisregel")
+    print("* estimated from public purchase history and FPL sales price rule")
 
 
 def interactive(team: ImportedTeam) -> None:
     actions = {
-        "1": ("Vis laget", lambda: show_overview(team)),
-        "2": ("Anbefal startellever, kaptein og benk", lambda: show_lineup(team)),
-        "3": ("Anbefal ett bytte", lambda: show_transfers(team, 1)),
-        "4": ("Anbefal to bytter", lambda: show_transfers(team, 2)),
-        "5": ("Vis kjøpskandidater", lambda: show_targets(team)),
-        "6": ("Vis salgskandidater", lambda: show_sells(team)),
-        "7": ("Lag global flerukersplan", lambda: show_multiweek(team)),
+        "1": ("Show team", lambda: show_overview(team)),
+        "2": ("Recommend starting XI, captain and bench", lambda: show_lineup(team)),
+        "3": ("Recommend one transfer", lambda: show_transfers(team, 1)),
+        "4": ("Recommend two transfers", lambda: show_transfers(team, 2)),
+        "5": ("Show buy candidates", lambda: show_targets(team)),
+        "6": ("Show sales candidates", lambda: show_sells(team)),
+        "7": ("Create a global multi-week plan", lambda: show_multiweek(team)),
     }
     show_overview(team)
     while True:
-        print("\nHva vil du gjøre?")
+        print("\nWhat do you want to do?")
         for key, (label, _) in actions.items():
             print(f"  {key}. {label}")
-        print("  q. Avslutt")
+        print("  q. Quit")
         choice = input("> ").strip().lower()
         if choice in {"q", "quit", "exit"}:
             return
         action = actions.get(choice)
-        print("Ugyldig valg.") if action is None else action[1]()
+        print("Invalid choice.") if action is None else action[1]()
 
 
 def refresh_forecast(root: Path) -> None:
     from capture_fpl import run
     path = run(root)
     if path is None:
-        raise AppError("Oppdateringen ble hoppet over fordi en annen innhenting kjører.")
+        raise AppError("The update was skipped because another capture is running.")
     try:
         manifest = json.loads((path / "manifest.json").read_text())
     except (OSError, ValueError, json.JSONDecodeError) as exc:
-        raise AppError("Oppdateringen mangler et gyldig manifest.") from exc
+        raise AppError("The update has no valid manifest.") from exc
     if manifest.get("status") != "complete":
-        detail = manifest.get("error", "ukjent feil")
-        raise AppError(f"Oppdateringen feilet: {detail}")
+        detail = manifest.get("error", "unknown error")
+        raise AppError(f"Update failed: {detail}")
     if manifest.get("forecast_status") != "experimental_frozen":
-        status = manifest.get("forecast_status", "ukjent status")
-        raise AppError(f"Snapshot ble hentet, men ingen gyldig prognose ble laget ({status}).")
+        status = manifest.get("forecast_status", "unknown status")
+        raise AppError(f"Snapshot was retrieved but no valid forecast was created ({status}).")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("team", help="FPL-lenke eller numerisk lag-ID")
+    parser.add_argument("team", help="FPL URL or numeric team ID")
     parser.add_argument("--action", choices=["interactive", "overview", "lineup", "transfers", "plan", "targets", "sells"],
                         default="interactive")
     parser.add_argument("--max-transfers", type=int, choices=range(1, 6), default=1)
     parser.add_argument("--position", choices=list(POSITION_ORDER))
-    parser.add_argument("--max-price", type=float, help="Maks kjøpspris i millioner")
+    parser.add_argument("--max-price", type=float, help="Maximum purchase price in millions")
     parser.add_argument("--horizon", type=int, choices=range(1, 9), default=1,
-                        help="Gameweeks som summeres for kjøp/salg (standard: 1)")
+                        help="Gameweeks to sum for buying/selling (default: 1)")
     parser.add_argument("--risk-profile", choices=["balanced", "stable", "upside"],
                         default="balanced",
-                        help="Beslutningsprofil: forventning, nedside eller oppside")
-    parser.add_argument("--refresh", action="store_true", help="Hent ferske data og lag prognose først")
+                        help="Decision profile: expectation, downside or upside")
+    parser.add_argument("--refresh", action="store_true", help="Download fresh data and make forecast first")
     parser.add_argument("--root", type=Path, default=root, help=argparse.SUPPRESS)
     return parser.parse_args(argv)
 
@@ -1362,7 +1362,7 @@ def main(argv: list[str] | None = None) -> int:
         actions[args.action]()
         return 0
     except (AppError, KeyboardInterrupt) as exc:
-        print(f"Feil: {exc}", file=sys.stderr)
+        print(f"Error: {exc}", file=sys.stderr)
         return 2
 
 

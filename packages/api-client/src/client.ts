@@ -66,11 +66,11 @@ export class ApiClient {
       });
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
-        throw new ApiError("timeout", `Tidsavbrudd mot ${this.baseUrl}${path}.`);
+        throw new ApiError("timeout", `Request timed out: ${this.baseUrl}${path}.`);
       }
       throw new ApiError(
         "network",
-        `Kunne ikke kontakte API-et på ${this.baseUrl}. Sjekk at backend kjører og at telefonen er på samme nettverk.`,
+        `Could not contact the API on ${this.baseUrl}. Check that the backend is running and your phone is on the same network.`,
       );
     } finally {
       clearTimeout(timer);

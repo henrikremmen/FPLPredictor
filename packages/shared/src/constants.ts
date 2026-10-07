@@ -2,19 +2,19 @@ export const POSITIONS = ["GK", "DEF", "MID", "FWD"] as const;
 export type Position = (typeof POSITIONS)[number];
 
 export const POSITION_LABELS: Record<Position, string> = {
-  GK: "Keeper",
-  DEF: "Forsvar",
-  MID: "Midtbane",
-  FWD: "Spiss",
+  GK: "Goalkeeper",
+  DEF: "Defence",
+  MID: "Midfield",
+  FWD: "Forward",
 };
 
 export const RISK_PROFILES = ["balanced", "stable", "upside"] as const;
 export type RiskProfile = (typeof RISK_PROFILES)[number];
 
 export const RISK_PROFILE_LABELS: Record<RiskProfile, string> = {
-  balanced: "Balansert",
-  stable: "Stabil",
-  upside: "Oppside",
+  balanced: "Balanced",
+  stable: "Stable",
+  upside: "Upside",
 };
 
 export const CHIPS = ["wildcard", "free_hit", "triple_captain", "bench_boost"] as const;

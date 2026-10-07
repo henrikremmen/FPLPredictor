@@ -109,7 +109,7 @@ def search(kind, data):
                 results.append({'train_seasons': '|'.join(seasons), 'feature_set': feature_set,
                     'parameter': parameter, 'n_features': len(cols), 'dropped': ', '.join(dropped),
                     **metrics(va[TARGET], pred)})
-        print(f'{kind}: ferdig med trening {seasons}', flush=True)
+        print(f'{kind}: finished with training {seasons}', flush=True)
     return pd.DataFrame(results).sort_values(['RMSE', 'MAE']).reset_index(drop=True)
 
 def refit(kind, data, best):

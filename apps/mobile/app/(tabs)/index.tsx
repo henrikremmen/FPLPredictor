@@ -19,7 +19,7 @@ export default function Overview() {
     setRefreshError(null);
     refresh.mutate(undefined, {
       onError: (error) => {
-        setRefreshError(error instanceof ApiError ? error.message : "Kunne ikke oppdatere prognosen.");
+        setRefreshError(error instanceof ApiError ? error.message : "Could not update the forecast.");
       },
     });
   };
@@ -55,37 +55,37 @@ function OverviewContent({
             {team.manager_name} · GW{team.target_event}
           </Text>
         </View>
-        {team.squad_source === "manual_override" ? <Badge label="Korrigert" tone="warning" /> : null}
+        {team.squad_source === "manual_override" ? <Badge label="Corrected" tone="warning" /> : null}
       </View>
 
       {refreshError ? <Text style={styles.error}>{refreshError}</Text> : null}
-      {refreshing ? <Text style={styles.caption}>Henter nytt offentlig snapshot, kan ta rundt ett minutt…</Text> : null}
+      {refreshing ? <Text style={styles.caption}>Getting new public snapshot, can take around a minute...</Text> : null}
 
       <Card>
         <Text style={typography.eyebrow}>Deadline GW{team.target_event}</Text>
         <Text style={typography.heading}>{formatDeadline(team.deadline)}</Text>
         <View style={styles.statRow}>
           <Stat label="Bank" value={formatMoney(team.bank)} />
-          <Stat label="Gratisbytter" value={String(team.free_transfers)} />
-          <Stat label="Lagverdi" value={formatMoney(team.team_value ?? null)} />
+          <Stat label="Free transfers" value={String(team.free_transfers)} />
+          <Stat label="Team value" value={formatMoney(team.team_value ?? null)} />
         </View>
         <View style={styles.statRow}>
-          <Stat label="Poeng" value={team.overall_points != null ? String(team.overall_points) : "–"} />
+          <Stat label="Points" value={team.overall_points != null ? String(team.overall_points) : "–"} />
           <Stat label="Rank" value={formatRank(team.overall_rank)} />
         </View>
       </Card>
 
       <Card>
-        <Text style={typography.eyebrow}>Anbefalt laguttak</Text>
+        <Text style={typography.eyebrow}>Recommended lineup</Text>
         <Text style={typography.heading}>{team.lineup.formation}</Text>
         <View style={styles.statRow}>
-          <Stat label="Forventet" value={formatPoints(team.lineup.expected_total)} tone="positive" />
-          <Stat label="Kapteinsmargin" value={formatPoints(team.lineup.captain_margin)} />
+          <Stat label="Expected" value={formatPoints(team.lineup.expected_total)} tone="positive" />
+          <Stat label="Captain margin" value={formatPoints(team.lineup.captain_margin)} />
         </View>
-        <Button label="Se pitch og benk" variant="secondary" onPress={() => router.push("/(tabs)/pitch")} />
+        <Button label="View pitch and bench" variant="secondary" onPress={() => router.push("/(tabs)/pitch")} />
       </Card>
 
-      <Section title="Tropp" subtitle={`${team.squad.length} spillere`}>
+      <Section title="Squad" subtitle={`${team.squad.length} players`}>
         <Card>
           {team.squad.map((player) => (
             <PlayerRow key={player.id} player={player} />
@@ -93,7 +93,7 @@ function OverviewContent({
         </Card>
       </Section>
 
-      <Button label="Korriger lag, bank eller bytter" variant="secondary" onPress={() => router.push("/correction")} />
+      <Button label="Edit squad, bank or transfers" variant="secondary" onPress={() => router.push("/correction")} />
     </>
   );
 }

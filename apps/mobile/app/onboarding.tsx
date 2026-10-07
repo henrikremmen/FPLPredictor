@@ -27,22 +27,20 @@ export default function Onboarding() {
   return (
     <Screen>
       <View style={styles.header}>
-        <Text style={typography.title}>FPL Modell</Text>
+        <Text style={typography.title}>FPL Model</Text>
         <Text style={styles.lead}>
-          Lim inn FPL-laget ditt for å hente modellprognoser, laguttak og bytteforslag. Appen logger aldri inn og
-          endrer aldri det virkelige laget ditt.
+          Paste your FPL team link to get forecasts, lineups and transfer suggestions. The app never logs in or changes your actual team.
         </Text>
         <Text style={styles.disclaimer}>
-          Uavhengig tredjepartsapp. Ikke tilknyttet, godkjent av eller sponset av Premier League eller Fantasy
-          Premier League.
+          Independent third party app. Not affiliated with, approved or sponsored by the Premier League or Fantasy Premier League.
         </Text>
       </View>
 
-      <Section title="Lagreferanse">
+      <Section title="Team reference">
         <TextInput
           value={reference}
           onChangeText={setReference}
-          placeholder="FPL-lenke eller lag-ID, f.eks. 5139814"
+          placeholder="FPL link or team ID, e.g. 5139814"
           placeholderTextColor={colors.textMuted}
           autoCapitalize="none"
           autoCorrect={false}
@@ -51,7 +49,7 @@ export default function Onboarding() {
         />
       </Section>
 
-      <Section title="Prognosehorisont" subtitle={`${horizon} Gameweek${horizon > 1 ? "s" : ""}`}>
+      <Section title="Forecast horizon" subtitle={`${horizon} Gameweek${horizon > 1 ? "s" : ""}`}>
         <View style={styles.horizonRow}>
           {HORIZONS.map((value) => (
             <Pressable
@@ -69,7 +67,7 @@ export default function Onboarding() {
         </View>
       </Section>
 
-      <Section title="Risikoprofil">
+      <Section title="Risk profile">
         <View style={{ gap: spacing.sm }}>
           {RISK_PROFILES.map((profile) => (
             <Pressable
@@ -89,12 +87,12 @@ export default function Onboarding() {
 
       {importTeam.isError ? (
         <Text style={styles.error}>
-          {importTeam.error instanceof ApiError ? importTeam.error.message : "Kunne ikke importere laget."}
+          {importTeam.error instanceof ApiError ? importTeam.error.message : "Could not import the team."}
         </Text>
       ) : null}
 
       <Button
-        label={importTeam.isPending ? "Importerer…" : "Last inn laget"}
+        label={importTeam.isPending ? "Importing..." : "Load team"}
         onPress={onSubmit}
         disabled={!reference.trim()}
         loading={importTeam.isPending}
@@ -104,9 +102,9 @@ export default function Onboarding() {
 }
 
 function profileCopy(profile: RiskProfile): string {
-  if (profile === "stable") return "Trekker fra spennet i modellen. Foretrekker smalere, sikrere utfall.";
-  if (profile === "upside") return "Vekter den øvre halen høyere. Søker høyere tak, mer variasjon.";
-  return "Bruker modellens forventede poeng direkte. Standardvalget.";
+  if (profile === "stable") return "Penalises the model's uncertainty range. Prefers narrower, more stable outcomes.";
+  if (profile === "upside") return "Gives more weight to the upper tail. Targets a higher ceiling with more variation.";
+  return "Uses the model's expected points directly. Default choice.";
 }
 
 const styles = StyleSheet.create({

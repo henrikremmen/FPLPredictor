@@ -93,7 +93,7 @@ class AnalyticsService:
             entry = self.get(f"entry/{entry_id}/")
             rows.append({
                 "entry": entry_id,
-                "entry_name": entry.get("name", "Ditt lag"),
+                "entry_name": entry.get("name", "Your team"),
                 "player_name": (
                     f"{entry.get('player_first_name', '')} {entry.get('player_last_name', '')}"
                 ).strip(),
@@ -121,7 +121,7 @@ class AnalyticsService:
                       for row in bootstrap.get("teams", [])}
         history_rows = sorted(history.get("current", []), key=lambda row: int(row["event"]))
         if not history_rows:
-            raise AppError("FPL-laget har ingen Gameweek-historikk å analysere ennå.")
+            raise AppError("The FPL team has no Gameweek history to analyze yet.")
 
         completed_events = [
             int(row["event"]) for row in history_rows
@@ -132,18 +132,18 @@ class AnalyticsService:
         default_event = max(completed_events or available_events)
         selected_event = int(event if event is not None else default_event)
         if selected_event not in available_events:
-            raise AppError(f"GW{selected_event} finnes ikke i laghistorikken.")
+            raise AppError(f"GW{selected_event} is not in the team history.")
         benchmark_event = max(available_events)
 
         classic = entry.get("leagues", {}).get("classic", [])
         mini_leagues = [{
-            "id": int(row["id"]), "name": row.get("name", "Ukjent liga"),
+            "id": int(row["id"]), "name": row.get("name", "Unknown league"),
             "league_type": row.get("league_type"),
         } for row in classic if row.get("league_type") == "x"]
         if league_id is None and mini_leagues:
             league_id = mini_leagues[0]["id"]
         if league_id is not None and int(league_id) not in {row["id"] for row in mini_leagues}:
-            raise AppError("Valgt miniliga tilhører ikke dette offentlige FPL-laget.")
+            raise AppError("The selected mini-league does not belong to this public FPL team.")
 
         overall_league = next(
             (row for row in classic if row.get("short_name") == "overall"), None
@@ -378,7 +378,7 @@ class AnalyticsService:
             "selected_league_id": int(league_id) if league_id is not None else None,
             "summary": summary,
             "global_benchmark": {
-                "sample_label": "Stratifisert utvalg fra rank 1–10 000",
+                "sample_label": "Stratified sample from ranks 1–10,000",
                 "sample_size": len(top_picks),
                 "sample_average_total": top_average,
                 "points_gap": (_rounded(total_points - top_average)
@@ -412,14 +412,14 @@ class AnalyticsService:
             "league": league_payload,
             "decisions": decisions,
             "method": (
-                "Liga-EO er gjennomsnittlig poengmultiplikator i det analyserte utvalget. "
-                "Relativt bidrag = faktiske spillerpoeng × (din multiplikator − liga-EO/100)."
+                "League EO is the average points multiplier in the analysed sample. "
+                "Relative contribution = actual player points × (your multiplier − league EO/100)."
             ),
             "caveats": [
-                "Offentlige FPL-tropper blir først synlige etter deadline.",
-                "Global sammenligning bruker FPLs samlede eierskap og offisielle Gameweek-snitt.",
-                "Liga-EO er eksakt for små ligaer; ligaer over 100 medlemmer analyseres som et merket utvalg.",
-                "Topprank-EO bruker et stratifisert offentlig utvalg og er ikke en full opptelling av alle topp 10 000.",
+                "Public FPL squads only become visible after the deadline.",
+                "The global comparison uses overall FPL ownership and official Gameweek averages.",
+                "League EO is exact for small leagues; leagues with over 100 members use a clearly labelled sample.",
+                "Top-rank EO uses a stratified public sample, not a full census of the top 10,000.",
             ],
         }
 
@@ -564,15 +564,15 @@ class AnalyticsService:
         weeks_left = max(0, 38 - selected_event)
         if you and you["rank"] == 1:
             mode = "protect"
-            advice = "Du leder ligaen. Prioriter høy forventning og de største EO-truslene; ta selektiv risiko."
+            advice = "You lead the league. Prioritize high expectations and the biggest EO threats; take selective risk."
         elif gap_to_leader is not None and weeks_left <= 8 and abs(gap_to_leader) >= 20:
             mode = "chase"
-            advice = "Du jager sent i sesongen. Bruk modellsterke liga-differensialer og vurder avvikende kaptein."
+            advice = "You are chasing late in the season. Use model-backed league differentials and consider an alternative captain."
         else:
             mode = "balanced"
-            advice = "Spill balansert: maksimer forventede poeng og bruk differensialer bare når modellen støtter dem."
+            advice = "Play balanced: maximize expected points and use differentials only when the model supports them."
         return {
-            "id": int(league.get("id")), "name": league.get("name", "Miniliga"),
+            "id": int(league.get("id")), "name": league.get("name", "Mini-league"),
             "member_count": len(members), "analyzed_managers": analyzed_managers,
             "sampled": sampled,
             "your_rank": you.get("rank") if you else None,

@@ -58,15 +58,15 @@ def check_existing_app() -> bool:
     backend_ready = url_responds(f"http://{CHECK_HOST}:{BACKEND_PORT}/api/health")
     frontend_ready = url_responds(f"http://{CHECK_HOST}:{FRONTEND_PORT}/")
     if backend_ready and frontend_ready:
-        print(f"FPL Modell kjører allerede på http://{CHECK_HOST}:{FRONTEND_PORT}")
+        print(f"The FPL Model is already running at http://{CHECK_HOST}:{FRONTEND_PORT}")
         return True
 
     busy = [port for port in (BACKEND_PORT, FRONTEND_PORT) if port_is_busy(port)]
     if busy:
         ports = ", ".join(str(port) for port in busy)
         raise RuntimeError(
-            f"Port {ports} er allerede i bruk, men appen svarer ikke komplett. "
-            "Stopp den gamle terminalprosessen med Ctrl+C og prøv igjen."
+            f"Port {ports} is already in use, but the app does not respond completely. "
+            "Stop the old terminal process with Ctrl+C and try again."
         )
     return False
 
@@ -74,9 +74,9 @@ def check_existing_app() -> bool:
 def commands() -> tuple[list[str], list[str]]:
     npm = shutil.which("npm")
     if npm is None:
-        raise RuntimeError("npm ble ikke funnet. Installer Node.js 20 eller nyere først.")
+        raise RuntimeError("npm was not found. Install Node.js 20 or later first.")
     if not (ROOT / "frontend" / "node_modules").exists():
-        raise RuntimeError("Frontend-pakker mangler. Kjør: npm install --prefix frontend")
+        raise RuntimeError("Frontend packages are missing. Run: npm install --prefix frontend")
     backend = [
         sys.executable, "-m", "uvicorn", "api:app", "--app-dir", str(ROOT / "src"),
         "--host", HOST, "--port", str(BACKEND_PORT),
@@ -105,20 +105,20 @@ def main() -> int:
             return 0
         backend, frontend = commands()
     except RuntimeError as exc:
-        print(f"Feil: {exc}", file=sys.stderr)
+        print(f"Error: {exc}", file=sys.stderr)
         return 1
 
-    print(f"Starter FPL Modell på http://{CHECK_HOST}:{FRONTEND_PORT}")
+    print(f"Starting FPL Model at http://{CHECK_HOST}:{FRONTEND_PORT}")
     if HOST == "0.0.0.0":
         ip = lan_ip()
-        print(f"Backend lytter på alle nettverk (0.0.0.0:{BACKEND_PORT}).")
+        print(f"Backend listens to all networks (0.0.0.0:{BACKEND_PORT}).")
         if ip:
             print(
-                f"Fra en iPhone på samme Wi-Fi, sett apps/mobile/.env til "
+                f"From an iPhone on the same Wi-Fi, set apps/mobile/.env to "
                 f"EXPO_PUBLIC_API_URL=http://{ip}:{BACKEND_PORT}"
             )
         else:
-            print("Fant ikke lokal IP automatisk; kjør `ipconfig getifaddr en0` for å finne den.")
+            print("Local IP not found automatically; run `ipconfig getifaddr en0` to find it.")
     processes: list[subprocess.Popen] = []
     try:
         processes.append(subprocess.Popen(backend, cwd=ROOT))

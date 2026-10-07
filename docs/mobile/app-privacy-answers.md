@@ -1,51 +1,42 @@
-# App Store "App Privacy" spørreskjema (utkast)
+# App Store App Privacy questionnaire (draft)
 
-Svarene under er utkast til Apples App Privacy-seksjon i App Store Connect,
-basert på hva appen faktisk gjør per i dag (ingen brukerkonto, ingen
-analytics-SDK, ingen annonser). Verifiser mot koden på nytt før innsending
-hvis noe endres.
+These draft answers describe the current app: no user accounts, analytics SDKs
+or advertising. Recheck the implementation and Apple's definitions before
+submission, especially if dependencies or backend retention change.
 
-## Samler appen inn data?
+## Data sent by the app
 
-**Nei, koblet til deg eller din enhet, i App Store-forstand.**
+The app sends the user-entered public FPL team reference to our server to retrieve
+public data. It is not used for advertising, cross-app tracking or building an
+unrelated profile. The absence of a private login does not by itself determine
+how Apple classifies the identifier; review the final disclosure before submission.
 
-Appen sender kun:
-- En FPL-lagreferanse (lag-ID/lenke) du selv skriver inn, til vår egen
-  server, for å hente offentlige FPL-data på dine vegne.
+## Draft category answers
 
-Dette regnes normalt *ikke* som "data linked to you" i Apples skjema fordi:
-- Det er et offentlig nummer FPL selv publiserer i enhver managerprofil-URL.
-- Det brukes ikke til reklame, sporing på tvers av apper, eller til å bygge
-  en profil om deg utover selve FPL-troppen.
-- Det lagres ikke i en brukerkonto (appen har ingen kontoer i denne
-  versjonen).
-
-## Anbefalt utfylling
-
-| Kategori | Svar |
+| Category | Draft answer |
 |---|---|
-| Kontaktinformasjon | Samles ikke inn |
-| Helse og trening | Samles ikke inn |
-| Finansiell informasjon | Samles ikke inn |
-| Plassering | Samles ikke inn |
-| Sensitiv informasjon | Samles ikke inn |
-| Kontakter | Samles ikke inn |
-| Brukerinnhold | Samles ikke inn |
-| Browsingdata | Samles ikke inn |
-| Identifikatorer | Samles ikke inn (ingen bruker-ID, enhets-ID eller annonse-ID sendes) |
-| Kjøpshistorikk | Samles ikke inn |
-| Bruksdata | Samles ikke inn (ingen analytics-SDK er integrert) |
-| Diagnostikk | Samles ikke inn (med mindre et krasjrapporteringsverktøy legges til senere — oppdater denne siden da) |
-| Annet | FPL-lagreferanse, sendt til utviklerens egen server for å hente offentlige data. Ikke koblet til identitet, ikke brukt til sporing. |
+| Contact information | Not collected |
+| Health and fitness | Not collected |
+| Financial information | Not collected |
+| Location | Not collected |
+| Sensitive information | Not collected |
+| Contacts | Not collected |
+| User content | Not collected |
+| Browsing history | Not collected |
+| Identifiers | No device or advertising ID; assess the public FPL reference and backend session identifier before submission |
+| Purchase history | Not collected |
+| Usage data | No analytics SDK integrated |
+| Diagnostics | No crash-reporting SDK integrated; update this if one is added |
+| Other | Public FPL team reference sent to the developer's backend for app functionality; not used for tracking |
 
-## Sporing (App Tracking Transparency)
+## Tracking / App Tracking Transparency
 
-Appen ber ikke om ATT-tillatelse fordi den ikke sporer brukere på tvers av
-apper eller nettsteder eid av andre selskaper.
+The app does not request ATT permission because it does not track users across
+apps or websites owned by other companies.
 
-## Før innsending
+## Before submission
 
-- Verifiser at ingen tredjeparts-SDK for analytics/annonser er lagt til
-  siden dette ble skrevet (`apps/mobile/package.json`).
-- Hvis et krasjrapporteringsverktøy (f.eks. Sentry) legges til, oppdater
-  «Diagnostikk»-raden og legg til leverandøren i personvernerklæringen.
+- Check `apps/mobile/package.json` for newly added analytics or advertising SDKs.
+- If crash reporting such as Sentry is added, update Diagnostics and identify
+  the provider in the privacy policy.
+- Review server-side session storage together with the device-side behaviour.

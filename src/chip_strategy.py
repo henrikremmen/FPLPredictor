@@ -48,7 +48,7 @@ def _squad_event_score(frame: pd.DataFrame, squad_ids: set[int],
                        chip: str | None = None) -> dict:
     squad = _expected_view(frame[frame["id"].isin(squad_ids)])
     if len(squad) != 15:
-        raise AppError(f"Chipberegningen fant {len(squad)} av 15 spillere.")
+        raise AppError(f"Chip calculation found {len(squad)} of 15 players.")
     lineup = optimal_lineup(squad)
     captain = lineup["starters"].query("role == 'C'").iloc[0]
     captain_points = float(captain["recommended_points"])
@@ -150,7 +150,7 @@ def _optimize_window(team: ImportedTeam, events: list[int],
         options={"time_limit": 20},
     )
     if not result.success or result.x is None:
-        raise AppError(f"Chipoptimeringen feilet: {result.message}")
+        raise AppError(f"Chip optimization failed: {result.message}")
 
     primary = csr_matrix(objective.reshape(1, -1))
     tie_matrix = vstack([matrix, primary], format="csr")
@@ -260,26 +260,26 @@ def recommend_chip_strategy(team: ImportedTeam) -> dict:
     for event in events:
         detail = detail_by_event[event]
         context = context_by_event[event]
-        suffix = (f" {context['double_players']} av dine spillere dobler."
+        suffix = (f" {context['double_players']} of your players have a double Gameweek."
                   if context["double_players"] else "")
         add(
             "triple_captain", event, detail["captain_points"],
             detail["base"] + detail["captain_points"],
-            f"{detail['captain']} gir ett ekstra sett kapteinspoeng.{suffix}",
+            f"{detail['captain']} Gives an extra set of captain points.{suffix}",
         )
         add(
             "bench_boost", event, detail["bench_points"],
             detail["base"] + detail["bench_points"],
-            f"Benkens fire spillere gir {detail['bench_points']:.2f} ekstra forventede poeng.{suffix}",
+            f"The four bench players add {detail['bench_points']:.2f} extra expected points.{suffix}",
         )
         free_hit = _optimize_window(team, [event])
         normal_event = normal_alternative([event])
         fh_gain = free_hit.total_points - normal_event.total_points
-        blank_note = (f" Du har {context['blank_players']} blanke spillere."
+        blank_note = (f" You have {context['blank_players']} blank players."
                       if context["blank_players"] else "")
         add(
             "free_hit", event, fh_gain, free_hit.total_points,
-            f"Optimal énrundetropp mot beste plan med {team.free_transfers} gratisbytter.{blank_note}",
+            f"Optimal single-gameweek squad vs the best plan with {team.free_transfers} free transfers.{blank_note}",
             free_hit.transfers_needed, free_hit.squad_names,
         )
         window_events = [candidate for candidate in events if candidate >= event]
@@ -288,8 +288,8 @@ def recommend_chip_strategy(team: ImportedTeam) -> dict:
         wc_gain = wildcard.total_points - normal_window.total_points
         add(
             "wildcard", event, wc_gain, wildcard.total_points,
-            f"Permanent optimal tropp over {len(window_events)} kjente Gameweeks; "
-            "senere runder er ikke prognostisert.",
+            f"Permanent optimal squad over {len(window_events)} known Gameweeks; "
+            "Later rounds are not forecast.",
             wildcard.transfers_needed, wildcard.squad_names,
             window=len(window_events),
         )
@@ -305,8 +305,8 @@ def recommend_chip_strategy(team: ImportedTeam) -> dict:
         gain = sequence.total_points - normal_window.total_points
         add(
             "wildcard_bench_boost", event, gain, sequence.total_points,
-            f"Wildcard i GW{event}, deretter Bench Boost i GW{boost_event}; "
-            "troppen optimeres samlet for sekvensen.",
+            f"Wildcard in GW{event}, then Bench Boost in GW{boost_event}; "
+            "The squad is optimized together for the sequence.",
             sequence.transfers_needed, sequence.squad_names,
             available=bool(sequence_status), window=len(window_events),
         )
@@ -324,13 +324,13 @@ def recommend_chip_strategy(team: ImportedTeam) -> dict:
     plays = [row for row in best if row["decision"] == "PLAY"]
     if plays:
         chosen = plays[0]
-        recommendation = f"{chosen['label']} i GW{chosen['event']}"
-        summary = (f"Modellen måler {chosen['gain']:.2f} forventede ekstrapoeng "
-                   f"i den kjente horisonten.")
+        recommendation = f"{chosen['label']} in GW{chosen['event']}"
+        summary = (f"The model measures {chosen['gain']:.2f} expected extra points "
+                   f"within the known forecast horizon.")
     else:
-        recommendation = "Spar chips foreløpig"
-        summary = ("Ingen tilgjengelig chip slår den forsiktige bruksterskelen i de "
-                   f"neste {len(events)} Gameweekene.")
+        recommendation = "Save chips for now"
+        summary = ("No available chip clears the conservative threshold over the "
+                   f"next {len(events)} Gameweeks.")
     return {
         "recommendation": recommendation,
         "summary": summary,

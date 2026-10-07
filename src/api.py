@@ -100,7 +100,7 @@ class TeamStore:
             return team
         pointer = self._registry.get(session_id)
         if pointer is None:
-            raise HTTPException(status_code=404, detail="Lagøkten finnes ikke. Last inn laget på nytt.")
+            raise HTTPException(status_code=404, detail="The team session does not exist. Please reload the team.")
         try:
             team = import_team(
                 str(pointer.entry_id), ROOT, horizon=pointer.horizon, risk_profile=pointer.risk_profile,
@@ -131,7 +131,7 @@ def _cors_origins() -> list[str]:
 STORE = TeamStore(SessionRegistry(ROOT))
 ANALYTICS = AnalyticsService()
 _STARTED_AT = time.time()
-app = FastAPI(title="FPL Modell API", version="1.0.0")
+app = FastAPI(title="FPL Model API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins(),
@@ -391,10 +391,10 @@ class RefreshGuard:
     def run(self) -> None:
         with self._lock:
             if self._busy:
-                raise HTTPException(status_code=409, detail="En prognoseoppdatering pågår allerede. Prøv igjen om litt.")
+                raise HTTPException(status_code=409, detail="A forecast update is already underway. Please try again.")
             if self._last_started is not None and time.time() - self._last_started < self._min_interval:
                 wait = round(self._min_interval - (time.time() - self._last_started))
-                raise HTTPException(status_code=429, detail=f"Vent {wait} sekunder før neste oppdatering.")
+                raise HTTPException(status_code=429, detail=f"Wait {wait} seconds before the next update.")
             self._busy = True
             self._last_started = time.time()
         try:

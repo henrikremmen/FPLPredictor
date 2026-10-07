@@ -12,7 +12,7 @@ const APP_ENV = process.env.APP_ENV ?? "development";
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: APP_ENV === "production" ? "FPL Modell" : `FPL Modell (${APP_ENV})`,
+  name: APP_ENV === "production" ? "FPL Model" : `FPL Model (${APP_ENV})`,
   slug: "fpl-modell",
   scheme: "fplmodell",
   version: "1.0.0",

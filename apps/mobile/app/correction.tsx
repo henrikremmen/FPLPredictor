@@ -25,15 +25,15 @@ function CorrectionForm({ bank, freeTransfers, squad }: { bank: number; freeTran
 
   return (
     <>
-      <Text style={typography.title}>Korriger lag</Text>
+      <Text style={typography.title}>Edit squad</Text>
       <Text style={styles.lead}>
-        Offentlige laglenker viser ikke bytter gjort etter siste deadline. Velg riktig korrigering under.
+        Public team links do not show transfers made after the last deadline. Choose the appropriate correction below.
       </Text>
 
       <View style={styles.modeRow}>
         <ModeChip label="Bank/FT" active={mode === "settings"} onPress={() => setMode("settings")} />
-        <ModeChip label="Allerede gjort" active={mode === "synchronize"} onPress={() => setMode("synchronize")} />
-        <ModeChip label="Nye bytter" active={mode === "apply_transfers"} onPress={() => setMode("apply_transfers")} />
+        <ModeChip label="Already made" active={mode === "synchronize"} onPress={() => setMode("synchronize")} />
+        <ModeChip label="New transfers" active={mode === "apply_transfers"} onPress={() => setMode("apply_transfers")} />
       </View>
 
       {mode === "settings" ? <SettingsForm bank={bank} freeTransfers={freeTransfers} /> : null}
@@ -75,7 +75,7 @@ function SettingsForm({ bank, freeTransfers }: { bank: number; freeTransfers: nu
 
   return (
     <Card>
-      <Text style={typography.eyebrow}>Faktisk bank og gratisbytter</Text>
+      <Text style={typography.eyebrow}>Actual bank and free transfers</Text>
       <View style={styles.fieldRow}>
         <View style={{ flex: 1 }}>
           <Text style={styles.fieldLabel}>Bank (£m)</Text>
@@ -87,12 +87,12 @@ function SettingsForm({ bank, freeTransfers }: { bank: number; freeTransfers: nu
           />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.fieldLabel}>Gratisbytter</Text>
+          <Text style={styles.fieldLabel}>Free transfers</Text>
           <TextInput value={ftInput} onChangeText={setFtInput} keyboardType="number-pad" style={styles.input} />
         </View>
       </View>
       {updateSettings.isError ? <ErrorLine error={updateSettings.error} /> : null}
-      <Button label="Lagre" onPress={onSubmit} loading={updateSettings.isPending} />
+      <Button label="Save" onPress={onSubmit} loading={updateSettings.isPending} />
     </Card>
   );
 }
@@ -160,11 +160,11 @@ function SquadForm({
   if (pendingOutId != null) {
     return (
       <Card>
-        <Text style={typography.eyebrow}>Inn for {pendingOutPlayer?.name}</Text>
+        <Text style={typography.eyebrow}>In for {pendingOutPlayer?.name}</Text>
         <TextInput
           value={search}
           onChangeText={setSearch}
-          placeholder="Søk spiller…"
+          placeholder="Search player..."
           placeholderTextColor={colors.textMuted}
           style={styles.input}
         />
@@ -179,11 +179,11 @@ function SquadForm({
                   </Text>
                 </Pressable>
               ))}
-              {inCandidates.length === 0 ? <Text style={styles.lead}>Ingen treff.</Text> : null}
+              {inCandidates.length === 0 ? <Text style={styles.lead}>No matches.</Text> : null}
             </View>
           )}
         </QueryState>
-        <Button label="Avbryt" variant="secondary" onPress={() => setPendingOutId(null)} />
+        <Button label="Cancel" variant="secondary" onPress={() => setPendingOutId(null)} />
       </Card>
     );
   }
@@ -191,14 +191,14 @@ function SquadForm({
   return (
     <>
       <Card>
-        <Text style={typography.eyebrow}>{mode === "synchronize" ? "Erstatt spillere" : "Simuler nye bytter"} (1–5)</Text>
+        <Text style={typography.eyebrow}>{mode === "synchronize" ? "Replace players" : "Simulate new transfers"} (1–5)</Text>
         {changes.map((change, index) => (
           <View key={`${change.out_id}-${change.in_id}`} style={styles.changeRow}>
             <Text style={styles.changeText}>
               {nameFor(change.out_id)} → {nameFor(change.in_id)}
             </Text>
             <Pressable onPress={() => removeChange(index)} accessibilityRole="button">
-              <Text style={styles.removeLabel}>Fjern</Text>
+              <Text style={styles.removeLabel}>Remove</Text>
             </Pressable>
           </View>
         ))}
@@ -216,14 +216,14 @@ function SquadForm({
 
       {mode === "synchronize" ? (
         <Card>
-          <Text style={typography.eyebrow}>Faktisk bank og gratisbytter etter byttene</Text>
+          <Text style={typography.eyebrow}>Actual bank and free transfers after the moves</Text>
           <View style={styles.fieldRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.fieldLabel}>Bank (£m)</Text>
               <TextInput value={syncBank} onChangeText={setSyncBank} keyboardType="decimal-pad" style={styles.input} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.fieldLabel}>Gratisbytter</Text>
+              <Text style={styles.fieldLabel}>Free transfers</Text>
               <TextInput value={syncFt} onChangeText={setSyncFt} keyboardType="number-pad" style={styles.input} />
             </View>
           </View>
@@ -231,7 +231,7 @@ function SquadForm({
       ) : null}
 
       {updateSquad.isError ? <ErrorLine error={updateSquad.error} /> : null}
-      <Button label="Lagre bytter" onPress={onSubmit} disabled={changes.length === 0} loading={updateSquad.isPending} />
+      <Button label="Save transfers" onPress={onSubmit} disabled={changes.length === 0} loading={updateSquad.isPending} />
     </>
   );
 }
@@ -239,24 +239,24 @@ function SquadForm({
 function ResetSection() {
   const reset = useResetSquad();
   const onReset = () => {
-    Alert.alert("Tilbakestill til FPL", "Fjerner lokale korrigeringer og laster laget på nytt fra FPL.", [
-      { text: "Avbryt", style: "cancel" },
+    Alert.alert("Reset to FPL", "Removes local corrections and reloads the team from the FPL.", [
+      { text: "Cancel", style: "cancel" },
       {
-        text: "Tilbakestill",
+        text: "Reset",
         style: "destructive",
         onPress: () => reset.mutate(undefined, { onSuccess: () => router.back() }),
       },
     ]);
   };
   return (
-    <Section title="Tilbakestilling">
-      <Button label="Tilbakestill til FPL" variant="danger" onPress={onReset} loading={reset.isPending} />
+    <Section title="Reset">
+      <Button label="Reset to FPL" variant="danger" onPress={onReset} loading={reset.isPending} />
     </Section>
   );
 }
 
 function ErrorLine({ error }: { error: unknown }) {
-  return <Text style={styles.error}>{error instanceof ApiError ? error.message : "Noe gikk galt."}</Text>;
+  return <Text style={styles.error}>{error instanceof ApiError ? error.message : "Something went wrong."}</Text>;
 }
 
 const styles = StyleSheet.create({

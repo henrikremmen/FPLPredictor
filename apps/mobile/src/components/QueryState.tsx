@@ -21,14 +21,14 @@ interface QueryStateProps<T> {
 function errorCopy(error: unknown): { title: string; detail: string } {
   if (error instanceof ApiError) {
     if (error.kind === "network") {
-      return { title: "Ingen kontakt med backend", detail: error.message };
+      return { title: "Cannot connect to backend", detail: error.message };
     }
     if (error.kind === "timeout") {
-      return { title: "Tidsavbrudd", detail: error.message };
+      return { title: "Timeout", detail: error.message };
     }
-    return { title: "Noe gikk galt", detail: error.message };
+    return { title: "Something went wrong", detail: error.message };
   }
-  return { title: "Noe gikk galt", detail: "Ukjent feil." };
+  return { title: "Something went wrong", detail: "Unknown error." };
 }
 
 /** Uniform loading / error (offline, timeout, HTTP) / empty / data states for a query screen. */
@@ -37,7 +37,7 @@ export function QueryState<T>({ query, children, isEmpty, emptyLabel }: QuerySta
     return (
       <View style={styles.center}>
         <ActivityIndicator color={colors.accent} />
-        <Text style={styles.caption}>Laster…</Text>
+        <Text style={styles.caption}>Loading…</Text>
       </View>
     );
   }
@@ -49,7 +49,7 @@ export function QueryState<T>({ query, children, isEmpty, emptyLabel }: QuerySta
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.caption}>{detail}</Text>
         <Pressable style={styles.retryButton} onPress={() => query.refetch()} accessibilityRole="button">
-          <Text style={styles.retryLabel}>Prøv igjen</Text>
+          <Text style={styles.retryLabel}>Try again</Text>
         </Pressable>
       </View>
     );
@@ -58,7 +58,7 @@ export function QueryState<T>({ query, children, isEmpty, emptyLabel }: QuerySta
   if (query.data === undefined || (isEmpty && isEmpty(query.data))) {
     return (
       <View style={styles.center}>
-        <Text style={styles.caption}>{emptyLabel ?? "Ingen data ennå."}</Text>
+        <Text style={styles.caption}>{emptyLabel ?? "No data yet."}</Text>
       </View>
     );
   }

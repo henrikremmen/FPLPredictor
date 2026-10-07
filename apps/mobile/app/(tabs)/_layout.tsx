@@ -24,27 +24,27 @@ export default function TabsLayout() {
     >
       <Tabs.Screen
         name="index"
-        options={{ title: "Oversikt", tabBarIcon: ({ focused }) => <TabIcon symbol="🏠" focused={focused} /> }}
+        options={{ title: "Overview", tabBarIcon: ({ focused }) => <TabIcon symbol="🏠" focused={focused} /> }}
       />
       <Tabs.Screen
         name="pitch"
-        options={{ title: "Tropp", tabBarIcon: ({ focused }) => <TabIcon symbol="⚽" focused={focused} /> }}
+        options={{ title: "Squad", tabBarIcon: ({ focused }) => <TabIcon symbol="⚽" focused={focused} /> }}
       />
       <Tabs.Screen
         name="transfers"
-        options={{ title: "Bytter", tabBarIcon: ({ focused }) => <TabIcon symbol="🔁" focused={focused} /> }}
+        options={{ title: "Transfers", tabBarIcon: ({ focused }) => <TabIcon symbol="🔁" focused={focused} /> }}
       />
       <Tabs.Screen
         name="strategy"
-        options={{ title: "Strategi", tabBarIcon: ({ focused }) => <TabIcon symbol="🧭" focused={focused} /> }}
+        options={{ title: "Strategy", tabBarIcon: ({ focused }) => <TabIcon symbol="🧭" focused={focused} /> }}
       />
       <Tabs.Screen
         name="market"
-        options={{ title: "Marked", tabBarIcon: ({ focused }) => <TabIcon symbol="🛒" focused={focused} /> }}
+        options={{ title: "Market", tabBarIcon: ({ focused }) => <TabIcon symbol="🛒" focused={focused} /> }}
       />
       <Tabs.Screen
         name="analytics"
-        options={{ title: "Analyse", tabBarIcon: ({ focused }) => <TabIcon symbol="📊" focused={focused} /> }}
+        options={{ title: "Analytics", tabBarIcon: ({ focused }) => <TabIcon symbol="📊" focused={focused} /> }}
       />
     </Tabs>
   );

@@ -19,11 +19,11 @@ def plan_multiweek(team: ImportedTeam, weeks: int | None = None,
     """Solve transfers and free-transfer rollover jointly across the horizon."""
     weekly = team.weekly_market
     if weekly is None:
-        raise AppError("Flerukersprognosen mangler. Oppdater prognosen først.")
+        raise AppError("The multiple-week forecast is missing. Please update the forecast first.")
     available_events = sorted(int(value) for value in weekly.forecast_event.unique())
     weeks = int(weeks or min(8, len(available_events)))
     if not 1 <= weeks <= 8 or len(available_events) < weeks:
-        raise AppError(f"Planleggeren trenger {weeks} komplette Gameweeks (maks 8).")
+        raise AppError(f"The planner needs {weeks} complete Gameweeks (maximum 8).")
     events = available_events[:weeks]
     frame = team.market.sort_values("id").drop_duplicates("id").reset_index(drop=True)
     ids = frame.id.astype(int).to_numpy()
@@ -163,7 +163,7 @@ def plan_multiweek(team: ImportedTeam, weeks: int | None = None,
         options={"time_limit": 45, "mip_rel_gap": .005},
     )
     if result.x is None:
-        raise AppError(f"Flerukersoptimeringen feilet: {result.message}")
+        raise AppError(f"Multi-week optimization failed: {result.message}")
     # HiGHS can return a feasible integer incumbent when the time limit is hit.
     # Validate it ourselves before presenting it as the best plan found, while
     # reserving global_optimum=True for a completed optimality proof.
@@ -178,7 +178,7 @@ def plan_multiweek(team: ImportedTeam, weeks: int | None = None,
         and np.all(lhs <= np.asarray(upper) + 1e-6)
     )
     if not feasible:
-        raise AppError(f"Flerukersoptimeringen ga ingen validert lovlig plan: {result.message}")
+        raise AppError(f"The multi-week optimization provided no validated legal plan: {result.message}")
     result.x = solution
     raw_gap = getattr(result, "mip_gap", None)
     mip_gap = float(raw_gap) if raw_gap is not None and np.isfinite(raw_gap) else None
@@ -220,9 +220,9 @@ def plan_multiweek(team: ImportedTeam, weeks: int | None = None,
         "solver_message": str(result.message),
         "mip_gap": mip_gap,
         "caveat": (
-            "Statiske priser og dagens skadeinformasjon; beregn planen på nytt før hver frist."
+            "Static prices and current injury information; recalculate before each deadline."
             if globally_optimal else
-            "Beste validerte lovlige plan funnet innen tidsgrensen; global optimalitet er "
-            "ikke bevist. Prisene er statiske, så beregn planen på nytt før hver frist."
+            "Best validated legal plan found within the time limit; global optimality is "
+            "not proven. Prices are static, so recalculate before each deadline."
         ),
     }

@@ -18,13 +18,13 @@ describe("ApiClient", () => {
   });
 
   it("maps a non-ok response to an ApiError with kind 'http' and the backend's detail", async () => {
-    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(404, { detail: "Lagøkten finnes ikke." }));
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(404, { detail: "The team session does not exist." }));
     const client = new ApiClient({ baseUrl: "http://example.test", fetchImpl });
 
     await expect(client.getTeam("missing")).rejects.toMatchObject({
       kind: "http",
       status: 404,
-      message: "Lagøkten finnes ikke.",
+      message: "The team session does not exist.",
     });
   });
 

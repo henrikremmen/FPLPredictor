@@ -219,13 +219,13 @@ class ApiTests(unittest.TestCase):
     def test_chip_endpoint_returns_strategy(self):
         session = api.STORE.add(fake_team())
         payload = {
-            "recommendation": "Spar chips foreløpig", "best_by_chip": [],
+            "recommendation": "Save chips for now", "best_by_chip": [],
             "forecast_events": [np.int64(5)],
         }
         with patch("api.recommend_chip_strategy", return_value=payload):
             response = self.client.post(f"/api/team/{session}/chips")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["recommendation"], "Spar chips foreløpig")
+        self.assertEqual(response.json()["recommendation"], "Save chips for now")
         self.assertEqual(response.json()["forecast_events"], [5])
 
     def test_recommended_squads_endpoint(self):
@@ -240,14 +240,14 @@ class ApiTests(unittest.TestCase):
     def test_strategy_endpoint(self):
         session = api.STORE.add(fake_team())
         payload = {
-            "headline": "Rull gratisbyttet",
+            "headline": "Roll the free transfer",
             "target_event": np.int64(5),
             "actions": [],
         }
         with patch("api.build_strategy_advice", return_value=payload):
             response = self.client.post(f"/api/team/{session}/strategy")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["headline"], "Rull gratisbyttet")
+        self.assertEqual(response.json()["headline"], "Roll the free transfer")
         self.assertEqual(response.json()["target_event"], 5)
 
 

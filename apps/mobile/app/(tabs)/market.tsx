@@ -12,11 +12,11 @@ import { loadPreferences, savePreferences, type StoredPreferences } from "../../
 import { typography } from "../../src/theme";
 
 const POSITION_OPTIONS: { value: Position | "ALL"; label: string }[] = [
-  { value: "ALL", label: "Alle" },
-  { value: "GK", label: "Keeper" },
-  { value: "DEF", label: "Forsvar" },
-  { value: "MID", label: "Midtbane" },
-  { value: "FWD", label: "Spiss" },
+  { value: "ALL", label: "All" },
+  { value: "GK", label: "Goalkeeper" },
+  { value: "DEF", label: "Defence" },
+  { value: "MID", label: "Midfield" },
+  { value: "FWD", label: "Forward" },
 ];
 
 const PRICE_OPTIONS = [50, 70, 90, 110, 130, 150];
@@ -44,7 +44,7 @@ export default function Market() {
 
   return (
     <Screen>
-      <Text style={typography.title}>Marked</Text>
+      <Text style={typography.title}>Market</Text>
 
       <Segmented
         value={position}
@@ -57,8 +57,8 @@ export default function Market() {
         options={PRICE_OPTIONS.map((value) => ({ value: String(value), label: formatMoney(value) }))}
       />
 
-      <Section title="Kjøpskandidater">
-        <QueryState query={market} isEmpty={(data) => data.players.length === 0} emptyLabel="Ingen spillere matcher filteret.">
+      <Section title="Buy candidates">
+        <QueryState query={market} isEmpty={(data) => data.players.length === 0} emptyLabel="No players match the filter.">
           {(data) => (
             <Card>
               {data.players.map((player) => (
@@ -69,8 +69,8 @@ export default function Market() {
         </QueryState>
       </Section>
 
-      <Section title="Salgskandidater" subtitle="Rangert fra ditt lag">
-        <QueryState query={sells} isEmpty={(data) => data.players.length === 0} emptyLabel="Ingen salgskandidater akkurat nå.">
+      <Section title="Sell candidates" subtitle="Ranked from your squad">
+        <QueryState query={sells} isEmpty={(data) => data.players.length === 0} emptyLabel="No sell candidates right now.">
           {(data) => (
             <Card>
               {data.players.map((player) => (

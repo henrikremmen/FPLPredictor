@@ -1,58 +1,54 @@
-# Personvernerklæring for FPL Modell (utkast)
+# Privacy policy for FPL Model (draft)
 
-*Dette er et utkast til bruk i App Store Connect og på en support-side. Fyll
-inn faktisk kontakt-e-post og utgivelsesdato før publisering, og få det
-gjerne lest av noen med juridisk kompetanse hvis appen skal selges eller nå
-mange brukere.*
+*Draft for App Store Connect and the support site. Add the actual contact email
+and publication date before publishing. Consider legal review before a commercial
+or large-scale release.*
 
-**Sist oppdatert:** [dato]
+**Last updated:** [date]
 
-FPL Modell er en uavhengig analyseapp for Fantasy Premier League. Appen er
-skrivebeskyttet: den logger aldri inn på fantasy.premierleague.com og kan
-aldri gjøre endringer i din ekte FPL-tropp.
+FPL Model is an independent analytics app for Fantasy Premier League. It is
+read-only: it never logs in to fantasy.premierleague.com or changes your actual
+FPL squad. It is not affiliated with, endorsed by or sponsored by the Premier
+League, Fantasy Premier League or any Premier League club.
 
-## Hvilke data appen bruker
+## Data used
 
-- **FPL-lagreferanse** (lag-ID eller offentlig laglenke) du selv skriver inn.
-  Dette er et offentlig nummer FPL selv viser i URL-en til enhver
-  managerprofil, og regnes ikke som en hemmelighet.
-- **Horisont, risikoprofil og filterpreferanser** du velger i appen.
-- **Offentlige FPL-data** (tropp, poeng, priser, minligatabeller) hentet fra
-  Fantasy Premier Leagues offentlige API, via vår egen server.
+- **FPL team reference:** the team ID or public URL you enter. This public
+  identifier appears in FPL manager-profile URLs and is not an account secret.
+- **Preferences:** your selected horizon, risk profile and filters.
+- **Public FPL data:** squads, points, prices and mini-league standings retrieved
+  from the public FPL API through our backend.
 
-## Hvor dataene lagres
+## Storage
 
-- FPL-ID, horisont, risikoprofil og preferanser lagres **kun lokalt på din
-  telefon** (Expo/React Native `AsyncStorage`). De sendes ikke til noen
-  tredjepart og synkroniseres ikke til en konto, fordi appen ikke har
-  brukerkontoer i denne versjonen.
-- Serveren appen snakker med holder et midlertidig øktobjekt (den importerte
-  troppen din) i minnet og i et lite lokalt register som lar økten overleve
-  en omstart av serveren. Den lagrer ingen passord og har ingen tilgang til
-  den ekte FPL-kontoen din.
-- Ingen analytics-, annonse- eller sporings-SDK-er er bygget inn i appen.
+The mobile app saves your team reference and preferences locally using
+Expo/React Native `AsyncStorage`. This version has no user accounts or
+account-based synchronisation.
 
-## Tredjeparter
+The backend receives the team reference and calculation settings, holds the
+imported squad in memory and records a small session pointer so it can rebuild
+the session after a restart. It does not store FPL passwords or access your
+actual FPL account. There are no built-in analytics, advertising or tracking SDKs.
 
-Appen kaller vår egen backend, som i sin tur henter offentlige data fra
-`fantasy.premierleague.com`. Backenden kan valgfritt bruke odds- og
-kampbelastningsdata fra The Odds API og football-data.org for å forbedre
-prognosene; disse kallene skjer fra serveren, ikke fra telefonen din, og
-sender aldri din identitet eller ditt FPL-passord videre.
+## Third parties
 
-## Sletting
+The app calls our backend, which retrieves public data from
+`fantasy.premierleague.com`. The backend can optionally use The Odds API and
+football-data.org for odds and fixture/workload context. These requests run on
+the server, not the phone, and do not forward your identity or FPL password.
 
-Siden appen ikke har en brukerkonto, sletter du all lokal appdata ved å
-avinstallere appen, eller ved å bruke en «Tilbakestill»-handling i appen som
-fjerner lagret FPL-ID, horisont, risikoprofil og preferanser fra telefonen.
-Hvis en fremtidig versjon innfører kontoer, vil denne siden oppdateres med en
-konkret slettefunksjon i appen, i tråd med Apples krav om kontosletting.
+## Deletion
 
-## Barn
+Uninstalling the app removes its local data. A reset action that clears local
+settings can also remove the stored team reference and preferences from the
+phone. This concerns device data, not a deletion of backend session records.
+If user accounts are introduced, this policy will be updated with the account
+deletion process required by Apple.
 
-Appen er ikke rettet mot barn og samler ikke inn data som identifiserer
-alder.
+## Children
 
-## Kontakt
+The app is not directed at children and does not collect age-identifying data.
 
-Spørsmål om personvern: [support-e-post, se docs/mobile/support.md]
+## Contact
+
+Privacy questions: [support email; see docs/mobile/support.md]

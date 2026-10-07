@@ -22,7 +22,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     });
   } catch {
     throw new Error(
-      "Kunne ikke kontakte API-et. Start appen med .venv/bin/python run_app.py og åpne http://127.0.0.1:5173.",
+      "Could not contact API. Start the app with .venv/bin/python run_app.py and open http://127.0.0.1:5173.",
     );
   }
   const payload = await response.json().catch(() => ({}));
