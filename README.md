@@ -458,3 +458,7 @@ margin, deadline checks, official price indicators and model-filtered watchlists
 Hit plans are compared against a separate no-hit scenario and need an uncertainty
 buffer before they are recommended. Further research and priorities are in
 [manager strategy research](docs/fpl_manager_strategy_research_2026.md).
+
+
+you will need this installed in same root:
+https://github.com/vaastav/Fantasy-Premier-League
