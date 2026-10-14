@@ -1,4 +1,5 @@
 import type {
+  PlayerConstraints, PlayerDetail, PlayerComparison, SnapshotChanges, RefreshStatus,
   ChipStrategy,
   RecommendedSquads,
   Position,
@@ -33,6 +34,18 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  player(session: string, id: number) {
+    return request<PlayerDetail>(`/api/team/${session}/players/${id}`);
+  },
+  changes(session: string) {
+    return request<SnapshotChanges>(`/api/team/${session}/changes`);
+  },
+  compare(session: string, outId: number, inId: number, constraints: PlayerConstraints) {
+    return request<PlayerComparison>(`/api/team/${session}/compare`, {
+      method: "POST", body: JSON.stringify({ out_id: outId, in_id: inId, ...constraints }),
+    });
+  },
+  refreshStatus() { return request<RefreshStatus>("/api/forecast/status"); },
   importTeam(reference: string, horizon: number, riskProfile: RiskProfile) {
     return request<TeamResponse>("/api/team/import", {
       method: "POST",
@@ -68,28 +81,28 @@ export const api = {
   resetSquad(session: string) {
     return request<TeamResponse>(`/api/team/${session}/squad/reset`, { method: "POST" });
   },
-  transfers(session: string, number: number, outgoingIds: number[] = []) {
+  transfers(session: string, number: number, outgoingIds: number[] = [], constraints?: PlayerConstraints) {
     return request<TransferResponse>(`/api/team/${session}/transfers`, {
       method: "POST",
-      body: JSON.stringify({ number, outgoing_ids: outgoingIds }),
+      body: JSON.stringify({ number, outgoing_ids: outgoingIds, ...constraints }),
     });
   },
-  plan(session: string, weeks: number, discount = 0.9) {
+  plan(session: string, weeks: number, discount = 0.9, constraints?: PlayerConstraints) {
     return request<MultiweekPlan>(`/api/team/${session}/plan`, {
       method: "POST",
-      body: JSON.stringify({ weeks, discount }),
+      body: JSON.stringify({ weeks, discount, ...constraints }),
     });
   },
-  chips(session: string) {
-    return request<ChipStrategy>(`/api/team/${session}/chips`, { method: "POST" });
+  chips(session: string, constraints?: PlayerConstraints) {
+    return request<ChipStrategy>(`/api/team/${session}/chips`, { method: "POST", body: JSON.stringify(constraints ?? {}) });
   },
-  recommendedSquads(session: string) {
+  recommendedSquads(session: string, constraints?: PlayerConstraints) {
     return request<RecommendedSquads>(`/api/team/${session}/recommended-squads`, {
-      method: "POST",
+      method: "POST", body: JSON.stringify(constraints ?? {}),
     });
   },
-  strategy(session: string) {
-    return request<StrategyAdvice>(`/api/team/${session}/strategy`, { method: "POST" });
+  strategy(session: string, constraints?: PlayerConstraints) {
+    return request<StrategyAdvice>(`/api/team/${session}/strategy`, { method: "POST", body: JSON.stringify(constraints ?? {}) });
   },
   analytics(session: string, event?: number, leagueId?: number | null) {
     const params = new URLSearchParams();
@@ -98,13 +111,18 @@ export const api = {
     const query = params.size ? `?${params}` : "";
     return request<ManagerAnalytics>(`/api/team/${session}/analytics${query}`);
   },
-  async market(session: string, position: Position | "ALL", maxPrice: number) {
+  async market(session: string, position: Position | "ALL", maxPrice: number, constraints?: PlayerConstraints) {
     const params = new URLSearchParams({ limit: "30", max_price: String(maxPrice) });
     if (position !== "ALL") params.set("position", position);
+    constraints?.locked_ids.forEach(id => params.append("locked_ids", String(id)));
+    constraints?.excluded_ids.forEach(id => params.append("excluded_ids", String(id)));
     return request<{ players: Player[] }>(`/api/team/${session}/market?${params}`);
   },
-  async sells(session: string) {
-    return request<{ players: Player[] }>(`/api/team/${session}/sells`);
+  async sells(session: string, constraints?: PlayerConstraints) {
+    const params = new URLSearchParams();
+    constraints?.locked_ids.forEach(id => params.append("locked_ids", String(id)));
+    constraints?.excluded_ids.forEach(id => params.append("excluded_ids", String(id)));
+    return request<{ players: Player[] }>(`/api/team/${session}/sells?${params}`);
   },
   refreshForecast() {
     return request<{ status: string }>("/api/forecast/refresh", { method: "POST" });

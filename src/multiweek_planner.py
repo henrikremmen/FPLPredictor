@@ -62,6 +62,13 @@ def plan_multiweek(team: ImportedTeam, weeks: int | None = None,
         lower.append(float(lo)); upper.append(float(hi))
 
     for period, event in enumerate(events):
+        for player, player_id in enumerate(ids):
+            if player_id in team.locked_ids:
+                add([(index(x0, period, player), 1)], 1, 1)
+            if player_id in team.excluded_ids:
+                add([(index(x0, period, player), 1)], 0, 0)
+            if not bool(frame.loc[player].get("can_select", True)):
+                add([(index(u0, period, player), 1)], 0, 0)
         # Squad composition and three-player club limit.
         add([(index(x0, period, player), 1) for player in range(n)], 15, 15)
         for position, count in POSITION_COUNTS.items():
@@ -202,6 +209,7 @@ def plan_multiweek(team: ImportedTeam, weeks: int | None = None,
         total += projected
         weeks_payload.append({
             "event": event,
+            "squad_ids": [int(i) for i in ids[result.x[x0 + period*n:x0 + (period+1)*n] > .5]],
             "transfers_out": [names[player] for player in outgoing_ids],
             "transfers_in": [names[player] for player in incoming_ids],
             "free_transfers_before": int(round(result.x[index(ft0, period)])),

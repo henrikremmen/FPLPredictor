@@ -191,7 +191,9 @@ class ComponentPointsModel:
         )[None, :]
         result += saves // 3 + bonus + 5 * saved
         result -= yellow + 3 * red + 2 * own + 2 * missed
-        result -= (conceded // 2) * np.isin(positions, ["GK", "DEF"])[None, :] * sixty
+        # Preserve archived v1 behavior; the v2 challenger corrects this gate.
+        conceded_gate = sixty if getattr(self, "legacy_conceded_gate", True) else played
+        result -= (conceded // 2) * np.isin(positions, ["GK", "DEF"])[None, :] * conceded_gate
         if self.has_defcon:
             defcon = sample_count("defensive_contribution")
             threshold = np.where(positions == "DEF", 10, np.where(
@@ -203,3 +205,65 @@ class ComponentPointsModel:
             "q50": np.quantile(result, .5, axis=0), "q90": np.quantile(result, .9, axis=0),
             "p5plus": (result >= 5).mean(axis=0), "p10plus": (result >= 10).mean(axis=0),
         }
+
+
+class CoherentComponentPointsModel(ComponentPointsModel):
+    """V2 challenger whose analytic point contributions match its sampler.
+
+Counts are still conditionally independent approximations, so the distribution
+is not a fully coherent football match simulation. No automatic promotion.
+"""
+    legacy_conceded_gate = False
+
+    def fit(self, data: pd.DataFrame):
+        # Never turn unknown event labels into observed zeros in new training.
+        # DEFCON is separately masked in the parent because older eras lack it.
+        for target in ["minutes", "clean_sheets", *COUNT_TARGETS]:
+            values = pd.to_numeric(data[target], errors="coerce")
+            if values.isna().any() or not np.isfinite(values).all() or values.lt(0).any():
+                raise ValueError(f"Missing or invalid component labels: {target}")
+        return super().fit(data)
+
+    def point_contributions(self, data: pd.DataFrame) -> pd.DataFrame:
+        c = self.predict_components(data)
+        probabilities = c["minutes_probability"]
+        play = probabilities[:, 1:].sum(axis=1)
+        sixty = probabilities[:, 2:].sum(axis=1)
+        positions = data.position.astype(str).to_numpy()
+
+        def rate(name):
+            # Match exactly the defensive clipping used by predict_distribution.
+            return np.clip(c[name] / np.clip(play, .03, 1), 0, 30)
+
+        def mean(name):
+            return play * rate(name)
+
+        def floor_mean(name, divisor):
+            # E[floor(Poisson(lambda)/d)] = sum P(X >= k*d).
+            thresholds = np.arange(divisor, 301, divisor)
+            return play * poisson.sf(thresholds[:, None] - 1, rate(name)[None, :]).sum(axis=0)
+
+        clean = sixty * np.clip(c["clean_sheet_probability"] / np.clip(sixty, .03, 1), 0, 1)
+        bonus = play * poisson.sf(np.arange(3)[:, None], rate("bonus")[None, :]).sum(axis=0)
+        result = pd.DataFrame({
+            "appearance": play + sixty,
+            "goals": mean("goals_scored") * np.array([GOAL_POINTS.get(p, 4) for p in positions]),
+            "assists": 3 * mean("assists"),
+            "clean_sheets": clean * np.array([CLEAN_SHEET_POINTS.get(p, 0) for p in positions]),
+            "saves": floor_mean("saves", 3),
+            "bonus": bonus,
+            "penalties_saved": 5 * mean("penalties_saved"),
+            "yellow_cards": -mean("yellow_cards"),
+            "red_cards": -3 * mean("red_cards"),
+            "own_goals": -2 * mean("own_goals"),
+            "penalties_missed": -2 * mean("penalties_missed"),
+            "goals_conceded": -1. * np.isin(positions, ["GK", "DEF"]) * floor_mean("goals_conceded", 2),
+        }, index=data.index)
+        threshold = np.where(positions == "DEF", 10,
+            np.where(np.isin(positions, ["MID", "FWD"]), 12, 999))
+        result["defensive_contribution"] = (2 * play * poisson.sf(
+            threshold - 1, rate("defensive_contribution")) if self.has_defcon else 0.)
+        return result
+
+    def predict(self, data: pd.DataFrame) -> np.ndarray:
+        return self.point_contributions(data).sum(axis=1).to_numpy()

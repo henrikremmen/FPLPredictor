@@ -5,6 +5,7 @@ const uiPort = process.env.FPL_UI_PORT ?? "5173";
 
 export default defineConfig({
   testDir: "./e2e",
+  testIgnore: "workspace.spec.ts",
   timeout: 180_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,

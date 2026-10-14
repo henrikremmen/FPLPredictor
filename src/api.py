@@ -11,7 +11,7 @@ from uuid import uuid4
 
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -36,6 +36,8 @@ from fpl_app import (
     transfer_targets,
 )
 
+
+from decision_workspace import constrained_team, context, player_detail, changes_since_previous, compare_players
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -63,12 +65,29 @@ class SquadEditRequest(BaseModel):
     free_transfers: int | None = Field(default=None, ge=0, le=5)
 
 
-class TransferRequest(BaseModel):
+class ConstraintsRequest(BaseModel):
+    locked_ids: list[int] = Field(default_factory=list, max_length=15)
+    excluded_ids: list[int] = Field(default_factory=list, max_length=800)
+
+
+class CompareRequest(ConstraintsRequest):
+    out_id: int = Field(gt=0)
+    in_id: int = Field(gt=0)
+
+
+def _constrained(team, request):
+    try:
+        return constrained_team(team, request.locked_ids, request.excluded_ids)
+    except AppError as exc:
+        raise _as_http_error(exc) from exc
+
+
+class TransferRequest(ConstraintsRequest):
     number: int = Field(ge=1, le=5)
     outgoing_ids: list[int] = Field(default_factory=list, max_length=5)
 
 
-class PlanRequest(BaseModel):
+class PlanRequest(ConstraintsRequest):
     weeks: int = Field(default=4, ge=1, le=8)
     discount: float = Field(default=.9, ge=.5, le=1.0)
 
@@ -188,6 +207,7 @@ def _team_payload(session_id: str, team: ImportedTeam) -> dict:
         "squad_source": team.squad_source,
         "manual_changes": team.manual_changes,
         "forecast_path": str(team.forecast_path),
+        "forecast_context": context(team),
         "chip_status": team.chip_status,
         "squad": _records(team.squad),
         "lineup": _lineup_payload(team),
@@ -288,7 +308,7 @@ def reset_squad(session_id: str) -> dict:
 
 @app.post("/api/team/{session_id}/transfers")
 def transfers(session_id: str, request: TransferRequest) -> dict:
-    team = STORE.get(session_id)
+    team = _constrained(STORE.get(session_id), request)
     try:
         frame = recommend_transfers(
             team,
@@ -307,7 +327,7 @@ def transfers(session_id: str, request: TransferRequest) -> dict:
 
 @app.post("/api/team/{session_id}/plan")
 def multiweek_plan(session_id: str, request: PlanRequest) -> dict:
-    team = STORE.get(session_id)
+    team = _constrained(STORE.get(session_id), request)
     try:
         return _json_safe(plan_multiweek(team, weeks=request.weeks, discount=request.discount))
     except AppError as exc:
@@ -320,21 +340,25 @@ def market(
     position: str | None = Query(default=None, pattern="^(GK|DEF|MID|FWD)$"),
     max_price: int | None = Query(default=None, ge=30, le=200),
     limit: int = Query(default=20, ge=1, le=100),
+    locked_ids: list[int] = Query(default=[], max_length=15),
+    excluded_ids: list[int] = Query(default=[], max_length=800),
 ) -> dict:
-    team = STORE.get(session_id)
+    team = _constrained(STORE.get(session_id), ConstraintsRequest(locked_ids=locked_ids, excluded_ids=excluded_ids))
     frame = transfer_targets(team, position=position, max_price=max_price, limit=limit)
     return {"players": _records(frame)}
 
 
 @app.get("/api/team/{session_id}/sells")
-def sells(session_id: str, limit: int = Query(default=15, ge=1, le=15)) -> dict:
-    team = STORE.get(session_id)
+def sells(session_id: str, limit: int = Query(default=15, ge=1, le=15),
+          locked_ids: list[int] = Query(default=[], max_length=15),
+          excluded_ids: list[int] = Query(default=[], max_length=800)) -> dict:
+    team = _constrained(STORE.get(session_id), ConstraintsRequest(locked_ids=locked_ids, excluded_ids=excluded_ids))
     return {"players": _records(sell_candidates(team, limit=limit))}
 
 
 @app.post("/api/team/{session_id}/chips")
-def chips(session_id: str) -> dict:
-    team = STORE.get(session_id)
+def chips(session_id: str, request: ConstraintsRequest = Body(default=ConstraintsRequest())) -> dict:
+    team = _constrained(STORE.get(session_id), request)
     try:
         return _json_safe(recommend_chip_strategy(team))
     except AppError as exc:
@@ -342,8 +366,8 @@ def chips(session_id: str) -> dict:
 
 
 @app.post("/api/team/{session_id}/recommended-squads")
-def recommended_squads(session_id: str) -> dict:
-    team = STORE.get(session_id)
+def recommended_squads(session_id: str, request: ConstraintsRequest = Body(default=ConstraintsRequest())) -> dict:
+    team = _constrained(STORE.get(session_id), request)
     try:
         return _json_safe(recommend_squads(team))
     except AppError as exc:
@@ -351,8 +375,8 @@ def recommended_squads(session_id: str) -> dict:
 
 
 @app.post("/api/team/{session_id}/strategy")
-def strategy(session_id: str) -> dict:
-    team = STORE.get(session_id)
+def strategy(session_id: str, request: ConstraintsRequest = Body(default=ConstraintsRequest())) -> dict:
+    team = _constrained(STORE.get(session_id), request)
     try:
         return _json_safe(build_strategy_advice(team))
     except AppError as exc:
@@ -372,6 +396,28 @@ def analytics(
         raise _as_http_error(exc) from exc
 
 
+@app.get("/api/team/{session_id}/players/{player_id}")
+def inspect_player(session_id: str, player_id: int) -> dict:
+    try:
+        return player_detail(STORE.get(session_id), player_id)
+    except AppError as exc:
+        raise _as_http_error(exc) from exc
+
+
+@app.get("/api/team/{session_id}/changes")
+def recent_changes(session_id: str) -> dict:
+    payload = changes_since_previous(STORE.get(session_id), ROOT)
+    return json.loads(json.dumps(payload, default=lambda v: v.item() if isinstance(v, np.generic) else str(v)))
+
+
+@app.post("/api/team/{session_id}/compare")
+def compare(session_id: str, request: CompareRequest) -> dict:
+    try:
+        return _json_safe(compare_players(_constrained(STORE.get(session_id), request), request.out_id, request.in_id))
+    except AppError as exc:
+        raise _as_http_error(exc) from exc
+
+
 class RefreshGuard:
     """Serializes and rate-limits the expensive, shared forecast refresh.
 
@@ -387,6 +433,8 @@ class RefreshGuard:
         self._busy = False
         self._last_started: float | None = None
         self._min_interval = min_interval_seconds
+        self._state = "idle"
+        self._error = None
 
     def run(self) -> None:
         with self._lock:
@@ -397,14 +445,53 @@ class RefreshGuard:
                 raise HTTPException(status_code=429, detail=f"Wait {wait} seconds before the next update.")
             self._busy = True
             self._last_started = time.time()
+            self._state = "running"
+            self._error = None
         try:
             refresh_forecast(ROOT)
+            with self._lock:
+                self._state = "complete"
+        except Exception as exc:
+            with self._lock:
+                self._state = "failed"
+                self._error = str(exc)
+            raise
         finally:
             with self._lock:
                 self._busy = False
 
 
 REFRESH_GUARD = RefreshGuard()
+
+
+@app.get("/api/forecast/status")
+def forecast_status() -> dict:
+    with REFRESH_GUARD._lock:
+        started = REFRESH_GUARD._last_started
+        result = {"state": REFRESH_GUARD._state, "error": REFRESH_GUARD._error,
+                  "elapsed_seconds": round(time.time() - started) if started else 0,
+                  "stage": "Waiting for update", "captured": 0, "total": None}
+    if result["state"] == "running":
+        result["stage"] = "Downloading fixtures and source updates"
+        paths = list((ROOT / 'data/raw/live_fpl').glob('capture_*/manifest.json'))
+        paths = [p for p in paths if p.stat().st_mtime >= started]
+        if paths:
+            try:
+                m = json.loads(max(paths, key=lambda p: p.stat().st_mtime).read_text())
+                count = sum(k.startswith('player_') and v.get('status') == 200
+                            for k, v in m.get('files', {}).items())
+                result.update(captured=count, total=m.get('expected_players'))
+                if count:
+                    result['stage'] = 'Downloading player histories'
+                if m.get('captured_players') or m.get('status') == 'complete':
+                    result['stage'] = 'Generating and validating forecasts'
+            except (OSError, ValueError):
+                pass
+    elif result['state'] == 'complete':
+        result['stage'] = 'Forecast saved; reloading team'
+    elif result['state'] == 'failed':
+        result['stage'] = 'Update failed; previous forecasts retained'
+    return result
 
 
 @app.post("/api/forecast/refresh")

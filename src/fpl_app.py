@@ -161,6 +161,9 @@ class ImportedTeam:
     team_value: int | None = None
     squad_source: str = "fpl_public"
     manual_changes: list[dict] = field(default_factory=list)
+    locked_ids: set[int] = field(default_factory=set)
+    excluded_ids: set[int] = field(default_factory=set)
+    player_data_at: str | None = None
 
 
 def latest_forecast(root: Path, target_event: int) -> Path:
@@ -263,6 +266,7 @@ def build_market(bootstrap: dict, fixtures: list[dict], forecast_path: Path,
             "price": int(player["now_cost"]),
             "status": player.get("status", "a"),
             "news": player.get("news", "") or "",
+            "news_added": player.get("news_added"),
             "availability": _availability_factor(player),
             "opponent": opponents.get(int(player["team"]), "Blank"),
             # Official public manager context. These are decision-support
@@ -382,6 +386,7 @@ def import_team(reference: str, root: Path, client: FPLClient | None = None,
     entry_id, requested_event = parse_entry_reference(reference)
     entry = client.get(f"entry/{entry_id}/")
     bootstrap = client.get("bootstrap-static/")
+    player_data_at = pd.Timestamp.now(tz="UTC").isoformat()
     fixtures = client.get("fixtures/")
     history = client.get(f"entry/{entry_id}/history/")
     current_event = int(entry.get("current_event") or 0)
@@ -389,7 +394,10 @@ def import_team(reference: str, root: Path, client: FPLClient | None = None,
     if event <= 0:
         raise AppError("The team has no completed or active Gameweek to import yet.")
     picks = client.get(f"entry/{entry_id}/event/{event}/picks/")
-    target = next((row for row in bootstrap["events"] if row.get("is_next")), None)
+    # Keep showing the current Gameweek until it is finished, then roll to the next.
+    target = next((row for row in bootstrap["events"]
+                   if row.get("is_current") and not row.get("finished")), None) \
+        or next((row for row in bootstrap["events"] if row.get("is_next")), None)
     if target is None:
         raise AppError("FPL hasn't published a next Gameweek yet.")
     target_event = int(target["id"])
@@ -453,6 +461,7 @@ def import_team(reference: str, root: Path, client: FPLClient | None = None,
         weekly_market=weekly_market,
         risk_profile=risk_profile,
         chip_status=chip_inventory(history, target_event),
+        player_data_at=player_data_at,
         overall_points=(int(entry_history["total_points"])
                         if entry_history.get("total_points") is not None else None),
         overall_rank=(int(entry_history["overall_rank"])
@@ -812,6 +821,13 @@ def _exact_transfer_plan(team: ImportedTeam, weekly_source: pd.DataFrame,
     retained = 15 - number
     add([(index, owned_mask[index]) for index in range(n)], retained, retained)
     index_by_id = {int(player_id): index for index, player_id in enumerate(ids)}
+    for player_id in team.locked_ids:
+        add([(index_by_id[player_id], 1)], 1, 1)
+    for player_id in team.excluded_ids:
+        add([(index_by_id[player_id], 1)], 0, 0)
+    for index, row in frame.iterrows():
+        if not bool(row.get("can_select", True)) and int(row.id) not in owned:
+            add([(index, 1)], 0, 0)
     for player_id in forced_outgoing:
         add([(index_by_id[player_id], 1)], 0, 0)
     for position, count in {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}.items():
@@ -948,6 +964,8 @@ def recommend_transfers(team: ImportedTeam, number: int = 1, limit: int = 8,
         raise AppError("The same player cannot be chosen several times.")
     if forced and len(forced) != number:
         raise AppError("The number of selected players must equal the number of transfers.")
+    if set(forced) & team.locked_ids:
+        raise AppError("A locked player cannot be selected to go out.")
     unknown = set(forced) - owned
     if unknown:
         raise AppError("All selected players must be present in the active squad.")
@@ -984,7 +1002,9 @@ def recommend_transfers(team: ImportedTeam, number: int = 1, limit: int = 8,
                 "projected_total", "is_global_optimum",
             ])
         return pd.DataFrame([exact_plan]).drop(columns="_plan_key")
-    available = market[~market["id"].isin(owned)].copy()
+    available = market[~market["id"].isin(owned | team.excluded_ids)].copy()
+    if "can_select" in available:
+        available = available[available.can_select]
     pools = {}
     for position, group in available.groupby("position"):
         ranked = group.sort_values(["recommended_points", "price", "id"],
@@ -1014,6 +1034,8 @@ def recommend_transfers(team: ImportedTeam, number: int = 1, limit: int = 8,
     club_counts = Counter(int(team_id) for team_id in squad["team_id"])
     results, seen = [], set()
     for outgoing in outgoing_sets:
+        if set(outgoing) & team.locked_ids or (owned & team.excluded_ids) - set(outgoing):
+            continue
         positions = [by_id.loc[player_id, "position"] for player_id in outgoing]
         if any(position not in pools for position in positions):
             continue
@@ -1085,7 +1107,9 @@ def recommend_transfers(team: ImportedTeam, number: int = 1, limit: int = 8,
 
 def transfer_targets(team: ImportedTeam, position: str | None = None,
                      max_price: int | None = None, limit: int = 12) -> pd.DataFrame:
-    targets = team.market[~team.market["id"].isin(team.squad["id"])].copy()
+    targets = team.market[~team.market["id"].isin(set(team.squad["id"]) | team.excluded_ids)].copy()
+    if "can_select" in targets:
+        targets = targets[targets.can_select]
     if position:
         targets = targets[targets["position"].eq(position.upper())]
     if max_price is not None:
@@ -1099,7 +1123,7 @@ def transfer_targets(team: ImportedTeam, position: str | None = None,
 def sell_candidates(team: ImportedTeam, limit: int = 8) -> pd.DataFrame:
     score_column = ("decision_points" if "decision_points" in team.squad
                     else "recommended_points")
-    return team.squad.sort_values(
+    return team.squad[~team.squad.id.isin(team.locked_ids)].sort_values(
         [score_column, "selling_price", "id"], ascending=[True, False, True]
     ).head(limit)
 

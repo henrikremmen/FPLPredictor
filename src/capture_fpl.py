@@ -546,6 +546,8 @@ def run(root, capture_phase='manual'):
             season=f'{first_year}-{str(first_year+1)[-2:]}'
             manifest.update(season=season,target_event=target)
             ids=[p['id'] for p in bootstrap['elements'] if p['element_type'] in POSITIONS]
+            manifest["expected_players"] = len(ids)
+            save()
             histories={}
             def capture_player(pid):
                 time.sleep(.25)  # bounded four-worker request rate
@@ -564,6 +566,7 @@ def run(root, capture_phase='manual'):
             closing,cmeta=capture_endpoint('bootstrap-static/',dest,'bootstrap_closing')
             manifest['files']['bootstrap_closing']=cmeta
             manifest.update(expected_players=len(ids),captured_players=len(histories))
+            save()
             if closing is None or len(histories)!=len(ids):
                 raise ValueError('Incomplete snapshot: at least one API request failed')
             if roster_signature(bootstrap)!=roster_signature(closing):

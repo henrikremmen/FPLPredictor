@@ -26,6 +26,8 @@ export interface Player {
   price_change_likelihood?: number;
   defensive_contribution_per_90?: number;
   status: string;
+  news?: string;
+  availability?: number;
   role?: "" | "C" | "VC";
   bench_order?: string;
 }
@@ -60,6 +62,7 @@ export interface TeamResponse {
   horizon: number;
   risk_profile: RiskProfile;
   forecast_path: string;
+  forecast_context?: ForecastContext;
   chip_status: Record<string, ChipStatus>;
   overall_points?: number | null;
   overall_rank?: number | null;
@@ -299,6 +302,8 @@ export interface ChipCandidate {
   gain: number;
   projected_points: number;
   threshold: number;
+  comparison_basis?: string;
+  evaluation_events?: number[];
   decision: ChipDecision;
   available: boolean;
   reason: string;
@@ -442,4 +447,42 @@ export interface StrategyAdvice {
   principles: string[];
   method: string;
   caveat: string;
+}
+
+export interface ForecastContext {
+  revision: string;
+  forecast_at: string | null;
+  observed_at: string | null;
+  player_data_at?: string | null;
+  model_family: string | null;
+  source_url: string;
+}
+export interface PlayerConstraints { locked_ids: number[]; excluded_ids: number[] }
+export interface PlayerDetail {
+  injury_scenarios?: Array<{ GW: number; fixture: number; kickoff_time: string;
+    reported_return: string; conservative_points: number; reported_return_points: number }>;
+  player: Player & { news?: string; availability?: number; prediction?: number };
+  weeks: Array<Player & { forecast_event: number }>;
+  fixtures: Array<{ GW: number; fixture?: number; kickoff_time?: string; p_zero_minutes?: number;
+    p_1_59_minutes?: number; p_60plus_minutes?: number; prediction_q10?: number; prediction_q90?: number }>;
+  context: ForecastContext;
+  news_added: string | null;
+  minutes_note: string;
+  uncertainty_note: string;
+}
+export interface SnapshotChanges {
+  previous_at: string | null;
+  current_at: string | null;
+  message: string;
+  changes: Array<{ id: number; name: string; fields: Record<string, { before: string | number | null; after: string | number | null }> }>;
+}
+export interface PlayerComparison {
+  out_id: number; in_id: number; out: string; in: string;
+  hold_points: number; buy_points: number; hit: number; net_gain: number; bank_after: number;
+  weeks: Array<{ event: number; hold: number; buy: number; gain: number }>;
+  players?: { outgoing: Player; incoming: Player };
+  context: ForecastContext; caveat: string;
+}
+export interface RefreshStatus {
+  state: string; stage: string; elapsed_seconds: number; captured: number; total: number | null; error: string | null;
 }

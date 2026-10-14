@@ -100,6 +100,11 @@ def _optimize_window(team: ImportedTeam, events: list[int],
         upper.append(float(hi))
 
     add([(index, 1) for index in range(n)], 15, 15)
+    for index, player_id in enumerate(ids):
+        if player_id in team.locked_ids:
+            add([(index, 1)], 1, 1)
+        if player_id in team.excluded_ids or (player_id not in owned and not bool(frame.loc[index].get("can_select", True))):
+            add([(index, 1)], 0, 0)
     if max_transfers is not None:
         retained = max(0, 15 - int(max_transfers))
         add([(index, owned_mask[index]) for index in range(n)], lo=retained)
@@ -253,6 +258,8 @@ def recommend_chip_strategy(team: ImportedTeam) -> dict:
             "gain": round(float(gain), 2), "projected_points": round(float(projected), 2),
             "threshold": threshold, "decision": _decision(gain, threshold, is_available),
             "available": is_available, "reason": reason,
+            "comparison_basis": "current_squad" if chip in ("triple_captain", "bench_boost") else "optimized_normal_plan",
+            "evaluation_events": [gw for gw in events if gw >= event][:window],
             "transfers_needed": int(transfers), "squad": squad or [],
             **context_by_event[event],
         })

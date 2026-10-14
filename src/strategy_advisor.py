@@ -117,7 +117,7 @@ def _price_alerts(team: ImportedTeam, next_market: pd.DataFrame) -> dict:
         ["_price_next", "_price_now"], ascending=True
     )
     candidates = frame[
-        ~frame["id"].isin(owned_ids)
+        ~frame["id"].isin(owned_ids | team.excluded_ids)
         & _series(frame, "can_transact", True).fillna(True).astype(bool)
         & _series(frame, "status", "a").eq("a")
     ].nlargest(35, "_score")
@@ -187,7 +187,7 @@ def _squad_health(team: ImportedTeam, lineup: dict) -> dict:
 def _watchlists(team: ImportedTeam, next_market: pd.DataFrame) -> dict:
     owned = set(team.squad["id"].astype(int))
     candidates = next_market[
-        ~next_market["id"].isin(owned)
+        ~next_market["id"].isin(owned | team.excluded_ids)
         & _series(next_market, "can_select", True).fillna(True).astype(bool)
         & _series(next_market, "status", "a").eq("a")
     ].copy()

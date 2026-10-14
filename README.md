@@ -57,6 +57,43 @@ separate from forward-looking forecasts. See
 [manager analytics research](docs/manager_analytics_research_2026.md) for methods
 and limitations.
 
+## Decision workspace
+
+The web app now includes:
+
+- **Since last time**, on Overview: news, availability, price, fixture and material
+  expected-point changes for your current squad compared with the latest earlier
+  snapshot covering the same horizon. Point changes below 0.5 are omitted.
+- **Clickable player names**: per-round fixtures and points, per-fixture playing-time
+  probabilities and Q10–Q90, news, and separate forecast and player-data timestamps.
+  The current model predicts minute bands, not an exact expected-minutes figure.
+- **Compare players**: a legal same-position replacement versus holding, using selling
+  prices, bank, club limits, optimal XI/captain and a single transfer hit when needed.
+  Player projections and total team gains are shown separately.
+- **Player preferences**: lock owned players or exclude players. These constraints
+  apply inside the transfer, multiweek and FH/WC optimizers, and filter market
+  suggestions and strategy watchlists. Excluding an owned player
+  requires selling them in a proposed squad; conflicting or impossible requests do
+  not silently relax the constraints. Current holdings and actual FPL teams are unchanged.
+- **Saved plans**: named transfer, player-comparison, multiweek and chip alternatives,
+  including their original squad, finances and preferences. Select two for A/B review.
+  Numerical differences are shown only for compatible analysis types, inputs and chip
+  evaluation windows/baselines. You can rename or delete drafts.
+- **Update status**: source/history/scoring stages and elapsed time during forecast
+  refreshes. Previous results stay visible on refresh or calculation failure, and
+  results are marked outdated when forecasts, squad, finances or preferences change.
+
+Preferences and saved plans are stored in this browser for each FPL entry ID. They
+survive reloads but do not sync across browsers/devices. Saved plans are snapshots;
+recalculate outdated advice before saving a new version. These features do not
+change the production model or calibrate injury recovery across future gameweeks.
+
+Run the deterministic workspace browser tests without live FPL or paid API calls:
+
+```bash
+npm --prefix frontend run test:e2e:workspace
+```
+
 ## Repository structure and commands
 
 ```text

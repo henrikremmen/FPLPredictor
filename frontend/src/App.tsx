@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api } from "./api";
 import { Icon } from "./icons";
+import { WorkspaceProvider, useWorkspace, PlayerName, SinceLastTime, PlayerComparisonView, Preferences, SavedPlans, ForecastStatus, ResultStatus, SavePlan } from "./Workspace";
 import type {
   ChipCandidate,
   ChipStrategy,
@@ -20,7 +21,7 @@ import type {
   TransferResponse,
 } from "./types";
 
-type View = "overview" | "analysis" | "squad" | "strategy" | "lineup" | "transfers" | "plan" | "squads" | "chips" | "market";
+type View = "comparison" | "preferences" | "saved" | "overview" | "analysis" | "squad" | "strategy" | "lineup" | "transfers" | "plan" | "squads" | "chips" | "market";
 
 const DEFAULT_TEAM = "https://fantasy.premierleague.com/en/entry/5139814/event/4";
 const VIEWS: Array<{ id: View; label: string; icon: typeof Icon.Home }> = [
@@ -34,6 +35,9 @@ const VIEWS: Array<{ id: View; label: string; icon: typeof Icon.Home }> = [
   { id: "squads", label: "FH / WC squads", icon: Icon.Shield },
   { id: "chips", label: "Chips", icon: Icon.Zap },
   { id: "market", label: "Market", icon: Icon.Search },
+  { id: "comparison", label: "Compare players", icon: Icon.Swap },
+  { id: "preferences", label: "Player preferences", icon: Icon.Edit },
+  { id: "saved", label: "Saved plans", icon: Icon.Star },
 ];
 
 function PageHeading({ view, eyebrow, title, subtitle, action, right }: {
@@ -83,7 +87,7 @@ function PlayerRow({ player, rank }: { player: Player; rank?: number }) {
     <div className="player-row">
       {rank != null && <span className="rank">{rank}</span>}
       <span className={`position position-${player.position.toLowerCase()}`}>{player.position}</span>
-      <div className="player-name"><strong>{player.name}</strong><small>{player.team} · {player.opponent || "–"}</small></div>
+      <div className="player-name"><PlayerName id={player.id}><strong>{player.name}</strong></PlayerName><small>{player.team} · {player.opponent || "–"}</small></div>
       <span className="hide-mobile">{money(player.selling_price ?? player.price)}</span>
       <strong className="points">{points(player.decision_points ?? player.recommended_points)}</strong>
     </div>
@@ -127,6 +131,7 @@ function Overview({ team }: { team: TeamResponse }) {
           ))}
         </div>
       </section>
+      <SinceLastTime team={team} />
       <p className="model-note">Forecasts are model estimates, not guarantees. Check injuries, bank and free transfers in FPL before the deadline.</p>
     </>
   );
@@ -137,7 +142,7 @@ function PlayerCard({ player }: { player: Player }) {
     <div className={`pitch-player ${player.role ? "role-player" : ""}`}>
       {player.role && <span className="role-badge">{player.role}</span>}
       <span className="shirt">{player.position === "GK" ? "◆" : "⬟"}</span>
-      <strong>{player.name}</strong>
+      <PlayerName id={player.id}><strong>{player.name}</strong></PlayerName>
       <small>{points(player.recommended_points)} · {player.opponent}</small>
     </div>
   );
@@ -158,7 +163,7 @@ function Lineup({ team }: { team: TeamResponse }) {
         <aside className="bench panel">
           <span className="eyebrow">Bench</span><h2>Order</h2>
           {team.lineup.bench.map((player, index) => (
-            <div className="bench-row" key={player.id}><span>{player.position === "GK" ? "GK" : index}</span><div><strong>{player.name}</strong><small>{player.opponent}</small></div><b>{points(player.recommended_points)}</b></div>
+            <div className="bench-row" key={player.id}><span>{player.position === "GK" ? "GK" : index}</span><div><PlayerName id={player.id}><strong>{player.name}</strong></PlayerName><small>{player.opponent}</small></div><b>{points(player.recommended_points)}</b></div>
           ))}
           <div className="captain-note"><span>C</span><p><strong>Captain margin {points(team.lineup.captain_margin)}</strong><br />The difference to the model's second best captain.</p></div>
         </aside>
@@ -168,6 +173,8 @@ function Lineup({ team }: { team: TeamResponse }) {
 }
 
 function Transfers({ team }: { team: TeamResponse }) {
+  const workspace = useWorkspace();
+  const [resultSignature, setResultSignature] = useState("");
   const [mode, setMode] = useState<"open" | "targeted">("open");
   const [number, setNumber] = useState(Math.min(2, Math.max(1, team.free_transfers)));
   const [selectedOut, setSelectedOut] = useState<number[]>([]);
@@ -198,13 +205,16 @@ function Transfers({ team }: { team: TeamResponse }) {
       setError("Select at least one player you want to replace.");
       return;
     }
+    const calculationSignature = workspace.signature;
     setLoading(true); setError("");
     try {
       setResult(await api.transfers(
         team.session_id,
         transferCount,
         mode === "targeted" ? selectedOut : [],
+        workspace.constraints,
       ));
+      setResultSignature(calculationSignature);
     }
     catch (err) { setError(err instanceof Error ? err.message : "Transfer calculation failed."); }
     finally { setLoading(false); }
@@ -212,12 +222,13 @@ function Transfers({ team }: { team: TeamResponse }) {
   const hit = Math.max(0, transferCount - team.free_transfers) * 4;
   return (
     <>
-      <PageHeading view="transfers" eyebrow="Exact optimisation" title="Transfer plan" subtitle={`Find the best unrestricted plan, or choose up to five players to replace over ${team.horizon} GW.`} />
+      <PageHeading view="transfers" eyebrow="Exact optimisation" title="Transfer plan" subtitle={`Find a legal plan using your player preferences, or choose up to five players to replace over ${team.horizon} GW.`} />
       {error && <ErrorBanner message={error} onClose={() => setError("")} />}
+      {result && <ResultStatus signature={resultSignature} />}
       <section className="transfer-mode panel">
         <div><h2>What would you like to calculate?</h2></div>
         <div className="mode-toggle" aria-label="Transfer calculation type">
-          <button className={mode === "open" ? "active" : ""} onClick={() => chooseMode("open")}>Best unrestricted plan</button>
+          <button className={mode === "open" ? "active" : ""} onClick={() => chooseMode("open")}>Best plan</button>
           <button className={mode === "targeted" ? "active" : ""} onClick={() => chooseMode("targeted")}>Select outgoing players</button>
         </div>
       </section>
@@ -228,7 +239,7 @@ function Transfers({ team }: { team: TeamResponse }) {
             {team.squad.map(player => {
               const selected = selectedOut.includes(player.id);
               return (
-                <button key={player.id} className={selected ? "selected" : ""} onClick={() => togglePlayer(player.id)} aria-pressed={selected}>
+                <button key={player.id} disabled={workspace.constraints.locked_ids.includes(player.id)} title={workspace.constraints.locked_ids.includes(player.id) ? "Unlock this player in Player preferences to sell" : undefined} className={selected ? "selected" : ""} onClick={() => togglePlayer(player.id)} aria-pressed={selected}>
                   <span className={`position position-${player.position.toLowerCase()}`}>{player.position}</span>
                   <span><strong>{player.name}</strong><small>{player.team} · {player.opponent}</small></span>
                   <b>{points(player.decision_points ?? player.recommended_points)}</b>
@@ -246,11 +257,12 @@ function Transfers({ team }: { team: TeamResponse }) {
         <button className="primary" onClick={calculate} disabled={loading || transferCount === 0}>{loading ? "Calculating…" : mode === "targeted" ? "Find best replacements" : "Find best plan"}</button>
       </section>
       {loading && <Loading label="Searching legal squads…" />}
-      {result && !loading && (
+      {result && (
         <section className="results">
           <div className="section-title"><div><span className="eyebrow">{result.global_optimum ? "Global optimum" : "Ranked alternatives"}</span><h2>{result.outgoing_ids.length ? "Best replacements for the selected players" : "Recommended plan"}</h2></div></div>
           {result.plans.length === 0 ? <p className="panel">No legal plan was found for this selection and budget.</p> : result.plans.map((plan, index) => (
             <article className={`transfer-plan ${index === 0 ? "best-plan" : ""}`} key={`${plan.out}-${plan.in}-${index}`}>
+              <SavePlan kind="Transfer" summary={`${plan.out} → ${plan.in}`} metrics={{ "Net expected gain": plan.expected_net_gain, "Net decision gain": plan.net_gain, "Hit": plan.hit, "Bank after (£m)": plan.money_left }} details={plan} signature={resultSignature} />
               <div className="plan-rank">{index + 1}</div>
               <div className="moves"><div><small>OUT</small><strong>{plan.out}</strong></div><span>→</span><div><small>IN</small><strong>{plan.in}</strong></div></div>
               <div className="plan-stats"><div><small>Net gain</small><strong className={plan.net_gain >= 0 ? "positive" : "negative"}>{points(plan.net_gain, true)}</strong></div><div><small>Hit</small><strong>{plan.hit ? `−${plan.hit}` : "0"}</strong></div><div><small>Remaining</small><strong>{moneyMillions(plan.money_left)}</strong></div></div>
@@ -264,12 +276,15 @@ function Transfers({ team }: { team: TeamResponse }) {
 }
 
 function Multiweek({ team }: { team: TeamResponse }) {
+  const workspace = useWorkspace();
+  const [resultSignature, setResultSignature] = useState("");
   const [plan, setPlan] = useState<MultiweekPlan | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const calculate = async () => {
+    const calculationSignature = workspace.signature;
     setLoading(true); setError("");
-    try { setPlan(await api.plan(team.session_id, team.horizon)); }
+    try { setPlan(await api.plan(team.session_id, team.horizon, 0.9, workspace.constraints)); setResultSignature(calculationSignature); }
     catch (err) { setError(err instanceof Error ? err.message : "Planning failed."); }
     finally { setLoading(false); }
   };
@@ -278,10 +293,12 @@ function Multiweek({ team }: { team: TeamResponse }) {
       <PageHeading view="plan" eyebrow="Global optimisation" title="Multiweek plan" subtitle={`Transfers, starting XI and captain optimised together over ${team.horizon} GW.`}
         action={<button className="primary" onClick={calculate} disabled={loading}>{loading ? "Planning…" : plan ? <><Icon.Refresh size={15} />Recalculate</> : "Create plan"}</button>} />
       {error && <ErrorBanner message={error} onClose={() => setError("")} />}
+      {plan && <ResultStatus signature={resultSignature} />}
       {!plan && !loading && <section className="panel plan-intro"><h2>See more than the next deadline</h2><p>Enforces budget, positions, a maximum of three players per club and rolling free transfers.</p></section>}
       {loading && <Loading label="Searching for the best sequence of squads and transfers…" />}
-      {plan && !loading && <>
+      {plan && <>
         <section className="metric-grid"><article><small>Projected total</small><strong>{points(plan.total_projected_points)}</strong><span>before uncertainty</span></article><article><small>Horizon</small><strong>{plan.weeks.length} GW</strong><span>{plan.global_optimum ? "Global optimum proven" : "best plan found within time limit"}</span></article></section>
+        <SavePlan kind="Multiweek" summary={plan.weeks.map(w => `GW${w.event}: ${w.transfers_out.join(', ') || 'Hold'} → ${w.transfers_in.join(', ') || 'No transfers'}`).join('; ')} metrics={{ "Total decision points after hits": plan.total_projected_points, "Total hits": plan.weeks.reduce((s, w) => s + w.hit, 0), "Final bank (£m)": plan.weeks.at(-1)?.bank ?? 0 }} details={plan} signature={resultSignature} />
         <div className="plan-timeline">{plan.weeks.map(week => <article className="panel plan-week" key={week.event}>
           <div className="plan-week-head"><div><span className="eyebrow">GW {week.event}</span><h2>{week.formation}</h2></div><strong>{points(week.projected_points)}</strong></div>
           <div className="plan-moves"><div><small>OUT</small><b>{week.transfers_out.join(", ") || "None"}</b></div><span>→</span><div><small>IN</small><b>{week.transfers_in.join(", ") || "None"}</b></div></div>
@@ -299,12 +316,15 @@ function decisionText(decision: ChipCandidate["decision"]) {
 }
 
 function Chips({ team }: { team: TeamResponse }) {
+  const workspace = useWorkspace();
+  const [resultSignature, setResultSignature] = useState("");
   const [strategy, setStrategy] = useState<ChipStrategy | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const calculate = async () => {
+    const calculationSignature = workspace.signature;
     setLoading(true); setError("");
-    try { setStrategy(await api.chips(team.session_id)); }
+    try { setStrategy(await api.chips(team.session_id, workspace.constraints)); setResultSignature(calculationSignature); }
     catch (err) { setError(err instanceof Error ? err.message : "Chip analysis failed."); }
     finally { setLoading(false); }
   };
@@ -313,9 +333,10 @@ function Chips({ team }: { team: TeamResponse }) {
       <PageHeading view="chips" eyebrow="Rule-aware scenario analysis" title="Chip strategy" subtitle="Values chips against normal play over the available forecast horizon."
         action={<button className="primary" onClick={calculate} disabled={loading}>{loading ? "Analysing…" : strategy ? <><Icon.Refresh size={15} />Run again</> : "Analyse chips"}</button>} />
       {error && <ErrorBanner message={error} onClose={() => setError("")} />}
+      {strategy && <ResultStatus signature={resultSignature} />}
       {!strategy && !loading && <section className="chip-intro panel"><div className="chip-symbol"><Icon.Zap size={34} /></div><div><h2>Find the value of each chip</h2><p>Compares Triple Captain, Bench Boost, Free Hit and Wildcard. Takes 10-20 seconds.</p></div></section>}
       {loading && <Loading label="Optimising chip scenarios and legal squads…" />}
-      {strategy && !loading && (
+      {strategy && (
         <>
           <section className="chip-hero"><span className="eyebrow">Model's first choice</span><h2>{strategy.recommendation}</h2><p>{strategy.summary}</p><div className="horizon-warning">Only {strategy.forecast_events.length} known GWs: this is a short-term assessment, not a guarantee of the best timing across the season half.</div></section>
           <div className="chip-grid">
@@ -325,6 +346,7 @@ function Chips({ team }: { team: TeamResponse }) {
                 <div className="chip-gain"><strong>{points(candidate.gain, true)}</strong><span>model points vs normal plan</span></div>
                 <dl><div><dt>Best GW</dt><dd>{candidate.event}</dd></div><div><dt>Threshold</dt><dd>{candidate.threshold.toFixed(1)}</dd></div><div><dt>Transfers</dt><dd>{candidate.transfers_needed}</dd></div></dl>
                 <p>{candidate.reason}</p>
+                <SavePlan kind={`Chip GW${candidate.event}`} summary={`${candidate.label} in GW${candidate.event}`} metrics={{ "Expected gain": candidate.gain, "Projected points": candidate.projected_points, "Transfers needed": candidate.transfers_needed, "Gain baseline": candidate.comparison_basis === "current_squad" || ["triple_captain", "bench_boost"].includes(candidate.chip) ? "Current squad" : "Optimised normal plan", "Evaluation window": (candidate.evaluation_events ?? [candidate.event]).map(gw => `GW${gw}`).join(", ") }} details={candidate} signature={resultSignature} />
                 {(candidate.double_players > 0 || candidate.blank_players > 0) && <small>{candidate.double_players} double-GW players · {candidate.blank_players} blank-GW players</small>}
               </article>
             ))}
@@ -354,15 +376,18 @@ function SquadPanel({ title, selection }: { title: string; selection: SquadSelec
 }
 
 function RecommendedTeams({ team }: { team: TeamResponse }) {
+  const workspace = useWorkspace();
+  const [resultSignature, setResultSignature] = useState("");
   const [result, setResult] = useState<RecommendedSquads | null>(null);
   const [selectedEvent, setSelectedEvent] = useState(team.target_event);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const calculate = async () => {
+    const calculationSignature = workspace.signature;
     setLoading(true); setError("");
     try {
-      const value = await api.recommendedSquads(team.session_id);
-      setResult(value); setSelectedEvent(value.forecast_events[0]);
+      const value = await api.recommendedSquads(team.session_id, workspace.constraints);
+      setResult(value); setResultSignature(calculationSignature); setSelectedEvent(value.forecast_events[0]);
     } catch (err) { setError(err instanceof Error ? err.message : "Squad calculation failed."); }
     finally { setLoading(false); }
   };
@@ -372,10 +397,13 @@ function RecommendedTeams({ team }: { team: TeamResponse }) {
       <PageHeading view="squads" eyebrow="Independent chip squads" title="Free Hit & Wildcard" subtitle="The best Free Hit squad for each gameweek and a long-term Wildcard squad."
         action={<button className="primary" onClick={calculate} disabled={loading}>{loading ? "Optimising…" : result ? <><Icon.Refresh size={15} />Recalculate</> : "Recommend squads"}</button>} />
       {error && <ErrorBanner message={error} onClose={() => setError("")} />}
+      {result && <ResultStatus signature={resultSignature} />}
       {!result && !loading && <section className="panel plan-intro"><h2>Two different planning horizons</h2><p>Free Hit maximises the selected gameweek. Wildcard gives the nearest GW the highest weight and includes a rolling transfer plan.</p></section>}
       {loading && <Loading label="Building legal 15-player squads, starting XIs, captains and transfer plans…" />}
-      {result && !loading && <>
+      {result && <>
         <div className="gw-tabs">{result.forecast_events.map(event => <button className={event === selectedEvent ? "active" : ""} onClick={() => setSelectedEvent(event)} key={event}>FH GW{event}</button>)}</div>
+        {freeHit && <SavePlan kind={`FH GW${freeHit.event}`} summary={`Free Hit: ${freeHit.squad.map(p => p.name).join(', ')}`} metrics={{ "Expected points": freeHit.projected_points, "Bank after (£m)": freeHit.money_left }} details={freeHit} signature={resultSignature} />}
+        <SavePlan kind="Wildcard" summary={`Wildcard GW${result.wildcard.event}`} metrics={{ "Horizon expected points before future transfers": result.wildcard.horizon_points_before_future_transfers, "Bank after (£m)": result.wildcard.money_left }} details={result.wildcard} signature={resultSignature} />
         {freeHit && <SquadPanel title="Best Free Hit squad" selection={freeHit} />}
         <SquadPanel title={`Best Wildcard squad for GW${result.wildcard.horizon_events[0]}–${result.wildcard.horizon_events[result.wildcard.horizon_events.length - 1]}`} selection={result.wildcard} />
         <section className="panel wildcard-roadmap"><span className="eyebrow">After Wildcard</span><h2>Planned transfers</h2>
@@ -397,19 +425,22 @@ function StrategyPlayerRow({ player, price = false }: { player: StrategyPlayer; 
   return (
     <div className="strategy-player-row">
       <span className={`position position-${player.position.toLowerCase()}`}>{player.position}</span>
-      <div><strong>{player.name}</strong><small>{player.team} · {player.opponent} · {player.ownership == null ? "unknown" : `${player.ownership.toFixed(1)}% owned`}</small></div>
+      <div><PlayerName id={player.id}><strong>{player.name}</strong></PlayerName><small>{player.team} · {player.opponent} · {player.ownership == null ? "unknown" : `${player.ownership.toFixed(1)}% owned`}</small></div>
       <b className={price && (player.price_change_projected_percent ?? 0) < 0 ? "negative" : "positive"}>{price ? strategyPrice(player) : points(player.points)}</b>
     </div>
   );
 }
 
 function StrategyCenter({ team, onNavigate }: { team: TeamResponse; onNavigate: (view: View) => void }) {
+  const workspace = useWorkspace();
+  const [resultSignature, setResultSignature] = useState("");
   const [advice, setAdvice] = useState<StrategyAdvice | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const calculate = async () => {
+    const calculationSignature = workspace.signature;
     setLoading(true); setError("");
-    try { setAdvice(await api.strategy(team.session_id)); }
+    try { setAdvice(await api.strategy(team.session_id, workspace.constraints)); setResultSignature(calculationSignature); }
     catch (err) { setError(err instanceof Error ? err.message : "Strategy analysis failed."); }
     finally { setLoading(false); }
   };
@@ -425,9 +456,10 @@ function StrategyCenter({ team, onNavigate }: { team: TeamResponse; onNavigate: 
       <PageHeading view="strategy" eyebrow="Your weekly workflow" title="Strategy centre" subtitle="One prioritised plan for transfers, captaincy, team news and price changes."
         action={<button className="primary" onClick={calculate} disabled={loading}>{loading ? "Analysing…" : advice ? <><Icon.Refresh size={15} />Refresh advice</> : "Create weekly plan"}</button>} />
       {error && <ErrorBanner message={error} onClose={() => setError("")} />}
+      {advice && <ResultStatus signature={resultSignature} />}
       {!advice && !loading && <section className="panel strategy-intro"><div className="strategy-orbit"><Icon.Compass size={32} /></div><div><h2>From forecast to decision</h2><p>Combine the multi-week engine, the FPL price indicator and the latest availability in one plan.</p><small>Can take up to ~45 seconds for long horizons.</small></div></section>}
       {loading && <Loading label="Building and validating this week's recommended decisions…" />}
-      {advice && !loading && <>
+      {advice && <>
         <section className={`strategy-hero strategy-${advice.transfer.decision.toLowerCase()}`}>
           <div><span className="eyebrow">First Action · GW {advice.target_event}</span><h2>{advice.headline}</h2><p>{advice.transfer.reason}</p>{advice.transfer.warnings.length > 0 && <div className="strategy-warnings"><strong>Conflicting signals</strong>{advice.transfer.warnings.map(warning => <span key={warning}>{warning}</span>)}</div>}</div>
           <div className="strategy-stamp"><small>{advice.transfer.global_optimum ? "Global optimum" : "Best validated plan"}</small><strong>{advice.transfer.decision}</strong><span>{advice.transfer.horizon} GW · {advice.transfer.confidence === "high" ? "high" : advice.transfer.confidence === "medium" ? "medium" : "low"} confidence</span></div>
@@ -441,7 +473,7 @@ function StrategyCenter({ team, onNavigate }: { team: TeamResponse; onNavigate: 
 
         <div className="strategy-layout">
           <section className="panel action-list"><span className="eyebrow">Current priorities</span><h2>This week's checklist</h2>{advice.actions.map((action, index) => <button key={`${action.category}-${index}`} onClick={() => onNavigate(action.view as View)}><span className={`action-index severity-${action.severity}`}>{index + 1}</span><div><strong>{action.title}</strong><small>{action.detail}</small></div><b><Icon.ArrowRight size={16} /></b></button>)}</section>
-          <section className="panel captain-panel"><span className="eyebrow">Captain decision</span><h2>{advice.captain.confidence === "strong" ? "Clear choice" : advice.captain.confidence === "close" ? "Close call" : "Moderate advantage"}</h2><p>{advice.captain.reason}</p>{advice.captain.alternatives.map((player, index) => <div className="captain-option" key={player.id}><span>{index === 0 ? "C" : index === 1 ? "VC" : "3"}</span><div><strong>{player.name}</strong><small>{player.opponent} · {player.ownership == null ? "unknown ownership" : `${player.ownership.toFixed(1)}% owned`}</small></div><b>{points(player.decision_points)}</b></div>)}</section>
+          <section className="panel captain-panel"><span className="eyebrow">Captain decision</span><h2>{advice.captain.confidence === "strong" ? "Clear choice" : advice.captain.confidence === "close" ? "Close call" : "Moderate advantage"}</h2><p>{advice.captain.reason}</p>{advice.captain.alternatives.map((player, index) => <div className="captain-option" key={player.id}><span>{index === 0 ? "C" : index === 1 ? "VC" : "3"}</span><div><PlayerName id={player.id}><strong>{player.name}</strong></PlayerName><small>{player.opponent} · {player.ownership == null ? "unknown ownership" : `${player.ownership.toFixed(1)}% owned`}</small></div><b>{points(player.decision_points)}</b></div>)}</section>
         </div>
 
         <section className="panel price-radar"><div className="section-title"><div><span className="eyebrow">Official FPL indicator</span><h2>Price radar</h2></div><span className="legend">100% indicates the threshold</span></div>
@@ -463,6 +495,8 @@ function StrategyCenter({ team, onNavigate }: { team: TeamResponse; onNavigate: 
 }
 
 function Market({ team }: { team: TeamResponse }) {
+  const workspace = useWorkspace();
+  const [resultSignature, setResultSignature] = useState("");
   const [position, setPosition] = useState<Position | "ALL">("ALL");
   const [maxPrice, setMaxPrice] = useState(100);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -470,8 +504,9 @@ function Market({ team }: { team: TeamResponse }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const search = async () => {
+    const calculationSignature = workspace.signature;
     setLoading(true); setError("");
-    try { const [marketResult, sellResult] = await Promise.all([api.market(team.session_id, position, maxPrice), api.sells(team.session_id)]); setPlayers(marketResult.players); setSells(sellResult.players); }
+    try { const [marketResult, sellResult] = await Promise.all([api.market(team.session_id, position, maxPrice, workspace.constraints), api.sells(team.session_id, workspace.constraints)]); setPlayers(marketResult.players); setSells(sellResult.players); setResultSignature(calculationSignature); }
     catch (err) { setError(err instanceof Error ? err.message : "Market search failed."); }
     finally { setLoading(false); }
   };
@@ -480,8 +515,9 @@ function Market({ team }: { team: TeamResponse }) {
       <PageHeading view="market" eyebrow="Model ranking" title="Player market" subtitle="Find buy candidates and the players the model would prefer to sell." />
       {error && <ErrorBanner message={error} onClose={() => setError("")} />}
       <section className="market-filter panel"><label>Position<select value={position} onChange={event => setPosition(event.target.value as Position | "ALL")}><option value="ALL">All</option><option value="GK">Goalkeeper</option><option value="DEF">Defence</option><option value="MID">Midfield</option><option value="FWD">Attack</option></select></label><label>Maximum price<strong>{money(maxPrice)}</strong><input type="range" min="40" max="150" value={maxPrice} onChange={event => setMaxPrice(Number(event.target.value))} /></label><button className="primary" onClick={search} disabled={loading}>{loading ? "Searching…" : "Show candidates"}</button></section>
+      {(players.length > 0 || sells.length > 0) && <ResultStatus signature={resultSignature} />}
       {loading && <Loading label="Ranking the player market..." />}
-      {(players.length > 0 || sells.length > 0) && !loading && <div className="market-columns"><section className="panel"><span className="eyebrow">Buy</span><h2>Top candidates</h2>{players.map((player, index) => <PlayerRow player={player} rank={index + 1} key={player.id} />)}</section><section className="panel"><span className="eyebrow">Sell</span><h2>Weakest in your squad</h2>{sells.map((player, index) => <PlayerRow player={player} rank={index + 1} key={player.id} />)}</section></div>}
+      {(players.length > 0 || sells.length > 0) && <div className="market-columns"><section className="panel"><span className="eyebrow">Buy</span><h2>Top candidates</h2>{players.map((player, index) => <PlayerRow player={player} rank={index + 1} key={player.id} />)}</section><section className="panel"><span className="eyebrow">Sell</span><h2>Weakest in your squad</h2>{sells.map((player, index) => <PlayerRow player={player} rank={index + 1} key={player.id} />)}</section></div>}
     </>
   );
 }
@@ -720,6 +756,14 @@ function SquadEditor({ team, onUpdated }: {
   </>;
 }
 
+function TeamViews({ team, view, onNavigate, onUpdated }: { team: TeamResponse; view: View; onNavigate: (view: View) => void; onUpdated: (team: TeamResponse) => void }) {
+  const [visited, setVisited] = useState<View[]>([view]);
+  useEffect(() => { setVisited(current => current.includes(view) ? current : [...current, view]); }, [view]);
+  return <>{[...new Set([...visited, view])].map(id => <div key={id} hidden={id !== view}>
+    {id === "overview" ? <Overview team={team} /> : id === "analysis" ? <ManagerAnalysis team={team} /> : id === "squad" ? <SquadEditor team={team} onUpdated={onUpdated} /> : id === "strategy" ? <StrategyCenter team={team} onNavigate={onNavigate} /> : id === "lineup" ? <Lineup team={team} /> : id === "transfers" ? <Transfers team={team} /> : id === "plan" ? <Multiweek team={team} /> : id === "squads" ? <RecommendedTeams team={team} /> : id === "chips" ? <Chips team={team} /> : id === "comparison" ? <PlayerComparisonView team={team} /> : id === "preferences" ? <Preferences team={team} /> : id === "saved" ? <SavedPlans team={team} /> : <Market team={team} />}
+  </div>)}</>;
+}
+
 export default function App() {
   const [reference, setReference] = useState(DEFAULT_TEAM);
   const [horizon, setHorizon] = useState(3);
@@ -741,7 +785,6 @@ export default function App() {
       const loaded = await api.importTeam(reference, horizon, risk);
       setTeam(loaded); setBank(loaded.bank); setFreeTransfers(loaded.free_transfers); setView("overview"); setMobileMenuOpen(false);
     } catch (err) {
-      setTeam(null);
       setError(err instanceof Error ? err.message : "Could not load the team.");
     }
     finally { setLoading(false); }
@@ -763,7 +806,6 @@ export default function App() {
             return api.importTeam(reference, horizon, risk);
           })();
       setTeam(updated); setBank(updated.bank); setFreeTransfers(updated.free_transfers);
-      setView("overview");
     }
     catch (err) { setError(err instanceof Error ? err.message : "Could not update the forecast."); }
     finally { setRefreshing(false); }
@@ -776,11 +818,11 @@ export default function App() {
         <div className="load-form">
           <label>Team URL or ID<textarea value={reference} onChange={event => setReference(event.target.value)} rows={3} /></label>
           <div className="form-row"><label>Horizon<select value={horizon} onChange={event => setHorizon(Number(event.target.value))}>{[1, 2, 3, 4, 5, 6, 7, 8].map(value => <option value={value} key={value}>{value} GW</option>)}</select></label><label>Profile<select value={risk} onChange={event => setRisk(event.target.value as RiskProfile)}><option value="balanced">Balanced</option><option value="stable">Stable</option><option value="upside">Upside</option></select></label></div>
-          <button className="primary full" onClick={load} disabled={loading || !reference.trim()}>{loading && !team ? "Loading team…" : team ? "Reload team" : "Load team"}</button>
+          <button className="primary full" onClick={load} disabled={loading || refreshing || !reference.trim()}>{loading && !team ? "Loading team…" : team ? "Reload team" : "Load team"}</button>
         </div>
         <nav>{VIEWS.map(item => <button key={item.id} className={view === item.id ? "active" : ""} disabled={!team} onClick={() => { setView(item.id); setMobileMenuOpen(false); }}><item.icon size={17} />{item.label}</button>)}</nav>
         {team && <div className="team-settings"><div><small>{team.squad_source === "manual_override" ? "Manual squad" : "Finances"}</small><button onClick={() => setEditing(!editing)}>{editing ? "Cancel" : "Edit"}</button></div>{editing ? <><label>Bank (£m)<input type="number" min="0" max="20" step="0.1" value={bank / 10} onChange={event => setBank(Math.round(Number(event.target.value) * 10))} /></label><label>Free transfers<input type="number" min="0" max="5" value={freeTransfers} onChange={event => setFreeTransfers(Number(event.target.value))} /></label><button className="secondary full" onClick={saveSettings}>Save</button></> : <p><strong>{money(team.bank)}</strong><span>{team.free_transfers} FT</span></p>}</div>}
-        <button className="refresh" onClick={refresh} disabled={refreshing || !reference.trim()}><Icon.Refresh size={14} />{refreshing ? "Refreshing…" : "Refresh forecast"}</button>
+        <button className="refresh" onClick={refresh} disabled={refreshing || loading || !reference.trim()}><Icon.Refresh size={14} />{refreshing ? "Refreshing…" : "Refresh forecast"}</button>
         <p className="privacy">Public data · no login · no automatic transfers</p>
       </aside>
       <main>
@@ -791,7 +833,8 @@ export default function App() {
         </div>
         {error && <ErrorBanner message={error} onClose={() => setError("")} />}
         {loading && team && <div className="top-progress" />}
-        {!team ? <EmptyState /> : view === "overview" ? <Overview team={team} /> : view === "analysis" ? <ManagerAnalysis team={team} /> : view === "squad" ? <SquadEditor team={team} onUpdated={updated => { setTeam(updated); setBank(updated.bank); setFreeTransfers(updated.free_transfers); }} /> : view === "strategy" ? <StrategyCenter team={team} onNavigate={setView} /> : view === "lineup" ? <Lineup team={team} /> : view === "transfers" ? <Transfers team={team} /> : view === "plan" ? <Multiweek team={team} /> : view === "squads" ? <RecommendedTeams team={team} /> : view === "chips" ? <Chips team={team} /> : <Market team={team} />}
+        <ForecastStatus team={team} refreshing={refreshing} />
+        {!team ? <EmptyState /> : <WorkspaceProvider key={team.entry_id} team={team}><TeamViews team={team} view={view} onNavigate={setView} onUpdated={updated => { setTeam(updated); setBank(updated.bank); setFreeTransfers(updated.free_transfers); }} /></WorkspaceProvider>}
       </main>
       <nav className="mobile-nav">{VIEWS.map(item => <button key={item.id} className={view === item.id ? "active" : ""} disabled={!team} onClick={() => setView(item.id)}><item.icon size={19} /><small>{item.label}</small></button>)}</nav>
     </div>
