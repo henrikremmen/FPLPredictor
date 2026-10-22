@@ -411,6 +411,15 @@ def analytics(
         raise _as_http_error(exc) from exc
 
 
+@app.get("/api/team/{session_id}/timeline")
+def timeline(session_id: str) -> dict:
+    team = STORE.get(session_id)
+    try:
+        return _json_safe(ANALYTICS.timeline(team.entry_id, ROOT / "data" / "local" / "cache"))
+    except AppError as exc:
+        raise _as_http_error(exc) from exc
+
+
 @app.get("/api/team/{session_id}/players/{player_id}")
 def inspect_player(session_id: str, player_id: int) -> dict:
     try:

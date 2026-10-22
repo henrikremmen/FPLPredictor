@@ -82,7 +82,7 @@ function OverviewContent({
           <Stat label="Expected" value={formatPoints(team.lineup.expected_total)} tone="positive" />
           <Stat label="Captain margin" value={formatPoints(team.lineup.captain_margin)} />
         </View>
-        <Button label="View pitch and bench" variant="secondary" onPress={() => router.push("/(tabs)/pitch")} />
+        <Button label="View pitch and bench" variant="secondary" onPress={() => router.push("/lineup")} />
       </Card>
 
       <Section title="Squad" subtitle={`${team.squad.length} players`}>

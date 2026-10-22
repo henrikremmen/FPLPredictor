@@ -1,31 +1,35 @@
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { formatMoney, formatPoints } from "@fplmodell/shared";
+import { formatHoursRemaining, formatMoney, formatPoints } from "@fplmodell/shared";
 import type { ChipCandidate, PlanWeek, StrategyAction } from "@fplmodell/api-client";
 import { Screen } from "../../src/components/Screen";
 import { QueryState } from "../../src/components/QueryState";
 import { Segmented } from "../../src/components/Segmented";
+import { TransfersPanel } from "../../src/panels/TransfersPanel";
 import { Badge, Card, Section } from "../../src/components/ui";
-import { useChipStrategy, useMultiweekPlan, useRecommendedSquads, useStrategyAdvice } from "../../src/hooks/useFeatures";
+import { useChipStrategy, useMultiweekPlan, useRecommendedSquads, useStrategyAdvice, usePullToRefresh } from "../../src/hooks/useFeatures";
 import { colors, spacing, typography } from "../../src/theme";
 
-type PanelView = "strategy" | "plan" | "chips";
+type PanelView = "strategy" | "transfers" | "plan" | "chips";
 
-export default function Strategy() {
+export default function TransfersAndPlan() {
+  const pull = usePullToRefresh();
   const [view, setView] = useState<PanelView>("strategy");
   return (
-    <Screen>
-      <Text style={typography.title}>Strategy centre</Text>
+    <Screen onRefresh={pull.onRefresh} refreshing={pull.refreshing}>
+      <Text style={typography.title}>Transfers & plan</Text>
       <Segmented
         value={view}
         onChange={setView}
         options={[
-          { value: "strategy", label: "Strategi" },
-          { value: "plan", label: "Multiweek plan" },
+          { value: "strategy", label: "Strategy" },
+          { value: "transfers", label: "Transfers" },
+          { value: "plan", label: "Multiweek" },
           { value: "chips", label: "Chips" },
         ]}
       />
       {view === "strategy" ? <StrategyPanel /> : null}
+      {view === "transfers" ? <TransfersPanel /> : null}
       {view === "plan" ? <PlanPanel /> : null}
       {view === "chips" ? <ChipsPanel /> : null}
     </Screen>
@@ -48,7 +52,7 @@ function StrategyPanel() {
             <Text style={typography.eyebrow}>GW{data.target_event}</Text>
             <Text style={typography.heading}>{data.headline}</Text>
             <Text style={styles.caption}>
-              Deadline om {data.deadline.hours_remaining != null ? `${data.deadline.hours_remaining.toFixed(1)} t` : "unknown time"}
+              Deadline in {data.deadline.hours_remaining != null ? formatHoursRemaining(data.deadline.hours_remaining) : "unknown time"}
             </Text>
           </Card>
 

@@ -12,6 +12,7 @@ from fpl_app import (
     AppError,
     ImportedTeam,
     estimate_free_transfers,
+    import_team,
     optimal_lineup,
     parse_entry_reference,
     recommend_transfers,
@@ -116,6 +117,26 @@ class FPLAppTests(unittest.TestCase):
         self.assertEqual(parse_entry_reference("5139814"), (5139814, None))
         with self.assertRaises(AppError):
             parse_entry_reference("not-a-team")
+
+    def test_import_ignores_event_in_url_and_uses_current_event(self):
+        class RecordingClient:
+            def __init__(self):
+                self.paths = []
+
+            def get(self, path):
+                self.paths.append(path)
+                if path.endswith("/picks/"):
+                    return {"picks": [], "entry_history": {}}
+                return {"entry/5139814/": {"current_event": 7}}.get(path, {"events": []})
+
+        picks_requested = []
+        for reference in ("5139814", "https://fantasy.premierleague.com/entry/5139814/event/4"):
+            client = RecordingClient()
+            # Stops after picks: the fake register has no next Gameweek.
+            with self.assertRaises(AppError):
+                import_team(reference, Path("."), client=client)
+            picks_requested.append([p for p in client.paths if p.endswith("/picks/")])
+        self.assertEqual(picks_requested, [["entry/5139814/event/7/picks/"]] * 2)
 
     def test_selling_price_rule(self):
         self.assertEqual(selling_price(50, 54), 52)

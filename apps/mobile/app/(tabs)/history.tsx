@@ -1,24 +1,27 @@
 import { useState } from "react";
+import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { formatPercent, formatRank } from "@fplmodell/shared";
 import type { AnalyticsDecisionPlayer, ManagerAnalytics } from "@fplmodell/api-client";
 import { Screen } from "../../src/components/Screen";
 import { QueryState } from "../../src/components/QueryState";
 import { Segmented } from "../../src/components/Segmented";
-import { Badge, Card, Section, Stat } from "../../src/components/ui";
-import { useAnalytics } from "../../src/hooks/useFeatures";
+import { Badge, Button, Card, Section, Stat } from "../../src/components/ui";
+import { useAnalytics, usePullToRefresh } from "../../src/hooks/useFeatures";
 import { colors, radii, spacing, typography } from "../../src/theme";
 
 type Tab = "manager" | "gameweek" | "league" | "decisions";
 
-export default function Analytics() {
+export default function History() {
+  const pull = usePullToRefresh();
   const [tab, setTab] = useState<Tab>("manager");
   const [event, setEvent] = useState<number | undefined>(undefined);
   const analytics = useAnalytics(event, null);
 
   return (
-    <Screen>
-      <Text style={typography.title}>Analysis</Text>
+    <Screen onRefresh={pull.onRefresh} refreshing={pull.refreshing}>
+      <Text style={typography.title}>History</Text>
+      <Button label="Season timeline: squad per Gameweek" variant="secondary" onPress={() => router.push("/timeline")} />
       <Segmented
         value={tab}
         onChange={setTab}
@@ -248,7 +251,7 @@ const styles = StyleSheet.create({
   },
   eventChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
   eventChipLabel: { fontSize: 12, fontWeight: "700", color: colors.textSecondary },
-  eventChipLabelActive: { color: "#06231A" },
+  eventChipLabelActive: { color: colors.onAccent },
   statRow: { flexDirection: "row", gap: spacing.lg, flexWrap: "wrap" },
   caption: { ...typography.caption },
   body: { ...typography.body },

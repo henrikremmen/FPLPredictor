@@ -2,24 +2,26 @@ import { useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { ApiError } from "@fplmodell/api-client";
-import { MAX_HORIZON, MIN_HORIZON, RISK_PROFILES, RISK_PROFILE_LABELS, type RiskProfile } from "@fplmodell/shared";
+import { MAX_HORIZON, MIN_HORIZON, RISK_PROFILES, RISK_PROFILE_LABELS, teamIdFromReference, type RiskProfile } from "@fplmodell/shared";
 import { Screen } from "../src/components/Screen";
 import { Button, Card, Section } from "../src/components/ui";
 import { useImportTeam } from "../src/hooks/useTeam";
+import { useSession } from "../src/context/session-context";
 import { colors, radii, spacing, typography } from "../src/theme";
 
 const HORIZONS = Array.from({ length: MAX_HORIZON - MIN_HORIZON + 1 }, (_, index) => MIN_HORIZON + index);
 
 export default function Onboarding() {
-  const [reference, setReference] = useState("");
+  const session = useSession();
+  const [reference, setReference] = useState(teamIdFromReference(session.fplId ?? ""));
   const [horizon, setHorizon] = useState(3);
   const [riskProfile, setRiskProfile] = useState<RiskProfile>("balanced");
   const importTeam = useImportTeam();
 
   const onSubmit = () => {
-    if (!reference.trim()) return;
+    if (!reference) return;
     importTeam.mutate(
-      { reference: reference.trim(), horizon, riskProfile },
+      { reference, horizon, riskProfile },
       { onSuccess: () => router.replace("/(tabs)") },
     );
   };
@@ -29,22 +31,23 @@ export default function Onboarding() {
       <View style={styles.header}>
         <Text style={typography.title}>FPL Model</Text>
         <Text style={styles.lead}>
-          Paste your FPL team link to get forecasts, lineups and transfer suggestions. The app never logs in or changes your actual team.
+          Enter your FPL team ID to get forecasts, lineups and transfer suggestions. The app never logs in or changes your actual team.
         </Text>
         <Text style={styles.disclaimer}>
           Independent third party app. Not affiliated with, approved or sponsored by the Premier League or Fantasy Premier League.
         </Text>
       </View>
 
-      <Section title="Team reference">
+      <Section title="FPL team ID" subtitle="Pasting your team link also works">
         <TextInput
           value={reference}
-          onChangeText={setReference}
-          placeholder="FPL link or team ID, e.g. 5139814"
+          onChangeText={(text) => setReference(teamIdFromReference(text))}
+          placeholder="e.g. 5139814"
           placeholderTextColor={colors.textMuted}
+          accessibilityLabel="FPL team ID"
           autoCapitalize="none"
           autoCorrect={false}
-          keyboardType="default"
+          keyboardType="number-pad"
           style={styles.input}
         />
       </Section>
@@ -94,7 +97,7 @@ export default function Onboarding() {
       <Button
         label={importTeam.isPending ? "Importing..." : "Load team"}
         onPress={onSubmit}
-        disabled={!reference.trim()}
+        disabled={!reference}
         loading={importTeam.isPending}
       />
     </Screen>
@@ -134,7 +137,7 @@ const styles = StyleSheet.create({
   },
   horizonChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
   horizonChipLabel: { ...typography.body, fontWeight: "700" },
-  horizonChipLabelActive: { color: "#06231A" },
+  horizonChipLabelActive: { color: colors.onAccent },
   profileCardActive: { borderColor: colors.accent },
   profileTitle: { ...typography.heading },
   profileCopy: { ...typography.caption },

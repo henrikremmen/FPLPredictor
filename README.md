@@ -79,6 +79,14 @@ The web app now includes:
   including their original squad, finances and preferences. Select two for A/B review.
   Numerical differences are shown only for compatible analysis types, inputs and chip
   evaluation windows/baselines. You can rename or delete drafts.
+- **Team ID import**: enter the numeric FPL team ID (a pasted team link also
+  works). Imports always use the current Gameweek; an `/event/N` part of a link is
+  ignored. The last ID is remembered in this browser (AsyncStorage on mobile).
+- **Timeline** (web page, mobile screen from Analysis): every played Gameweek on
+  the pitch with points, C/VC/TC, chip, automatic substitutions, transfers with
+  prices and hits, rank and bank. Step with ← and →, the season ribbon or a swipe.
+  `GET /api/team/{session_id}/timeline` caches rounds FPL has data-checked in
+  `data/local/cache/entry/{id}/gw{N}.json` and never requests them again.
 - **Update status**: source/history/scoring stages and elapsed time during forecast
   refreshes. Previous results stay visible on refresh or calculation failure, and
   results are marked outdated when forecasts, squad, finances or preferences change.
@@ -92,6 +100,8 @@ Run the deterministic workspace browser tests without live FPL or paid API calls
 
 ```bash
 npm --prefix frontend run test:e2e:workspace
+# Screenshots of every page at 390×844 and 1440×900 (optionally with a real timeline payload):
+SCREENSHOT_DIR=/abs/dir [TIMELINE_FIXTURE=/abs/timeline.json] npm --prefix frontend run test:e2e:workspace
 ```
 
 ## Repository structure and commands
@@ -132,6 +142,22 @@ npm run typecheck:shared
 selling-price, position, club-limit, transfer, hit and optimisation calculations
 run in the shared backend. The app stores the FPL ID, horizon, risk profile and
 market preferences locally with `AsyncStorage`; this version has no user accounts.
+
+Web and mobile share one structure and one palette. The five sections are
+**This round** (overview, lineup), **Transfers & plan** (strategy, transfers,
+multiweek plan, chips, FH/WC squads), **Players** (market, compare, player
+preferences), **History** (analysis, timeline) and **My team** (edit squad,
+saved plans). The web app shows them as sidebar groups and, below 760 px, as a
+bottom bar with section tabs; every page has a deep link (`#/transfers`) and a
+refresh restores the last team session. The mobile app uses the same five tabs
+with SVG icons, pull-to-refresh and skeleton loading. Mobile player preferences
+(lock/exclude) reach every optimiser call, and saved plans stay on the device.
+Colours, spacing, radii and type sizes come from `packages/shared/src/tokens.ts`
+(CSS variables on the web, the theme on mobile); a test checks WCAG AA contrast.
+Response types live in `packages/api-client` and are used by both clients.
+
+Expo web (`npm --prefix apps/mobile run web`) runs the mobile app in a browser,
+which is useful for screenshots without a simulator.
 
 FastAPI performs the data retrieval and calculations. The Expo development
 server only bundles the mobile JavaScript/TypeScript code and serves it to Expo
@@ -313,6 +339,33 @@ Missing keys skip the optional source and are recorded in the manifest.
 Keys are excluded from Git and snapshots. Automated text/LLM news analysis is
 not implemented. Individual international minutes and travel are not modelled.
 
+### Own data repository (fpl-data)
+
+vaastav stopped weekly updates after 2024-25, so current seasons come from the
+private repository `henrikremmen/fpl-data`. Its GitHub Actions workflow runs
+hourly and decides from the files already committed what is due:
+
+- a light snapshot (bootstrap, fixtures, event status, set-piece notes) once a
+  day after 02:30 UTC and in the T-24h/6h/1h windows before each deadline;
+- a full round export once FPL marks a Gameweek `finished` and `data_checked`,
+  written as vaastav-compatible CSVs with an extra stable `code` column.
+
+Every payload is validated at the boundary and every export must pass the data
+contract (`src/data_contract.py`) before anything is written; a failure turns
+the run red. Corrections to exported rounds are logged in `corrections.csv`.
+The collector source is `src/fpl_collect.py`; `fpl-data/collector/` holds
+copies, and the test suite fails if they drift. Clone and refresh locally:
+
+```bash
+git clone https://github.com/henrikremmen/fpl-data.git fpl-data   # once, ignored by Git
+git -C fpl-data pull
+cp src/fpl_collect.py src/data_contract.py fpl-data/collector/      # after changing either file
+.venv/bin/python src/fpl_collect.py --data-root fpl-data export --xp-snapshots data/raw/live_fpl
+```
+
+The last command re-exports every data-checked round locally (about ten
+minutes at two requests per second). Normally the workflow does this.
+
 ## Historical market model
 
 The free Odds API plan provides live odds, not paid historical endpoints.
@@ -359,7 +412,18 @@ See [chip methodology](docs/chip_strategy.md).
 ## Training and model evaluation
 
 Historical data use
-[vaastav/Fantasy-Premier-League](https://github.com/vaastav/Fantasy-Premier-League).
+[vaastav/Fantasy-Premier-League](https://github.com/vaastav/Fantasy-Premier-League)
+for seasons up to 2025-26 and `fpl-data/` for later seasons (an own season
+replaces vaastav's copy of the same season). Build the training table, then the
+features:
+
+```bash
+.venv/bin/python src/build_dataset.py      # data/processed/cleaned_merged_seasons_team_aggregated_expanded.csv
+.venv/bin/python src/build_features.py
+```
+
+`build_dataset.py` replaces `notebooks/build_expanded_dataset.ipynb` and gives a
+byte-identical file on the notebook's inputs.
 Live forecasts are generated by `src/capture_fpl.py`; the decision app is in
 `src/fpl_app.py`. Production promotion requires both prediction-quality gates
 and a historical budget/position/club/lineup/captain backtest. The P(60+) model
@@ -384,6 +448,32 @@ on the untouched 2025/26 holdout and was not promoted. Missing `libomp` causes
 LightGBM to be skipped and the error recorded in `settings.json`. Increasing
 training from 500 to 800 iterations with shallower trees improved top-25
 selection but not the primary candidate RMSE.
+
+### Challengers and the prospective loop
+
+New models are challengers, never automatic replacements. They live in
+`artifacts/challengers/<name>/` with `production_eligible: false`;
+`capture_fpl.py` only ever loads `artifacts/models/production_*`.
+
+```bash
+.venv/bin/python src/challengers.py refit --features data/processed/features_20261022            # M1
+.venv/bin/python src/challengers.py season-transfer --features … --base refit_20261022           # M2
+.venv/bin/python src/challengers.py crowd --features … --base refit_20261022                     # M5
+.venv/bin/python src/challengers.py openfpl-style --features …                                    # M6
+.venv/bin/python src/cup_minutes.py download                                                       # M8 data (research only)
+.venv/bin/python src/challengers.py cup-minutes --features … --base refit_20261022                # M8
+.venv/bin/python src/prospective_loop.py auto     # run before each deadline and after FPL checks a round
+```
+
+`prospective_loop.py auto` locks the production model, every registered
+challenger and FPL's `ep_next` on identical rows within 30 hours of the next
+deadline (one bundle per round), evaluates every round FPL has data-checked
+and rebuilds `artifacts/prospective_eval/leaderboard.md`. A round that is not
+locked before its deadline is simply missing. A challenger becomes eligible
+for a *manual* promotion review only under the pre-registered criterion in
+[docs/prospective_criterion_2026-10-22.md](docs/prospective_criterion_2026-10-22.md).
+Reports: [data pipeline](docs/data_pipeline_2026-10-22.md),
+[model phase](docs/model_phase_2026-10-22.md).
 
 The component model separately learns minutes, goals, assists, clean sheets,
 goals conceded, saves, bonus, cards and defensive contributions, then applies
@@ -460,5 +550,6 @@ buffer before they are recommended. Further research and priorities are in
 [manager strategy research](docs/fpl_manager_strategy_research_2026.md).
 
 
-you will need this installed in same root:
-https://github.com/vaastav/Fantasy-Premier-League
+Two data checkouts live in the repository root and are ignored by Git:
+`data-source/` (https://github.com/vaastav/Fantasy-Premier-League) and
+`fpl-data/` (https://github.com/henrikremmen/fpl-data, private).

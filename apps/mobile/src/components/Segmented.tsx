@@ -42,5 +42,5 @@ const styles = StyleSheet.create({
   },
   chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
   label: { ...typography.caption, fontWeight: "700" },
-  labelActive: { color: "#06231A" },
+  labelActive: { color: colors.onAccent },
 });

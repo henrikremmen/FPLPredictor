@@ -9,7 +9,6 @@ from pathlib import Path
 import argparse
 import fcntl
 import gzip
-import hashlib
 import json
 import os
 import tempfile
@@ -25,8 +24,9 @@ from external_context import (
     add_player_props_to_schedule,
     enrich_registry_with_workload,
 )
+# Shared with the standalone fpl-data collector (src/fpl_collect.py).
+from fpl_collect import API, capture_endpoint, digest, now
 
-API = 'https://fantasy.premierleague.com/api/'
 POSITIONS = {1:'GK', 2:'DEF', 3:'MID', 4:'FWD'}
 RAW_STATS = ['minutes','starts','total_points','bps','ict_index','threat','creativity',
              'influence','saves','clean_sheets','expected_goals','expected_assists',
@@ -57,45 +57,6 @@ TEAM_STRENGTH_FIELDS = [
     'strength_defence_home', 'strength_defence_away',
     'strength_overall_home', 'strength_overall_away',
 ]
-
-def now():
-    return datetime.now(timezone.utc).isoformat()
-
-def digest(data):
-    return hashlib.sha256(data).hexdigest()
-
-def capture_endpoint(endpoint, directory, name):
-    record = {'endpoint': endpoint, 'url': API+endpoint, 'started_at': now()}
-    for attempt in range(3):
-        try:
-            r = requests.get(record['url'], timeout=(10, 35),
-                headers={'User-Agent':'fplmodell-snapshot/1.0', 'Cache-Control':'no-cache'})
-            record.update(received_at=now(), status=r.status_code,
-                http_date=r.headers.get('Date'), age=r.headers.get('Age'))
-            if r.status_code in [429, 500, 502, 503, 504] and attempt < 2:
-                try:
-                    delay = float(r.headers.get('Retry-After', 2**(attempt+1)))
-                except ValueError:
-                    delay = 5
-                if delay > 30:
-                    r.raise_for_status()  # defer long rate limits to a future run
-                time.sleep(max(1, delay))
-                continue
-            r.raise_for_status()
-            body = r.content
-            data = r.json()
-            path = directory / (name + '.json.gz')
-            path.write_bytes(gzip.compress(body, mtime=0))
-            record.update(file=path.name, sha256=digest(body), bytes=len(body),
-                          stored_sha256=digest(path.read_bytes()))
-            return data, record
-        except (requests.RequestException, ValueError) as exc:
-            record['error'] = str(exc)
-            if attempt == 2 or record.get('status') == 429:
-                return None, record
-            time.sleep(attempt+1)
-    return None, record
-
 
 def capture_external_json(url, directory, name, *, headers=None, params=None,
                           public_endpoint=None):

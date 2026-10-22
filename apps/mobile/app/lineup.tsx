@@ -1,11 +1,11 @@
 import { StyleSheet, Text, View } from "react-native";
 import { formatPoints } from "@fplmodell/shared";
-import { Screen } from "../../src/components/Screen";
-import { QueryState } from "../../src/components/QueryState";
-import { Card, Stat } from "../../src/components/ui";
-import { BenchStrip, PitchView } from "../../src/components/PitchView";
-import { useTeam } from "../../src/hooks/useTeam";
-import { typography, spacing } from "../../src/theme";
+import { Screen } from "../src/components/Screen";
+import { QueryState } from "../src/components/QueryState";
+import { Card, Stat } from "../src/components/ui";
+import { BenchStrip, PitchView } from "../src/components/PitchView";
+import { useTeam } from "../src/hooks/useTeam";
+import { typography, spacing } from "../src/theme";
 
 export default function Pitch() {
   const team = useTeam();
@@ -31,7 +31,7 @@ export default function Pitch() {
                   C {captain?.name ?? "–"} · VC {vice?.name ?? "–"}
                 </Text>
               </Card>
-              <PitchView starters={data.lineup.starters} />
+              <PitchView starters={data.lineup.starters} valueOf={(player) => formatPoints(player.decision_points ?? player.recommended_points, 1)} />
               <BenchStrip bench={data.lineup.bench} />
             </>
           );

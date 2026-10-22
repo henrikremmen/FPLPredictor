@@ -81,3 +81,8 @@ coverage/
 
 # Local repository guide
 /docs/REPO_GUIDE.local.md
+
+# Own FPL data repository checkout (github.com/henrikremmen/fpl-data)
+/fpl-data/
+data/processed/cleaned_merged_seasons_team_aggregated_expanded.csv
+data/processed/features_*/

@@ -1,11 +1,11 @@
 /**
- * Response shapes for the FastAPI bridge (src/api.py).
+ * Response shapes for the FastAPI bridge (src/api.py), shared by the web app
+ * and the mobile app.
  *
  * Endpoints return plain `-> dict`, not Pydantic `response_model`s, so these
- * are not generated from the OpenAPI schema (see openapi.d.ts) — they are
- * hand-ported from frontend/src/types.ts, which is verified against real
- * payloads from the running backend. Keep the two in sync when the backend
- * response shape changes.
+ * are not generated from the OpenAPI schema (see openapi.d.ts). They are
+ * verified against real payloads from the running backend; update them here
+ * when a backend response shape changes.
  */
 
 export type RiskProfile = "balanced" | "stable" | "upside";
@@ -36,6 +36,8 @@ export interface Player {
   price_change_likelihood?: number;
   defensive_contribution_per_90?: number;
   status: string;
+  news?: string;
+  availability?: number;
   role?: "" | "C" | "VC";
   bench_order?: string;
 }
@@ -70,6 +72,7 @@ export interface TeamResponse {
   horizon: number;
   risk_profile: RiskProfile;
   forecast_path: string;
+  forecast_context?: ForecastContext;
   chip_status: Record<string, ChipStatus>;
   overall_points?: number | null;
   overall_rank?: number | null;
@@ -309,6 +312,8 @@ export interface ChipCandidate {
   gain: number;
   projected_points: number;
   threshold: number;
+  comparison_basis?: string;
+  evaluation_events?: number[];
   decision: ChipDecision;
   available: boolean;
   reason: string;
@@ -408,6 +413,14 @@ export interface StrategyAdvice {
     bank_after: number | null;
     global_optimum: boolean;
     horizon: number;
+    roll_comparison?: {
+      evaluated: boolean; preferred_roll: boolean; gain_over_roll: number | null;
+      minimum_gain: number; next_gw_lineup_gain: number | null;
+      gain_lower_bound?: number | null;
+      next_ft_if_move?: number | null; next_ft_if_roll?: number | null;
+      incoming_starts_now: string[]; incoming_bench_now: string[];
+      displaced_starters: string[]; candidate_out: string[]; candidate_in: string[];
+    };
     hit_guard: {
       evaluated: boolean;
       avoided: boolean;
@@ -454,8 +467,96 @@ export interface StrategyAdvice {
   caveat: string;
 }
 
+export interface ForecastContext {
+  revision: string;
+  forecast_at: string | null;
+  observed_at: string | null;
+  player_data_at?: string | null;
+  model_family: string | null;
+  source_url: string;
+}
+export interface PlayerConstraints { locked_ids: number[]; excluded_ids: number[] }
+export interface PlayerDetail {
+  injury_scenarios?: Array<{ GW: number; fixture: number; kickoff_time: string;
+    reported_return: string; conservative_points: number; reported_return_points: number }>;
+  player: Player & { news?: string; availability?: number; prediction?: number };
+  weeks: Array<Player & { forecast_event: number }>;
+  fixtures: Array<{ GW: number; fixture?: number; kickoff_time?: string; p_zero_minutes?: number;
+    p_1_59_minutes?: number; p_60plus_minutes?: number; prediction_q10?: number; prediction_q90?: number }>;
+  context: ForecastContext;
+  news_added: string | null;
+  minutes_note: string;
+  uncertainty_note: string;
+}
+export interface SnapshotChanges {
+  previous_at: string | null;
+  current_at: string | null;
+  message: string;
+  changes: Array<{ id: number; name: string; fields: Record<string, { before: string | number | null; after: string | number | null }> }>;
+}
+export interface PlayerComparison {
+  out_id: number; in_id: number; out: string; in: string;
+  hold_points: number; buy_points: number; hit: number; net_gain: number; bank_after: number;
+  weeks: Array<{ event: number; hold: number; buy: number; gain: number }>;
+  players?: { outgoing: Player; incoming: Player };
+  context: ForecastContext; caveat: string;
+}
+export interface RefreshStatus {
+  state: string; stage: string; elapsed_seconds: number; captured: number; total: number | null; error: string | null;
+}
+
 export interface HealthResponse {
   status: string;
   uptime_seconds: number;
   active_sessions: number;
+}
+
+/** GET /api/team/{session}/timeline — every Gameweek of the public FPL team. */
+export interface TimelinePlayer {
+  id: number;
+  name: string;
+  team: string;
+  position: Position | "?";
+}
+
+export interface TimelinePick extends TimelinePlayer {
+  /** 1–11 starting XI, 12–15 bench order. */
+  slot: number;
+  multiplier: number;
+  is_captain: boolean;
+  is_vice_captain: boolean;
+  points: number;
+  minutes: number;
+}
+
+export interface TimelineTransfer {
+  in: TimelinePlayer & { cost: number };
+  out: TimelinePlayer & { cost: number };
+}
+
+export interface TimelineWeek {
+  event: number;
+  points: number;
+  total_points: number;
+  rank: number | null;
+  overall_rank: number | null;
+  /** Positive means the overall rank improved. */
+  rank_change: number | null;
+  bank: number;
+  value: number;
+  transfers_made: number;
+  transfer_cost: number;
+  bench_points: number;
+  chip: string | null;
+  picks: TimelinePick[];
+  automatic_subs: { in: TimelinePlayer; out: TimelinePlayer }[];
+  transfers: TimelineTransfer[];
+  /** FPL has data-checked the round; points will not change. */
+  final: boolean;
+}
+
+export interface TeamTimeline {
+  entry_id: number;
+  weeks: TimelineWeek[];
+  caveat: string;
 }

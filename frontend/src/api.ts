@@ -12,7 +12,8 @@ import type {
   ManagerAnalytics,
   SquadChange,
   SquadUpdateResponse,
-} from "./types";
+} from "@fplmodell/api-client";
+import type { TeamTimeline } from "@fplmodell/api-client";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   let response: Response;
@@ -108,6 +109,12 @@ export const api = {
   },
   strategy(session: string, constraints?: PlayerConstraints) {
     return request<StrategyAdvice>(`/api/team/${session}/strategy`, { method: "POST", body: JSON.stringify(constraints ?? {}) });
+  },
+  team(session: string) {
+    return request<TeamResponse>(`/api/team/${session}`);
+  },
+  timeline(session: string) {
+    return request<TeamTimeline>(`/api/team/${session}/timeline`);
   },
   analytics(session: string, event?: number, leagueId?: number | null) {
     const params = new URLSearchParams();

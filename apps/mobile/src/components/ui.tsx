@@ -75,8 +75,8 @@ export function Badge({ label, tone = "default" }: { label: string; tone?: "defa
       style={[
         styles.badge,
         tone === "positive" && { backgroundColor: colors.accentMuted },
-        tone === "warning" && { backgroundColor: "#3D2E12" },
-        tone === "negative" && { backgroundColor: "#3A1E22" },
+        tone === "warning" && { backgroundColor: colors.surfaceRaised },
+        tone === "negative" && { backgroundColor: colors.dangerSurface },
       ]}
     >
       <Text
@@ -120,7 +120,7 @@ const styles = StyleSheet.create({
   buttonDanger: { backgroundColor: colors.danger },
   buttonDisabled: { opacity: 0.5 },
   buttonPressed: { opacity: 0.85 },
-  buttonLabel: { fontSize: 15, fontWeight: "700", color: "#06231A" },
+  buttonLabel: { fontSize: 15, fontWeight: "700", color: colors.onAccent },
   badge: { paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radii.pill, backgroundColor: colors.surfaceRaised },
   badgeLabel: { fontSize: 11, fontWeight: "700", color: colors.textSecondary },
 });

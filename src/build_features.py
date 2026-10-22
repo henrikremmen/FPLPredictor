@@ -78,10 +78,7 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line paths while keeping repo-root defaults."""
     repo_root = Path(__file__).resolve().parents[1]
     default_source = (
-        repo_root
-        / "data-source"
-        / "data"
-        / "cleaned_merged_seasons_team_aggregated_expanded.csv"
+        repo_root / "data" / "processed" / "cleaned_merged_seasons_team_aggregated_expanded.csv"
     )
     default_output = repo_root / "data" / "processed"
     parser = argparse.ArgumentParser(description=__doc__)
@@ -95,7 +92,7 @@ def load_data(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(
             f"Aggregated source not found: {path}\n"
-            "Run notebooks/build_expanded_dataset.ipynb first."
+            "Run python src/build_dataset.py first."
         )
     return pd.read_csv(path, low_memory=False)
 

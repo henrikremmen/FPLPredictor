@@ -17,25 +17,7 @@ import pandas as pd
 import requests
 
 from capture_fpl import API, run
-
-
-CHECKPOINTS = ((24.0, "24h"), (6.0, "6h"), (1.0, "1h"))
-
-
-def checkpoint_for(deadline, observed_at=None) -> str | None:
-    """Return the active checkpoint bucket, never backfilling missed buckets."""
-    current = pd.Timestamp(observed_at or datetime.now(timezone.utc))
-    if current.tzinfo is None:
-        current = current.tz_localize("UTC")
-    deadline = pd.Timestamp(deadline)
-    hours = (deadline - current).total_seconds() / 3600
-    if hours <= 0 or hours > CHECKPOINTS[0][0]:
-        return None
-    if hours > CHECKPOINTS[1][0]:
-        return "24h"
-    if hours > CHECKPOINTS[2][0]:
-        return "6h"
-    return "1h"
+from fpl_collect import CHECKPOINTS, checkpoint_for  # noqa: F401  (re-exported)
 
 
 def completed_phases(root: Path, event: int) -> set[str]:
