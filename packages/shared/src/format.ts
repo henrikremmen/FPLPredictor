@@ -25,7 +25,7 @@ export function formatRank(value: number | null | undefined): string {
 }
 
 export function formatHoursRemaining(hours: number | null | undefined): string {
-  return hours == null ? "–" : `${hours.toFixed(1)} t`;
+  return hours == null ? "–" : `${hours.toFixed(1)} h`;
 }
 
 const DATE_FORMATTER = new Intl.DateTimeFormat("en-GB", {
@@ -38,4 +38,12 @@ const DATE_FORMATTER = new Intl.DateTimeFormat("en-GB", {
 
 export function formatDeadline(isoDate: string): string {
   return DATE_FORMATTER.format(new Date(isoDate));
+}
+
+/**
+ * Team ID from a typed ID or a pasted FPL link. Any `/event/N` part is
+ * ignored: imports always use the current Gameweek.
+ */
+export function teamIdFromReference(value: string): string {
+  return value.match(/entry\/(\d+)/)?.[1] ?? value.replace(/\D/g, "");
 }

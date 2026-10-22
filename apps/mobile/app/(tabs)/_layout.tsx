@@ -1,11 +1,16 @@
 import { Redirect, Tabs } from "expo-router";
-import { Text } from "react-native";
 import { useSession } from "../../src/context/session-context";
+import { Icons } from "../../src/components/icons";
 import { colors } from "../../src/theme";
 
-function TabIcon({ symbol, focused }: { symbol: string; focused: boolean }) {
-  return <Text style={{ fontSize: 20, opacity: focused ? 1 : 0.55 }}>{symbol}</Text>;
-}
+/** Five sections, the same as the web app: This round, Transfers & plan, Players, History, My team. */
+const TABS = [
+  { name: "index", title: "Round", label: "This round", Icon: Icons.Home },
+  { name: "plan", title: "Plan", label: "Transfers and plan", Icon: Icons.Swap },
+  { name: "players", title: "Players", label: "Players", Icon: Icons.Users },
+  { name: "history", title: "History", label: "History", Icon: Icons.Calendar },
+  { name: "team", title: "Team", label: "My team", Icon: Icons.Shield },
+] as const;
 
 export default function TabsLayout() {
   const { isLoading, isOnboarded } = useSession();
@@ -22,30 +27,12 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: colors.textMuted,
       }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{ title: "Overview", tabBarIcon: ({ focused }) => <TabIcon symbol="🏠" focused={focused} /> }}
-      />
-      <Tabs.Screen
-        name="pitch"
-        options={{ title: "Squad", tabBarIcon: ({ focused }) => <TabIcon symbol="⚽" focused={focused} /> }}
-      />
-      <Tabs.Screen
-        name="transfers"
-        options={{ title: "Transfers", tabBarIcon: ({ focused }) => <TabIcon symbol="🔁" focused={focused} /> }}
-      />
-      <Tabs.Screen
-        name="strategy"
-        options={{ title: "Strategy", tabBarIcon: ({ focused }) => <TabIcon symbol="🧭" focused={focused} /> }}
-      />
-      <Tabs.Screen
-        name="market"
-        options={{ title: "Market", tabBarIcon: ({ focused }) => <TabIcon symbol="🛒" focused={focused} /> }}
-      />
-      <Tabs.Screen
-        name="analytics"
-        options={{ title: "Analytics", tabBarIcon: ({ focused }) => <TabIcon symbol="📊" focused={focused} /> }}
-      />
+      {TABS.map(({ name, title, label, Icon }) => (
+        <Tabs.Screen key={name} name={name} options={{
+          title, tabBarAccessibilityLabel: label,
+          tabBarIcon: ({ color }) => <Icon color={String(color)} />,
+        }} />
+      ))}
     </Tabs>
   );
 }

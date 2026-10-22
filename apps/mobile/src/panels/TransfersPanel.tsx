@@ -1,17 +1,20 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { MAX_TRANSFERS, formatMoney, formatPoints } from "@fplmodell/shared";
-import { Screen } from "../../src/components/Screen";
-import { QueryState } from "../../src/components/QueryState";
-import { Badge, Card, Section } from "../../src/components/ui";
-import { useTeam } from "../../src/hooks/useTeam";
-import { useTransfers } from "../../src/hooks/useFeatures";
-import { colors, radii, spacing, typography } from "../../src/theme";
+import { QueryState } from "../components/QueryState";
+import { Badge, Button, Card, Section } from "../components/ui";
+import { useWorkspace } from "../context/workspace-context";
+import { useTeam } from "../hooks/useTeam";
+import { useTransfers } from "../hooks/useFeatures";
+import { colors, radii, spacing, typography } from "../theme";
 
 const COUNTS = Array.from({ length: MAX_TRANSFERS }, (_, index) => index + 1);
 
-export default function Transfers() {
+/** Exact transfer search for a chosen number of moves; respects player preferences. */
+export function TransfersPanel() {
   const team = useTeam();
+  const workspace = useWorkspace();
+  const locked = workspace.constraints.locked_ids;
   const [number, setNumber] = useState(1);
   const [targeted, setTargeted] = useState(false);
   const [selected, setSelected] = useState<number[]>([]);
@@ -34,9 +37,7 @@ export default function Transfers() {
   };
 
   return (
-    <Screen>
-      <Text style={typography.title}>Transfers</Text>
-
+    <>
       <View style={styles.countRow}>
         {COUNTS.map((count) => (
           <Pressable
@@ -66,13 +67,16 @@ export default function Transfers() {
               <Card>
                 {data.squad.map((player) => {
                   const isSelected = selected.includes(player.id);
+                  const isLocked = locked.includes(player.id);
                   return (
                     <Pressable
                       key={player.id}
                       onPress={() => toggleSelected(player.id)}
-                      style={styles.selectRow}
+                      disabled={isLocked}
+                      style={[styles.selectRow, isLocked && { opacity: 0.45 }]}
                       accessibilityRole="button"
-                      accessibilityState={{ selected: isSelected }}
+                      accessibilityState={{ selected: isSelected, disabled: isLocked }}
+                      accessibilityHint={isLocked ? "Locked in Player preferences" : undefined}
                     >
                       <Text style={[styles.selectName, isSelected && { color: colors.accent }]}>{player.name}</Text>
                       <Text style={styles.selectMeta}>{player.position}</Text>
@@ -104,6 +108,12 @@ export default function Transfers() {
                       <PlanStat label="Cost" value={plan.hit ? `−${plan.hit}` : "0"} />
                       <PlanStat label="Money remaining" value={formatMoney(plan.money_left)} />
                     </View>
+                    <Button label="Save plan" variant="secondary" onPress={() => workspace.savePlan({
+                      kind: "transfer", name: `${plan.out} → ${plan.in}`, horizon: team.data?.horizon ?? 1, net_gain: plan.net_gain,
+                      summary: `Net ${formatPoints(plan.net_gain)} after ${plan.hit ? `−${plan.hit} hit` : "no hit"}`,
+                      lines: [`Out: ${plan.out}`, `In: ${plan.in}`, `Money left: ${formatMoney(plan.money_left)}`,
+                        `Preferences: ${workspace.constraints.locked_ids.length} locked, ${workspace.constraints.excluded_ids.length} excluded`],
+                    })} />
                   </Card>
                 ))}
               </View>
@@ -113,7 +123,7 @@ export default function Transfers() {
       ) : (
         <Text style={styles.caption}>Select {number} player(s) to be sold to see suggestions.</Text>
       )}
-    </Screen>
+    </>
   );
 }
 
@@ -142,8 +152,8 @@ function PlanStat({ label, value }: { label: string; value: string }) {
 const styles = StyleSheet.create({
   countRow: { flexDirection: "row", gap: spacing.sm },
   countChip: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
     borderRadius: radii.pill,
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -153,10 +163,12 @@ const styles = StyleSheet.create({
   },
   countChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
   countChipLabel: { ...typography.body, fontWeight: "700" },
-  countChipLabelActive: { color: "#06231A" },
+  countChipLabelActive: { color: colors.onAccent },
   modeRow: { flexDirection: "row", gap: spacing.sm },
   modeButton: {
     flex: 1,
+    minHeight: 44,
+    justifyContent: "center",
     paddingVertical: spacing.sm,
     borderRadius: radii.md,
     borderWidth: 1,
@@ -165,9 +177,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   modeButtonActive: { borderColor: colors.accent },
-  modeButtonLabel: { ...typography.body, fontWeight: "600" },
+  modeButtonLabel: { ...typography.body, fontWeight: "600", textAlign: "center" },
   modeButtonLabelActive: { color: colors.accent },
   selectRow: {
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,

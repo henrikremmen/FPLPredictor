@@ -1,3 +1,5 @@
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -132,3 +134,59 @@ class ManagerAnalyticsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TimelineTests(unittest.TestCase):
+    def payloads(self):
+        bootstrap = {
+            "events": [{"id": 1, "data_checked": True}, {"id": 2, "data_checked": False}],
+            "teams": [{"id": 1, "short_name": "ARS"}],
+            "elements": [{"id": i, "web_name": f"P{i}", "team": 1,
+                          "element_type": 1 if i <= 2 else 2 if i <= 7 else 3 if i <= 12 else 4}
+                         for i in range(1, 18)],
+        }
+        gw2 = picks([16] + list(range(2, 16)), captain=16)
+        gw2["active_chip"] = "bboost"
+        gw2["automatic_subs"] = [{"element_in": 12, "element_out": 5, "event": 2}]
+        live = {"elements": [{"id": i, "stats": {"total_points": i, "minutes": 90}} for i in range(1, 18)]}
+        return {
+            "entry/9/history/": {"current": [
+                {"event": 1, "points": 50, "total_points": 50, "rank": 10, "overall_rank": 1000,
+                 "bank": 5, "value": 1000, "event_transfers": 0, "event_transfers_cost": 0, "points_on_bench": 3},
+                {"event": 2, "points": 70, "total_points": 116, "rank": 5, "overall_rank": 400,
+                 "bank": 0, "value": 1004, "event_transfers": 2, "event_transfers_cost": 4, "points_on_bench": 0},
+            ]},
+            "entry/9/transfers/": [{"event": 2, "element_in": 16, "element_in_cost": 55,
+                                    "element_out": 1, "element_out_cost": 50, "time": "2026-08-28T10:00:00Z"}],
+            "bootstrap-static/": bootstrap,
+            "entry/9/event/1/picks/": picks(list(range(1, 16))), "event/1/live/": live,
+            "entry/9/event/2/picks/": gw2, "event/2/live/": live,
+        }
+
+    def test_timeline_returns_each_round_and_caches_checked_rounds_on_disk(self):
+        with tempfile.TemporaryDirectory() as cache:
+            first = FakeClient(self.payloads())
+            result = AnalyticsService(first).timeline(9, Path(cache))
+            gw1, gw2 = result["weeks"]
+            self.assertEqual(len(gw1["picks"]), 15)
+            self.assertEqual(gw1["picks"][0], {"id": 1, "name": "P1", "team": "ARS", "position": "GK", "slot": 1,
+                                               "multiplier": 2, "is_captain": True, "is_vice_captain": False,
+                                               "points": 1, "minutes": 90})
+            self.assertEqual((gw1["final"], gw2["final"]), (True, False))
+            self.assertEqual(gw2["chip"], "bboost")
+            self.assertEqual(gw2["automatic_subs"][0]["in"]["name"], "P12")
+            self.assertEqual(gw2["transfers"][0]["in"]["cost"], 55)
+            self.assertEqual((gw2["transfer_cost"], gw2["rank_change"], gw2["transfers_made"]), (4, 600, 2))
+            self.assertTrue((Path(cache) / "entry" / "9" / "gw1.json").exists())
+            self.assertFalse((Path(cache) / "entry" / "9" / "gw2.json").exists())
+
+            stale = Path(cache) / "entry" / "9" / "gw1.json"
+            stale.write_text(json.dumps({**json.loads(stale.read_text()), "schema": 1}))
+            AnalyticsService(FakeClient(self.payloads())).timeline(9, Path(cache))  # rewrites the old record
+            self.assertEqual(json.loads(stale.read_text())["schema"], 2)
+
+            second = FakeClient(self.payloads())  # fresh process: no in-memory cache
+            again = AnalyticsService(second).timeline(9, Path(cache))
+            self.assertEqual(again, result)
+            self.assertFalse([c for c in second.calls if "/event/1/" in c or c.startswith("event/1/")])
+            self.assertIn("entry/9/event/2/picks/", second.calls)

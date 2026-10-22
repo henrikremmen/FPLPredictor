@@ -1,50 +1,67 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Position } from "@fplmodell/shared";
 import { api } from "../lib/api";
 import { useSession } from "../context/session-context";
+import { useWorkspace } from "../context/workspace-context";
 
 export function useTransfers(number: number, outgoingIds: number[], enabled = true) {
   const { sessionId } = useSession();
+  const { constraints } = useWorkspace();
   return useQuery({
-    queryKey: ["transfers", sessionId, number, outgoingIds],
-    queryFn: () => api.transfers(sessionId as string, number, outgoingIds),
+    queryKey: ["transfers", sessionId, number, outgoingIds, constraints],
+    queryFn: () => api.transfers(sessionId as string, number, outgoingIds, constraints),
     enabled: Boolean(sessionId) && enabled,
   });
 }
 
 export function useMultiweekPlan(weeks: number) {
   const { sessionId } = useSession();
+  const { constraints } = useWorkspace();
   return useQuery({
-    queryKey: ["plan", sessionId, weeks],
-    queryFn: () => api.plan(sessionId as string, weeks),
+    queryKey: ["plan", sessionId, weeks, constraints],
+    queryFn: () => api.plan(sessionId as string, weeks, 0.9, constraints),
     enabled: Boolean(sessionId),
   });
 }
 
 export function useChipStrategy() {
   const { sessionId } = useSession();
+  const { constraints } = useWorkspace();
   return useQuery({
-    queryKey: ["chips", sessionId],
-    queryFn: () => api.chips(sessionId as string),
+    queryKey: ["chips", sessionId, constraints],
+    queryFn: () => api.chips(sessionId as string, constraints),
     enabled: Boolean(sessionId),
   });
 }
 
 export function useRecommendedSquads() {
   const { sessionId } = useSession();
+  const { constraints } = useWorkspace();
   return useQuery({
-    queryKey: ["recommended-squads", sessionId],
-    queryFn: () => api.recommendedSquads(sessionId as string),
+    queryKey: ["recommended-squads", sessionId, constraints],
+    queryFn: () => api.recommendedSquads(sessionId as string, constraints),
     enabled: Boolean(sessionId),
   });
 }
 
 export function useStrategyAdvice() {
   const { sessionId } = useSession();
+  const { constraints } = useWorkspace();
   return useQuery({
-    queryKey: ["strategy", sessionId],
-    queryFn: () => api.strategy(sessionId as string),
+    queryKey: ["strategy", sessionId, constraints],
+    queryFn: () => api.strategy(sessionId as string, constraints),
     enabled: Boolean(sessionId),
+  });
+}
+
+/** Hold versus buy, after selling price, bank and any hit (runs on demand). */
+export function useComparePlayers() {
+  const { sessionId } = useSession();
+  const { constraints } = useWorkspace();
+  return useMutation({
+    mutationFn: ({ outId, inId }: { outId: number; inId: number }) =>
+      api.compare(sessionId as string, outId, inId, constraints),
   });
 }
 
@@ -75,6 +92,15 @@ export function useAnalytics(event?: number, leagueId?: number | null) {
   });
 }
 
+export function useTimeline() {
+  const { sessionId } = useSession();
+  return useQuery({
+    queryKey: ["timeline", sessionId],
+    queryFn: () => api.timeline(sessionId as string),
+    enabled: Boolean(sessionId),
+  });
+}
+
 export function useRefreshForecast() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -83,4 +109,19 @@ export function useRefreshForecast() {
       queryClient.invalidateQueries();
     },
   });
+}
+
+/** Pull-to-refresh for a tab: refetch the queries currently on screen. */
+export function usePullToRefresh() {
+  const queryClient = useQueryClient();
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await queryClient.invalidateQueries({ refetchType: "active" });
+    } finally {
+      setRefreshing(false);
+    }
+  };
+  return { refreshing, onRefresh };
 }

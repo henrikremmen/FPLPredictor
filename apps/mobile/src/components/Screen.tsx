@@ -1,14 +1,17 @@
-import { ScrollView, StyleSheet, View, type ScrollViewProps } from "react-native";
+import { RefreshControl, ScrollView, StyleSheet, View, type ScrollViewProps } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, spacing } from "../theme";
 
 interface ScreenProps extends ScrollViewProps {
   scroll?: boolean;
   padded?: boolean;
+  /** Pull-to-refresh: refetch the screen's queries. */
+  onRefresh?: () => unknown;
+  refreshing?: boolean;
 }
 
 /** Consistent dark background + safe-area handling for every tab screen. */
-export function Screen({ children, scroll = true, padded = true, contentContainerStyle, ...rest }: ScreenProps) {
+export function Screen({ children, scroll = true, padded = true, contentContainerStyle, onRefresh, refreshing = false, ...rest }: ScreenProps) {
   if (!scroll) {
     return (
       <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
@@ -21,6 +24,9 @@ export function Screen({ children, scroll = true, padded = true, contentContaine
       <ScrollView
         contentContainerStyle={[padded && styles.padded, styles.content, contentContainerStyle]}
         keyboardShouldPersistTaps="handled"
+        refreshControl={onRefresh ? (
+          <RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={colors.accent} colors={[colors.accent]} />
+        ) : undefined}
         {...rest}
       >
         {children}

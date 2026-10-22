@@ -1,15 +1,12 @@
 import { useEffect, useState } from "react";
-import { Text } from "react-native";
 import type { Position } from "@fplmodell/api-client";
 import { formatMoney } from "@fplmodell/shared";
-import { Screen } from "../../src/components/Screen";
-import { QueryState } from "../../src/components/QueryState";
-import { Segmented } from "../../src/components/Segmented";
-import { Card, Section } from "../../src/components/ui";
-import { PlayerRow } from "../../src/components/PlayerRow";
-import { useMarket, useSellCandidates } from "../../src/hooks/useFeatures";
-import { loadPreferences, savePreferences, type StoredPreferences } from "../../src/lib/storage";
-import { typography } from "../../src/theme";
+import { QueryState } from "../components/QueryState";
+import { Segmented } from "../components/Segmented";
+import { Card, Section } from "../components/ui";
+import { PlayerRow } from "../components/PlayerRow";
+import { useMarket, useSellCandidates } from "../hooks/useFeatures";
+import { loadPreferences, savePreferences, type StoredPreferences } from "../lib/storage";
 
 const POSITION_OPTIONS: { value: Position | "ALL"; label: string }[] = [
   { value: "ALL", label: "All" },
@@ -21,7 +18,8 @@ const POSITION_OPTIONS: { value: Position | "ALL"; label: string }[] = [
 
 const PRICE_OPTIONS = [50, 70, 90, 110, 130, 150];
 
-export default function Market() {
+/** Buy and sell candidates filtered by position and price; respects exclusions. */
+export function MarketPanel() {
   const [prefs, setPrefs] = useState<StoredPreferences | null>(null);
 
   useEffect(() => {
@@ -40,12 +38,10 @@ export default function Market() {
   const market = useMarket(position, maxPrice);
   const sells = useSellCandidates();
 
-  if (!prefs) return <Screen />;
+  if (!prefs) return null;
 
   return (
-    <Screen>
-      <Text style={typography.title}>Market</Text>
-
+    <>
       <Segmented
         value={position}
         onChange={(value) => update({ marketPosition: value as Position | "ALL" })}
@@ -80,6 +76,6 @@ export default function Market() {
           )}
         </QueryState>
       </Section>
-    </Screen>
+    </>
   );
 }

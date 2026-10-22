@@ -75,7 +75,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     paddingVertical: 1,
   },
-  roleChipLabel: { fontSize: 10, fontWeight: "800", color: "#241900" },
+  roleChipLabel: { fontSize: 10, fontWeight: "800", color: colors.onAccent },
   numbers: { alignItems: "flex-end" },
   points: { ...typography.body, fontWeight: "700" },
   price: { ...typography.caption },

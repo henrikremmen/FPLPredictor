@@ -272,7 +272,7 @@ const styles = StyleSheet.create({
   },
   modeChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
   modeChipLabel: { ...typography.caption, fontWeight: "700" },
-  modeChipLabelActive: { color: "#06231A" },
+  modeChipLabelActive: { color: colors.onAccent },
   fieldRow: { flexDirection: "row", gap: spacing.md },
   fieldLabel: { ...typography.caption, marginBottom: 4 },
   input: {

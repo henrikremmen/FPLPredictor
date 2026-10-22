@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
 const positions = ['GK','GK','DEF','DEF','DEF','DEF','DEF','MID','MID','MID','MID','MID','FWD','FWD','FWD'];
 const players = [...positions.map((position, i) => ({ id: i + 1, name: `Player ${i + 1}`, position, team: `T${Math.floor(i / 3) + 1}`, team_id: Math.floor(i / 3) + 1,
@@ -8,7 +9,22 @@ const context = { revision: 'version-1', forecast_at: '2026-10-10T08:00:00Z', ob
 const team = { session_id: 'test', entry_id: 1, event: 5, target_event: 6, manager_name: 'Manager', team_name: 'Workspace team', bank: 0, free_transfers: 0, deadline: '2026-10-10T10:00:00Z', horizon: 3, risk_profile: 'balanced', forecast_path: 'snapshot/forecast.csv', forecast_context: context,
   chip_status: {}, squad_source: 'fpl_public', manual_changes: [], squad: players.slice(0, 15), lineup: { formation: '3-4-3', projected_total: 48, expected_total: 48, captain_margin: 0, starters: players.slice(0, 11), bench: players.slice(11, 15) } };
 const transfer = { number: 1, outgoing_ids: [], global_optimum: true, plans: [{ out: 'Player 8', in: 'Upgrade', cost: 5, money_left: 0, lineup_gain: 12, expected_gain: 12, hit: 4, net_gain: 8, expected_net_gain: 8, projected_total: 56, is_global_optimum: true }] };
-async function setup(page: Page) {
+const timelineWeek = (event: number, ids: number[], extra: Record<string, unknown> = {}) => ({
+  event, points: 50 + event, total_points: 50 * event, rank: 1000, overall_rank: 5000 - event * 100, rank_change: event === 1 ? null : 100,
+  bank: 5, value: 1000, transfers_made: 0, transfer_cost: 0, bench_points: 3, chip: null, automatic_subs: [], transfers: [], final: true,
+  picks: ids.map((id, i) => ({ id, name: id === 16 ? 'Upgrade' : `Player ${id}`, team: 'T1', position: positions[i], slot: i + 1,
+    multiplier: i === 0 ? 2 : i < 11 ? 1 : 0, is_captain: i === 0, is_vice_captain: i === 1, points: 2, minutes: 90 })),
+  ...extra,
+});
+const squadAfterMove = players.slice(0, 15).map(p => p.id === 8 ? 16 : p.id);
+// TIMELINE_FIXTURE=/abs/timeline.json swaps in a real API payload for screenshots.
+const timeline = process.env.TIMELINE_FIXTURE ? JSON.parse(readFileSync(process.env.TIMELINE_FIXTURE, 'utf8')) : { entry_id: 1, caveat: 'Player points stay provisional until FPL data-checks the round.', weeks: [
+  timelineWeek(1, players.slice(0, 15).map(p => p.id)),
+  timelineWeek(2, squadAfterMove, { chip: 'bboost', transfers_made: 1, transfer_cost: 4, rank_change: -50,
+    transfers: [{ in: { id: 16, name: 'Upgrade', team: 'T6', position: 'MID', cost: 55 }, out: { id: 8, name: 'Player 8', team: 'T3', position: 'MID', cost: 50 } }] }),
+  timelineWeek(3, squadAfterMove, { final: false }),
+] };
+async function setup(page: Page, beforeLoad?: () => Promise<void>) {
   const requests: Array<{ path: string; body: any }> = [];
   let refreshFails = false;
   let transferFails = false;
@@ -16,6 +32,7 @@ async function setup(page: Page) {
   let refreshed = false;
   let activeHorizon = 3;
   let horizonFails = false;
+  let restorable = false;
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error' && !m.text().includes('status of')) errors.push(m.text()); });
@@ -26,6 +43,8 @@ async function setup(page: Page) {
     requests.push({ path, body });
     const json = (data: unknown, status = 200) => route.fulfill({ status, json: data });
     if (path.endsWith('/import')) return json(team);
+    if (request.method() === 'GET' && path === '/api/team/test') return restorable ? json(team) : json({ detail: 'Session expired' }, 404);
+    if (path.endsWith('/timeline')) return json(timeline);
     if (path.endsWith('/horizon')) {
       if (horizonFails) return json({ detail: 'Saved forecast is missing this horizon' }, 400);
       activeHorizon = body.horizon;
@@ -69,10 +88,26 @@ async function setup(page: Page) {
     return json({ detail: `Unexpected route: ${path}` }, 404);
   });
   await page.goto('/');
+  await beforeLoad?.();
+  await page.getByLabel('FPL team ID').fill('5139814');
   await page.getByRole('button', { name: 'Load team', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Workspace team' })).toBeVisible();
-  return { requests, errors, failRefresh: () => { refreshFails = true; }, failHorizon: () => { horizonFails = true; }, failTransfer: () => { transferFails = true; slowTransfer = true; }, refreshed: () => refreshed };
+  return { requests, errors, allowRestore: () => { restorable = true; }, failRefresh: () => { refreshFails = true; }, failHorizon: () => { horizonFails = true; }, failTransfer: () => { transferFails = true; slowTransfer = true; }, refreshed: () => refreshed };
 }
+test('team ID field extracts the ID from a pasted link, ignores the Gameweek and remembers it', async ({ page }) => {
+  const state = await setup(page, async () => {
+    const field = page.getByLabel('FPL team ID');
+    await expect(field).toHaveValue('');
+    await field.fill('https://fantasy.premierleague.com/en/entry/42/event/4');
+    await expect(field).toHaveValue('42');
+    await page.getByRole('button', { name: 'Load team', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Workspace team' })).toBeVisible();
+    await page.reload();
+    await expect(field).toHaveValue('42');
+  });
+  expect(state.requests.filter(r => r.path.endsWith('/import')).map(r => r.body.reference)).toEqual(['42', '5139814']);
+  expect(state.errors).toEqual([]);
+});
 const nav = (page: Page, name: string) => page.locator('.sidebar nav').getByRole('button', { name, exact: true }).click();
 
 test('horizon changes keep the current strategy page, preferences and session, and recalculate advice', async ({ page }) => {
@@ -189,14 +224,16 @@ test('mobile comparison and player panel fit viewport', async ({ page }) => {
   const size = await page.getByRole('dialog').boundingBox();
   expect(size!.width).toBeLessThanOrEqual(390);
   await page.getByRole('button', { name: 'Close player details' }).click();
-  await page.locator('.mobile-nav').getByRole('button', { name: 'Compare players', exact: true }).click();
+  await page.locator('.mobile-nav').getByRole('button', { name: 'Players', exact: true }).click();
+  await page.locator('.sub-nav').getByRole('button', { name: 'Compare players', exact: true }).click();
   await page.getByLabel('Player to keep / sell').selectOption('8');
   await page.getByLabel('Player to buy').selectOption('16');
   await page.getByRole('button', { name: 'Compare after hits' }).click();
   await expect(page.locator('.comparison-result')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await page.screenshot({ path: 'test-results/workspace-mobile.png', fullPage: true });
-  await page.locator('.mobile-nav').getByRole('button', { name: 'Transfers', exact: true }).click();
+  await page.locator('.mobile-nav').getByRole('button', { name: 'Transfers & plan', exact: true }).click();
+  await page.locator('.sub-nav').getByRole('button', { name: 'Transfers', exact: true }).click();
   await page.locator('.number-picker button').first().click();
   await page.getByRole('button', { name: 'Find best plan', exact: true }).click();
   await expect(page.locator('.transfer-plan')).toBeVisible();
@@ -250,3 +287,90 @@ test('preferences persist and invalidate existing advice without discarding it',
   await page.getByRole('button', { name: 'Clear preferences' }).click();
   await expect(page.getByRole('button', { name: 'Locked: Player 8 ×' })).toHaveCount(0);
 });
+
+test('timeline opens on the latest Gameweek and steps back with keys, buttons and the season ribbon', async ({ page }) => {
+  const state = await setup(page);
+  await nav(page, 'Timeline');
+  const stepper = page.locator('.timeline-stepper');
+  await expect(stepper).toContainText('GW3');
+  await expect(stepper).toContainText('provisional');
+  await expect(page.locator('.round-changes')).toContainText('Same squad as GW2');
+  const loads = state.requests.filter(r => r.path.endsWith('/timeline')).length;
+  await page.keyboard.press('ArrowLeft');
+  await expect(stepper).toContainText('GW2');
+  await expect(stepper).toContainText('Bench Boost');
+  await expect(page.locator('.round-changes')).toContainText('↑ Upgrade £5.5m');
+  await expect(page.locator('.round-changes')).toContainText('↓ Player 8 £5.0m');
+  await expect(page.locator('.round-changes')).toContainText('Hit: −4 points');
+  await expect(page.locator('.pitch .joined-badge')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Show GW1' }).click();
+  await expect(page.locator('.round-changes')).toContainText('First Gameweek of the season');
+  await page.getByRole('button', { name: /^GW3: 53 points/ }).click();
+  await expect(stepper).toContainText('GW3');
+  expect(state.requests.filter(r => r.path.endsWith('/timeline'))).toHaveLength(loads); // stepping never refetches
+  expect(state.errors).toEqual([]);
+});
+
+test('timeline fits a phone screen', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = await setup(page);
+  await page.locator('.mobile-nav').getByRole('button', { name: 'History', exact: true }).click();
+  await page.locator('.sub-nav').getByRole('button', { name: 'Timeline', exact: true }).click();
+  await expect(page.locator('.timeline-stepper')).toContainText('GW3');
+  await page.getByRole('button', { name: 'Show GW2' }).click();
+  await expect(page.locator('.timeline-stepper')).toContainText('GW2');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  expect(state.errors).toEqual([]);
+});
+
+test('every page has a deep link; back and refresh keep the page without a new import', async ({ page }) => {
+  const state = await setup(page);
+  await nav(page, 'Timeline');
+  await expect(page).toHaveURL(/#\/timeline$/);
+  await nav(page, 'Chips');
+  await expect(page).toHaveURL(/#\/chips$/);
+  await page.goBack();
+  await expect(page.locator('.timeline-stepper')).toBeVisible();
+  await expect(page.locator('.sidebar nav').getByRole('button', { name: 'Timeline', exact: true })).toHaveAttribute('aria-current', 'page');
+  state.allowRestore();
+  await page.reload();
+  await expect(page.locator('.timeline-stepper')).toBeVisible();
+  expect(state.requests.filter(r => r.path.endsWith('/import'))).toHaveLength(1);
+  expect(state.errors).toEqual([]);
+});
+
+test('every page: buttons have accessible names and the menu works from the keyboard', async ({ page }) => {
+  const state = await setup(page);
+  for (const id of ['overview', 'lineup', 'strategy', 'transfers', 'plan', 'chips', 'squads', 'market', 'comparison',
+    'preferences', 'analysis', 'timeline', 'squad', 'saved']) {
+    await page.evaluate(hash => { window.location.hash = `/${hash}`; }, id);
+    await page.waitForTimeout(100);
+    const unnamed = await page.evaluate(() => [...document.querySelectorAll('button')]
+      .filter(b => b.offsetParent !== null && !(b.innerText.trim() || b.getAttribute('aria-label') || b.getAttribute('title')))
+      .map(b => b.outerHTML.slice(0, 80)));
+    expect(unnamed, id).toEqual([]);
+  }
+  await page.locator('.sidebar nav').getByRole('button', { name: 'Lineup', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/#\/lineup$/);
+  await page.keyboard.press('Tab');
+  await expect(page.locator('.sidebar nav').getByRole('button', { name: 'Strategy centre', exact: true })).toBeFocused();
+  expect(state.errors).toEqual([]);
+});
+
+// Visual review only: SCREENSHOT_DIR=/abs/dir npm run test:e2e:workspace --prefix frontend
+const shotDir = process.env.SCREENSHOT_DIR;
+for (const [size, viewport] of [['390x844', { width: 390, height: 844 }], ['1440x900', { width: 1440, height: 900 }]] as const) {
+  test(`screenshots of every page at ${size}`, async ({ page }) => {
+    test.skip(!shotDir, 'Set SCREENSHOT_DIR to capture screenshots');
+    await page.setViewportSize(viewport);
+    await setup(page, () => page.screenshot({ path: `${shotDir}/${size}/00-load.png`, fullPage: true }));
+    const pages = ['overview', 'lineup', 'strategy', 'transfers', 'plan', 'chips', 'squads', 'market', 'comparison',
+      'preferences', 'analysis', 'timeline', 'squad', 'saved'];
+    for (const [index, id] of pages.entries()) {
+      await page.evaluate(hash => { window.location.hash = `/${hash}`; }, id);
+      await page.waitForTimeout(250);
+      await page.screenshot({ path: `${shotDir}/${size}/${String(index + 1).padStart(2, '0')}-${id}.png`, fullPage: true });
+    }
+  });
+}

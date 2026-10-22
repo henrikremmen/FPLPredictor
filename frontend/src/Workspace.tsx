@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from './api';
-import type { Player, PlayerConstraints, PlayerDetail, PlayerComparison, SnapshotChanges, TeamResponse, RefreshStatus } from './types';
+import type { Player, PlayerConstraints, PlayerDetail, PlayerComparison, SnapshotChanges, TeamResponse, RefreshStatus } from '@fplmodell/api-client';
 
 const empty: PlayerConstraints = { locked_ids: [], excluded_ids: [] };
 const value = (n: number | null | undefined) => n == null ? 'Unavailable' : n.toFixed(2);

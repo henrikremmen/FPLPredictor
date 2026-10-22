@@ -158,17 +158,21 @@ MARKET_CANDIDATES = [
 ]
 
 
-def load_market_data(root: Path) -> pd.DataFrame:
-    base, _ = load_data(root)
-    path = Path(root) / "data" / "processed" / "player_fixture_features.csv"
+def load_market_data(root: Path, features_dir: Path | None = None, seasons=SEASON_ORDER,
+                     extra_odds: dict[str, Path] | None = None) -> pd.DataFrame:
+    """Training rows with market features. Defaults reproduce the production inputs;
+    challengers pass another feature build, the current season and its odds file."""
+    base, _ = load_data(root, features_dir)
+    path = Path(features_dir or Path(root) / "data" / "processed") / "player_fixture_features.csv"
     identity = pd.read_csv(
         path,
         usecols=KEYS + ["team", "opp_team_name"],
         low_memory=False,
     )
     base = base.merge(identity, on=KEYS, how="left", validate="one_to_one")
-    base = base[base.season.isin(SEASON_ORDER)].copy()
-    paths = download_historical_odds(root, SEASON_ORDER)
+    base = base[base.season.isin(seasons)].copy()
+    paths = download_historical_odds(root, [season for season in seasons if season in SEASON_ORDER])
+    paths.update(extra_odds or {})
     odds = normalize_historical_odds(paths)
     result = attach_historical_market(base, odds)
     cl_paths = download_historical_cl(root)
@@ -291,8 +295,10 @@ def _gate(summary: pd.DataFrame, test: pd.DataFrame, decision: dict,
     return all(checks.values()), checks
 
 
-def _production_model(data: pd.DataFrame, candidate: str):
-    complete = data[data.season.ne("2026-27")]
+def _production_model(data: pd.DataFrame, candidate: str, include_current: bool = False):
+    # Production refits use completed seasons only; a challenger may add the
+    # data-checked rounds of the current season (plan M1).
+    complete = data if include_current else data[data.season.ne("2026-27")]
     incumbent_rows = complete[complete.season.isin(SEASON_ORDER[2:])]
     incumbent = fit_incumbent(enrich(incumbent_rows))
     if candidate == "market_hgb":

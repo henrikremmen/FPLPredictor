@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "./api";
 import { Icon } from "./icons";
+import { formatDeadline, teamIdFromReference } from "@fplmodell/shared";
+import { Timeline } from "./Timeline";
 import { WorkspaceProvider, useWorkspace, PlayerName, SinceLastTime, PlayerComparisonView, Preferences, SavedPlans, ForecastStatus, ResultStatus, SavePlan } from "./Workspace";
 import type {
   ChipCandidate,
@@ -19,14 +21,16 @@ import type {
   StrategyPlayer,
   TeamResponse,
   TransferResponse,
-} from "./types";
+} from "@fplmodell/api-client";
 
-type View = "comparison" | "preferences" | "saved" | "overview" | "analysis" | "squad" | "strategy" | "lineup" | "transfers" | "plan" | "squads" | "chips" | "market";
+type View = "comparison" | "preferences" | "saved" | "overview" | "analysis" | "timeline" | "squad" | "strategy" | "lineup" | "transfers" | "plan" | "squads" | "chips" | "market";
 
-const DEFAULT_TEAM = "https://fantasy.premierleague.com/en/entry/5139814/event/4";
+const TEAM_ID_KEY = "fplmodell.fplId";
+const storedTeamId = () => { try { return localStorage.getItem(TEAM_ID_KEY) ?? ""; } catch { return ""; } };
 const VIEWS: Array<{ id: View; label: string; icon: typeof Icon.Home }> = [
   { id: "overview", label: "Overview", icon: Icon.Home },
   { id: "analysis", label: "Analysis", icon: Icon.Chart },
+  { id: "timeline", label: "Timeline", icon: Icon.Calendar },
   { id: "squad", label: "Edit squad", icon: Icon.Edit },
   { id: "strategy", label: "Strategy centre", icon: Icon.Compass },
   { id: "lineup", label: "Lineup", icon: Icon.Formation },
@@ -39,6 +43,25 @@ const VIEWS: Array<{ id: View; label: string; icon: typeof Icon.Home }> = [
   { id: "preferences", label: "Player preferences", icon: Icon.Edit },
   { id: "saved", label: "Saved plans", icon: Icon.Star },
 ];
+const VIEW_BY_ID = Object.fromEntries(VIEWS.map(item => [item.id, item])) as Record<View, (typeof VIEWS)[number]>;
+/** Five sections, the same on web (sidebar, bottom bar) and mobile (tabs). */
+const GROUPS: Array<{ id: string; label: string; short: string; icon: typeof Icon.Home; views: View[] }> = [
+  { id: "round", label: "This round", short: "Round", icon: Icon.Home, views: ["overview", "lineup"] },
+  { id: "plan", label: "Transfers & plan", short: "Plan", icon: Icon.Swap, views: ["strategy", "transfers", "plan", "chips", "squads"] },
+  { id: "players", label: "Players", short: "Players", icon: Icon.Users, views: ["market", "comparison", "preferences"] },
+  { id: "history", label: "History", short: "History", icon: Icon.Calendar, views: ["analysis", "timeline"] },
+  { id: "team", label: "My team", short: "Team", icon: Icon.Shield, views: ["squad", "saved"] },
+];
+const groupOf = (view: View) => GROUPS.find(group => group.views.includes(view)) ?? GROUPS[0];
+/** Deep link: #/transfers. Back, forward and refresh keep the page. */
+const viewFromHash = (): View => {
+  const id = window.location.hash.replace(/^#\/?/, "");
+  return id in VIEW_BY_ID ? id as View : "overview";
+};
+const SESSION_KEY = "fplmodell.sessionId";
+const remember = (key: string, value: string | null) => {
+  try { if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, value); } catch { /* private mode */ }
+};
 
 function PageHeading({ view, eyebrow, title, subtitle, action, right }: {
   view: View; eyebrow: string; title: string; subtitle?: string; action?: ReactNode; right?: ReactNode;
@@ -103,7 +126,7 @@ function EmptyState() {
     <section className="empty-state">
       <div className="empty-mark"><Icon.Shield size={64} /></div>
       <h2>Load your team</h2>
-      <p>Paste a public FPL link into the form to get started.</p>
+      <p>Enter your FPL team ID in the form to get started. Pasting your team link also works.</p>
     </section>
   );
 }
@@ -113,7 +136,7 @@ function Overview({ team }: { team: TeamResponse }) {
   return (
     <>
       <PageHeading view="overview" eyebrow={`GW ${team.target_event}`} title={team.team_name} subtitle={`${team.manager_name} · ${team.horizon} GW horizon`}
-        right={<div className="deadline"><small>Deadline</small><strong>{team.deadline || "Not published"}</strong></div>} />
+        right={<div className="deadline"><small>Deadline</small><strong>{team.deadline ? formatDeadline(team.deadline) : "Not published"}</strong></div>} />
       <section className="metric-grid">
         <article><i className="metric-icon"><Icon.Star size={16} /></i><small>Expected XI + captain</small><strong>{points(team.lineup.expected_total)}</strong><span>points in GW {team.target_event}</span></article>
         <article><i className="metric-icon"><Icon.Formation size={16} /></i><small>Formation</small><strong>{team.lineup.formation}</strong><span>the model's best starting XI</span></article>
@@ -639,7 +662,7 @@ function ManagerAnalysis({ team }: { team: TeamResponse }) {
         <section className="panel global-benchmark"><div><span className="eyebrow">Global benchmark</span><h2>Top-manager sample</h2><p>{data.global_benchmark.sample_label} · {data.global_benchmark.sample_size} public teams. This provides a more relevant template signal than overall global ownership.</p></div><div className="global-gap"><small>Vs sample average</small><strong>{data.global_benchmark.points_gap == null ? "–" : <SignedValue value={data.global_benchmark.points_gap} suffix=" pts" />}</strong><span>average {data.global_benchmark.sample_average_total ?? "–"}</span></div><div className="top-eo-strip">{data.global_benchmark.ownership.slice(0, 5).map(row => <span key={row.id}><strong>{row.name}</strong><small>{row.effective_ownership.toFixed(0)}% EO · {row.captain_rate.toFixed(0)}% C</small></span>)}</div></section>
         <section className="panel analysis-section"><div className="section-title"><div><span className="eyebrow">Season performance</span><h2>Points vs global average</h2></div><span className="legend">Bars = you · line = average</span></div><PerformanceChart rows={data.timeline} /></section>
         <div className="analysis-two-col"><section className="panel analysis-section"><span className="eyebrow">Decision breakdown</span><h2>Where you gained or lost points</h2><div className="audit-grid"><div><small>Captain bonus</small><strong className="positive">+{data.summary.captain_bonus.toFixed(0)}</strong></div><div><small>Missed captain points</small><strong className="negative">−{data.summary.captain_opportunity_loss.toFixed(0)}</strong></div><div><small>Bench points</small><strong>{data.summary.bench_points}</strong></div><div><small>Transfer cost</small><strong className={data.summary.transfer_cost ? "negative" : ""}>{data.summary.transfer_cost ? `−${data.summary.transfer_cost}` : "0"}</strong></div><div><small>Gross transfer swing</small><strong><SignedValue value={data.summary.transfer_swing} /></strong></div><div><small>Worst GW</small><strong>{data.summary.worst_week.points}</strong><span>GW{data.summary.worst_week.event}</span></div></div></section><section className="panel analysis-section"><span className="eyebrow">Points breakdown</span><h2>Points by position</h2><div className="position-bars">{(["GK", "DEF", "MID", "FWD"] as Position[]).map(position => { const max = Math.max(...Object.values(data.position_points), 1); return <div key={position}><span>{position}</span><i><b style={{ width: `${data.position_points[position] / max * 100}%` }} /></i><strong>{data.position_points[position].toFixed(0)}</strong></div>; })}</div></section></div>
-        <section className="panel analysis-section table-panel"><span className="eyebrow">All Rounds</span><h2>Gameweek-logg</h2><div className="analytics-table-wrap"><table className="analytics-table"><thead><tr><th>GW</th><th>Points</th><th>Average</th><th>Δ average</th><th>OR</th><th>Rank change</th><th>Bench</th><th>Transfers/hit</th><th>Captain</th></tr></thead><tbody>{data.timeline.map(row => <tr key={row.event} className={!row.finished ? "live-row" : ""}><td>GW{row.event}{!row.finished && <small> LIVE</small>}</td><td><strong>{row.points}</strong></td><td>{row.global_average.toFixed(0)}</td><td><SignedValue value={row.vs_average} /></td><td>{rankNumber(row.overall_rank)}</td><td>{row.rank_change == null ? "–" : <SignedRank value={row.rank_change} />}</td><td>{row.bench_points}</td><td>{row.transfers} / {row.transfer_cost ? `−${row.transfer_cost}` : "0"}</td><td>{row.captain ?? "–"} <small>+{row.captain_bonus}</small></td></tr>)}</tbody></table></div></section>
+        <section className="panel analysis-section table-panel"><span className="eyebrow">All Rounds</span><h2>Gameweek log</h2><div className="analytics-table-wrap"><table className="analytics-table"><thead><tr><th>GW</th><th>Points</th><th>Average</th><th>Δ average</th><th>OR</th><th>Rank change</th><th>Bench</th><th>Transfers/hit</th><th>Captain</th></tr></thead><tbody>{data.timeline.map(row => <tr key={row.event} className={!row.finished ? "live-row" : ""}><td>GW{row.event}{!row.finished && <small> LIVE</small>}</td><td><strong>{row.points}</strong></td><td>{row.global_average.toFixed(0)}</td><td><SignedValue value={row.vs_average} /></td><td>{rankNumber(row.overall_rank)}</td><td>{row.rank_change == null ? "–" : <SignedRank value={row.rank_change} />}</td><td>{row.bench_points}</td><td>{row.transfers} / {row.transfer_cost ? `−${row.transfer_cost}` : "0"}</td><td>{row.captain ?? "–"} <small>+{row.captain_bonus}</small></td></tr>)}</tbody></table></div></section>
       </>}
 
       {tab === "gameweek" && <>
@@ -785,24 +808,47 @@ function TeamViews({ team, view, onNavigate, onUpdated }: { team: TeamResponse; 
   const [visited, setVisited] = useState<View[]>([view]);
   useEffect(() => { setVisited(current => current.includes(view) ? current : [...current, view]); }, [view]);
   return <>{[...new Set([...visited, view])].map(id => <div key={id} hidden={id !== view}>
-    {id === "overview" ? <Overview team={team} /> : id === "analysis" ? <ManagerAnalysis team={team} /> : id === "squad" ? <SquadEditor team={team} onUpdated={onUpdated} /> : id === "strategy" ? <StrategyCenter team={team} onNavigate={onNavigate} /> : id === "lineup" ? <Lineup team={team} /> : id === "transfers" ? <Transfers team={team} /> : id === "plan" ? <Multiweek team={team} /> : id === "squads" ? <RecommendedTeams team={team} /> : id === "chips" ? <Chips team={team} /> : id === "comparison" ? <PlayerComparisonView team={team} /> : id === "preferences" ? <Preferences team={team} /> : id === "saved" ? <SavedPlans team={team} /> : <Market team={team} />}
+    {id === "overview" ? <Overview team={team} /> : id === "analysis" ? <ManagerAnalysis team={team} /> : id === "timeline" ? <Timeline sessionId={team.session_id} /> : id === "squad" ? <SquadEditor team={team} onUpdated={onUpdated} /> : id === "strategy" ? <StrategyCenter team={team} onNavigate={onNavigate} /> : id === "lineup" ? <Lineup team={team} /> : id === "transfers" ? <Transfers team={team} /> : id === "plan" ? <Multiweek team={team} /> : id === "squads" ? <RecommendedTeams team={team} /> : id === "chips" ? <Chips team={team} /> : id === "comparison" ? <PlayerComparisonView team={team} /> : id === "preferences" ? <Preferences team={team} /> : id === "saved" ? <SavedPlans team={team} /> : <Market team={team} />}
   </div>)}</>;
 }
 
 export default function App() {
-  const [reference, setReference] = useState(DEFAULT_TEAM);
+  const [reference, setReference] = useState(storedTeamId);
   const [horizon, setHorizon] = useState(3);
   const [risk, setRisk] = useState<RiskProfile>("balanced");
   const [team, setTeam] = useState<TeamResponse | null>(null);
-  const [view, setView] = useState<View>("overview");
+  const [view, setViewState] = useState<View>(viewFromHash);
+  const lastInGroup = useRef<Record<string, View>>({});
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [changingTeam, setChangingTeam] = useState(false);
   const [bank, setBank] = useState(0);
   const [freeTransfers, setFreeTransfers] = useState(1);
-  const activeLabel = useMemo(() => VIEWS.find(item => item.id === view)?.label, [view]);
+  const activeLabel = VIEW_BY_ID[view].label;
+  const activeGroup = groupOf(view);
+  const setView = (next: View) => {
+    setViewState(next);
+    setMobileMenuOpen(false);
+    if (window.location.hash !== `#/${next}`) window.location.hash = `/${next}`;
+  };
+  useEffect(() => { lastInGroup.current[groupOf(view).id] = view; }, [view]);
+  useEffect(() => {
+    const sync = () => setViewState(viewFromHash());
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
+  useEffect(() => { // a refresh restores the last team session instead of an empty page
+    let session = "";
+    try { session = localStorage.getItem(SESSION_KEY) ?? ""; } catch { /* private mode */ }
+    if (!session) return;
+    api.team(session).then(restored => {
+      setTeam(current => current ?? restored);
+      setBank(restored.bank); setFreeTransfers(restored.free_transfers); setHorizon(restored.horizon);
+    }).catch(() => remember(SESSION_KEY, null));
+  }, []);
   const changeHorizon = async (value: number) => {
     if (!team) { setHorizon(value); return; }
     setLoading(true); setError("");
@@ -818,7 +864,9 @@ export default function App() {
     setLoading(true); setError("");
     try {
       const loaded = await api.importTeam(reference, horizon, risk);
-      setTeam(loaded); setBank(loaded.bank); setFreeTransfers(loaded.free_transfers); setView("overview"); setMobileMenuOpen(false);
+      setTeam(loaded); setBank(loaded.bank); setFreeTransfers(loaded.free_transfers); setMobileMenuOpen(false); setChangingTeam(false);
+      remember(TEAM_ID_KEY, reference);
+      remember(SESSION_KEY, loaded.session_id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load the team.");
     }
@@ -850,14 +898,20 @@ export default function App() {
     <div className="app-shell">
       <aside className={`sidebar ${team ? "" : "no-team"} ${mobileMenuOpen ? "menu-open" : ""}`}>
         <div className="brand"><span><Icon.Shield size={20} /></span><div><strong>FPL Model</strong><small>Decision lab</small></div></div>
-        <div className="load-form">
-          <label>Team URL or ID<textarea value={reference} onChange={event => setReference(event.target.value)} rows={3} /></label>
+        {team && !changingTeam ? <div className="team-chip">
+          <div><strong>{team.team_name}</strong><small>ID {team.entry_id} · {team.horizon} GW · {risk}</small></div>
+          <button onClick={() => setChangingTeam(true)} aria-expanded="false">Change</button>
+        </div> : <div className="load-form">
+          <label>FPL team ID<input value={reference} inputMode="numeric" autoComplete="off" placeholder="e.g. 5139814" onChange={event => setReference(teamIdFromReference(event.target.value))} onKeyDown={event => { if (event.key === "Enter" && reference) void load(); }} /></label>
           <div className="form-row"><label>Horizon<select value={team?.horizon ?? horizon} disabled={loading || refreshing} onChange={event => void changeHorizon(Number(event.target.value))}>{[1, 2, 3, 4, 5, 6, 7, 8].map(value => <option value={value} key={value}>{value} GW</option>)}</select></label><label>Profile<select value={risk} onChange={event => setRisk(event.target.value as RiskProfile)}><option value="balanced">Balanced</option><option value="stable">Stable</option><option value="upside">Upside</option></select></label></div>
-          <button className="primary full" onClick={load} disabled={loading || refreshing || !reference.trim()}>{loading && !team ? "Loading team…" : team ? "Reload team" : "Load team"}</button>
-        </div>
-        <nav>{VIEWS.map(item => <button key={item.id} className={view === item.id ? "active" : ""} disabled={!team} onClick={() => { setView(item.id); setMobileMenuOpen(false); }}><item.icon size={17} />{item.label}</button>)}</nav>
+          <button className="primary full" onClick={load} disabled={loading || refreshing || !reference}>{loading && !team ? "Loading team…" : team ? "Reload team" : "Load team"}</button>
+        </div>}
+        <nav aria-label="Pages">{GROUPS.map(group => <div className="nav-group" key={group.id} role="group" aria-labelledby={`nav-${group.id}`}>
+          <span className="nav-group-label" id={`nav-${group.id}`}>{group.label}</span>
+          {group.views.map(id => { const item = VIEW_BY_ID[id]; return <button key={id} className={view === id ? "active" : ""} aria-current={view === id ? "page" : undefined} disabled={!team} onClick={() => setView(id)}><item.icon size={17} />{item.label}</button>; })}
+        </div>)}</nav>
         {team && <div className="team-settings"><div><small>{team.squad_source === "manual_override" ? "Manual squad" : "Finances"}</small><button onClick={() => setEditing(!editing)}>{editing ? "Cancel" : "Edit"}</button></div>{editing ? <><label>Bank (£m)<input type="number" min="0" max="20" step="0.1" value={bank / 10} onChange={event => setBank(Math.round(Number(event.target.value) * 10))} /></label><label>Free transfers<input type="number" min="0" max="5" value={freeTransfers} onChange={event => setFreeTransfers(Number(event.target.value))} /></label><button className="secondary full" onClick={saveSettings}>Save</button></> : <p><strong>{money(team.bank)}</strong><span>{team.free_transfers} FT</span></p>}</div>}
-        <button className="refresh" onClick={refresh} disabled={refreshing || loading || !reference.trim()}><Icon.Refresh size={14} />{refreshing ? "Refreshing…" : "Refresh forecast"}</button>
+        <button className="refresh" onClick={refresh} disabled={refreshing || loading || !reference}><Icon.Refresh size={14} />{refreshing ? "Refreshing…" : "Refresh forecast"}</button>
         <p className="privacy">Public data · no login · no automatic transfers</p>
       </aside>
       <main>
@@ -866,13 +920,14 @@ export default function App() {
           {team && <small>{activeLabel}</small>}
           {team && <button className="mobile-menu-toggle" onClick={() => setMobileMenuOpen(open => !open)} aria-label="Team and settings">{mobileMenuOpen ? <Icon.Close size={18} /> : <Icon.Menu size={18} />}</button>}
         </div>
+        {team && activeGroup.views.length > 1 && <nav className="sub-nav" aria-label={activeGroup.label}>{activeGroup.views.map(id => <button key={id} className={view === id ? "active" : ""} aria-current={view === id ? "page" : undefined} onClick={() => setView(id)}>{VIEW_BY_ID[id].label}</button>)}</nav>}
         {error && <ErrorBanner message={error} onClose={() => setError("")} />}
         {loading && team && <div className="top-progress" />}
         <ForecastStatus team={team} refreshing={refreshing} />
         {team && <div className="planning-toolbar"><label>Planning horizon <select aria-label="Planning horizon" value={team.horizon} disabled={loading || refreshing} onChange={event => void changeHorizon(Number(event.target.value))}>{[1, 2, 3, 4, 5, 6, 7, 8].map(value => <option key={value} value={value}>{value} GW</option>)}</select></label><span>{loading ? "Updating planning horizon…" : "Applies across all planning pages"}</span></div>}
         {!team ? <EmptyState /> : <WorkspaceProvider key={team.entry_id} team={team}><TeamViews team={team} view={view} onNavigate={setView} onUpdated={updated => { setTeam(updated); setBank(updated.bank); setFreeTransfers(updated.free_transfers); }} /></WorkspaceProvider>}
       </main>
-      <nav className="mobile-nav">{VIEWS.map(item => <button key={item.id} className={view === item.id ? "active" : ""} disabled={!team} onClick={() => setView(item.id)}><item.icon size={19} /><small>{item.label}</small></button>)}</nav>
+      <nav className="mobile-nav" aria-label="Sections">{GROUPS.map(group => <button key={group.id} className={activeGroup.id === group.id ? "active" : ""} aria-current={activeGroup.id === group.id ? "true" : undefined} disabled={!team} onClick={() => setView(lastInGroup.current[group.id] ?? group.views[0])}><group.icon size={20} /><small aria-hidden="true">{group.short}</small><span className="sr-only">{group.label}</span></button>)}</nav>
     </div>
   );
 }

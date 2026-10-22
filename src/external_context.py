@@ -37,6 +37,9 @@ ALIASES = {
     "sunderlandafc": "sunderland",
     "crystalpalacefc": "crystalpalace",
     "afcbournemouth": "bournemouth",
+    "coventrycity": "coventry",
+    "hullcity": "hull",
+    "ipswichtown": "ipswich",
 }
 
 
@@ -44,7 +47,8 @@ def team_key(value) -> str:
     text = unicodedata.normalize("NFKD", str(value or "")).encode("ascii", "ignore").decode()
     text = text.lower().replace("&", "and")
     key = re.sub(r"[^a-z0-9]", "", text)
-    return ALIASES.get(key, key.removesuffix("fc"))
+    stripped = key.removesuffix("fc")
+    return ALIASES.get(key) or ALIASES.get(stripped) or stripped
 
 
 def fpl_team_lookup(bootstrap: dict) -> dict[str, int]:

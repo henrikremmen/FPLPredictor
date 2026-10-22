@@ -397,14 +397,15 @@ def import_team(reference: str, root: Path, client: FPLClient | None = None,
     client = client or FPLClient()
     if not 1 <= horizon <= 8:
         raise AppError("The forecast horizon must be between 1 and 8 Gameweeks.")
-    entry_id, requested_event = parse_entry_reference(reference)
+    # A pasted /event/N URL never selects an old squad; past rounds belong to the timeline.
+    entry_id, _ = parse_entry_reference(reference)
     entry = client.get(f"entry/{entry_id}/")
     bootstrap = client.get("bootstrap-static/")
     player_data_at = pd.Timestamp.now(tz="UTC").isoformat()
     fixtures = client.get("fixtures/")
     history = client.get(f"entry/{entry_id}/history/")
     current_event = int(entry.get("current_event") or 0)
-    event = requested_event or current_event
+    event = current_event
     if event <= 0:
         raise AppError("The team has no completed or active Gameweek to import yet.")
     picks = client.get(f"entry/{entry_id}/event/{event}/picks/")
