@@ -1,5 +1,18 @@
 # Modellarbeid: status 10. oktober 2026
 
+## Oppfølging 20. oktober 2026
+
+GW7 er ferdigspilt, men FPLs gameweek-flagg er ennå ikke godkjent. De låste
+modellene er nå foreløpig evaluert på 667 spillere. Referansens låste lag fikk
+68 poeng mot Understat/komponent v2 sine 64 og Elo/kombinasjonens 61. Understat
+gir marginalt lavere MAE/RMSE, men det er ingen tydelig samlet forbedring som
+begrunner produksjonsbytte. Alle resultater er merket foreløpige og krever ny
+sluttkontroll. [Full rapport](gw7_review_2026-10-20.md).
+
+Appens prognoser er oppdatert til GW8–15 med 668 spillere og siste FPL-data,
+odds, dødballnotater og kampbelastning. Modellvektene er beholdt. Tidligere
+avsnitt om at ingen GW7-utfall finnes er historisk status fra før kampene.
+
 ## Oppfølging 14. oktober 2026
 
 Siste kravkontroll: alle fire låste GW7-prognosepakker består hashkontroll.

@@ -58,6 +58,11 @@ export const api = {
       body: JSON.stringify({ bank, free_transfers: freeTransfers }),
     });
   },
+  updateHorizon(session: string, horizon: number) {
+    return request<TeamResponse>(`/api/team/${session}/horizon`, {
+      method: "PATCH", body: JSON.stringify({ horizon }),
+    });
+  },
   squadOptions(session: string) {
     return request<{ players: Player[] }>(`/api/team/${session}/squad-options`);
   },

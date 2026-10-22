@@ -403,6 +403,14 @@ export interface StrategyAdvice {
     bank_after: number | null;
     global_optimum: boolean;
     horizon: number;
+    roll_comparison?: {
+      evaluated: boolean; preferred_roll: boolean; gain_over_roll: number | null;
+      minimum_gain: number; next_gw_lineup_gain: number | null;
+      gain_lower_bound?: number | null;
+      next_ft_if_move?: number | null; next_ft_if_roll?: number | null;
+      incoming_starts_now: string[]; incoming_bench_now: string[];
+      displaced_starters: string[]; candidate_out: string[]; candidate_in: string[];
+    };
     hit_guard: {
       evaluated: boolean;
       avoided: boolean;
