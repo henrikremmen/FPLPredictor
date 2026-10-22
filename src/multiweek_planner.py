@@ -15,7 +15,8 @@ START_LIMITS = {"GK": (1, 1), "DEF": (3, 5), "MID": (2, 5), "FWD": (1, 3)}
 
 def plan_multiweek(team: ImportedTeam, weeks: int | None = None,
                    discount: float = .9, max_weekly_transfers: int = 5,
-                   allow_hits: bool = True) -> dict:
+                   allow_hits: bool = True, force_roll_now: bool = False,
+                   terminal_ft_value: float = 1.5) -> dict:
     """Solve transfers and free-transfer rollover jointly across the horizon."""
     weekly = team.weekly_market
     if weekly is None:
@@ -25,6 +26,8 @@ def plan_multiweek(team: ImportedTeam, weeks: int | None = None,
     if not 1 <= weeks <= 8 or len(available_events) < weeks:
         raise AppError(f"The planner needs {weeks} complete Gameweeks (maximum 8).")
     events = available_events[:weeks]
+    if not np.isfinite(terminal_ft_value) or terminal_ft_value < 0:
+        raise AppError("Free-transfer reserve value must be finite and nonnegative.")
     frame = team.market.sort_values("id").drop_duplicates("id").reset_index(drop=True)
     ids = frame.id.astype(int).to_numpy()
     n, periods = len(frame), len(events)
@@ -107,6 +110,8 @@ def plan_multiweek(team: ImportedTeam, weeks: int | None = None,
         outgoing = [(index(v0, period, player), 1) for player in range(n)]
         add(incoming + [(column, -value) for column, value in outgoing], 0, 0)
         add(incoming, hi=max_weekly_transfers)
+        if period == 0 and force_roll_now:
+            add(incoming, 0, 0)
 
         # Exact bank evolution in £0.1m units.
         cash = [(index(bank0, period), 1)]
@@ -155,6 +160,9 @@ def plan_multiweek(team: ImportedTeam, weeks: int | None = None,
             objective[index(c0, period, player)] = -weight * scores[player]
             objective[index(u0, period, player)] = 1e-5
         objective[index(paid0, period)] = 4 * weight
+    # A disclosed policy assumption, not predicted FPL points. Without a
+    # terminal value the finite-horizon solver spends flexibility for pennies.
+    objective[index(ft0, periods)] = -terminal_ft_value * discount ** periods
 
     lb, ub = np.zeros(variables), np.ones(variables)
     lb[ft0:free0], ub[ft0:free0] = 0, 5
@@ -189,6 +197,9 @@ def plan_multiweek(team: ImportedTeam, weeks: int | None = None,
     result.x = solution
     raw_gap = getattr(result, "mip_gap", None)
     mip_gap = float(raw_gap) if raw_gap is not None and np.isfinite(raw_gap) else None
+    dual_bound = getattr(result, 'mip_dual_bound', None)
+    objective_upper_bound = (-float(dual_bound) if dual_bound is not None and np.isfinite(dual_bound)
+                             else None)
     globally_optimal = bool(result.success and (mip_gap is None or mip_gap <= 1e-6))
 
     names = frame.set_index("id").name.astype(str).to_dict()
@@ -212,12 +223,16 @@ def plan_multiweek(team: ImportedTeam, weeks: int | None = None,
             "squad_ids": [int(i) for i in ids[result.x[x0 + period*n:x0 + (period+1)*n] > .5]],
             "transfers_out": [names[player] for player in outgoing_ids],
             "transfers_in": [names[player] for player in incoming_ids],
+            "transfers_in_ids": incoming_ids.tolist(),
+            "transfers_out_ids": outgoing_ids.tolist(),
             "free_transfers_before": int(round(result.x[index(ft0, period)])),
+            "free_transfers_next_gw": int(round(result.x[index(ft0, period + 1)])),
             "paid_transfers": paid, "hit": 4 * paid,
             "bank": round(float(result.x[index(bank0, period)]) / 10, 1),
             "captain": names[int(captain[0])],
             "formation": f"{counts['DEF']}-{counts['MID']}-{counts['FWD']}",
             "starters": [names[int(player)] for player in starters],
+            "starter_ids": starters.tolist(),
             "projected_points": round(projected, 2),
         })
     return {
@@ -225,8 +240,12 @@ def plan_multiweek(team: ImportedTeam, weeks: int | None = None,
         "discounted_objective_points": round(float(-result.fun), 2),
         "discount": discount, "global_optimum": globally_optimal,
         "allow_hits": allow_hits,
+        "force_roll_now": force_roll_now,
+        "terminal_ft_value": terminal_ft_value,
+        "free_transfers_after_horizon": int(result.x[index(ft0, periods)]),
         "solver_message": str(result.message),
         "mip_gap": mip_gap,
+        "objective_upper_bound": objective_upper_bound,
         "caveat": (
             "Static prices and current injury information; recalculate before each deadline."
             if globally_optimal else

@@ -78,3 +78,6 @@ google-services.json
 *.sqlite
 *.sqlite3
 coverage/
+
+# Local repository guide
+/docs/REPO_GUIDE.local.md

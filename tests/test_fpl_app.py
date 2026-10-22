@@ -23,6 +23,7 @@ from fpl_app import (
     chip_inventory,
     load_team_override,
     save_team_override,
+    planning_event,
 )
 
 
@@ -47,6 +48,15 @@ def player(player_id, name, position, team, points, price=50, selling=None):
 
 
 class FPLAppTests(unittest.TestCase):
+    def test_planning_advances_after_matches_finish_before_final_data_checks(self):
+        bootstrap = {'events': [{'id': 7, 'is_current': True, 'finished': False,
+                                 'data_checked': False}, {'id': 8, 'is_next': True}]}
+        fixtures = [{'id': 1, 'event': 7, 'finished': True}]
+        self.assertEqual(planning_event(bootstrap, fixtures)['id'], 8)
+        fixtures.append({'id': 2, 'event': 7, 'finished': False})
+        self.assertEqual(planning_event(bootstrap, fixtures)['id'], 7)
+        self.assertEqual(planning_event(bootstrap, [])['id'], 7)
+
     def test_multiweek_market_sums_frozen_forecasts(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:

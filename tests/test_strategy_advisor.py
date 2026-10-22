@@ -28,6 +28,65 @@ def player(player_id, position, points, *, owned=True, ownership=12.0,
 
 
 class StrategyAdvisorTests(unittest.TestCase):
+    def decision_team(self):
+        from test_multiweek_planner import _team
+        team = _team()
+        team.lineup_squad = team.squad
+        return team
+
+    def test_small_bench_upgrade_rolls_and_compares_future_transfers(self):
+        team = self.decision_team()
+        calls = []
+        def planner(_team, **kwargs):
+            calls.append(kwargs)
+            roll = kwargs.get('force_roll_now', False)
+            return {'weeks': [{'transfers_out': [] if roll else ['Player 8'],
+                'transfers_in': [] if roll else ['Upgrade'], 'starters': ['Player 9'],
+                'projected_points': 50, 'hit': 0}],
+                'discounted_objective_points': 100 if roll else 101,
+                'global_optimum': True}
+        advice = build_strategy_advice(team, planner=planner)
+        self.assertEqual(advice['transfer']['decision'], 'ROLL')
+        comparison = advice['transfer']['roll_comparison']
+        self.assertEqual(comparison['next_gw_lineup_gain'], 0)
+        self.assertEqual(comparison['incoming_bench_now'], ['Upgrade'])
+        self.assertTrue(calls[-1]['force_roll_now'])
+
+    def test_clear_lineup_upgrade_is_not_suppressed(self):
+        team = self.decision_team()
+        def planner(_team, **kwargs):
+            roll = kwargs.get('force_roll_now', False)
+            return {'weeks': [{'transfers_out': [] if roll else ['Player 8'],
+                'transfers_in': [] if roll else ['Upgrade'],
+                'starters': ['Player 8'] if roll else ['Upgrade'],
+                'projected_points': 50 if roll else 56, 'hit': 0}],
+                'discounted_objective_points': 100 if roll else 110,
+                'global_optimum': True}
+        advice = build_strategy_advice(team, planner=planner)
+        self.assertEqual(advice['transfer']['decision'], 'TRANSFER')
+        self.assertEqual(advice['transfer']['roll_comparison']['displaced_starters'], ['Player 8'])
+
+    def test_large_apparent_gain_without_solver_proof_is_cautious(self):
+        team = self.decision_team()
+        def planner(_team, **kwargs):
+            roll = kwargs.get('force_roll_now', False)
+            return {'weeks': [{'transfers_out': [] if roll else ['Player 8'],
+                'transfers_in': [] if roll else ['Upgrade'], 'starters': [], 'hit': 0}],
+                'discounted_objective_points': 100 if roll else 110,
+                'objective_upper_bound': 120, 'global_optimum': False}
+        advice = build_strategy_advice(team, planner=planner)
+        self.assertEqual(advice['transfer']['decision'], 'ROLL')
+        self.assertEqual(advice['transfer']['roll_comparison']['gain_lower_bound'], -10)
+
+    def test_selected_eight_week_horizon_is_not_silently_capped(self):
+        team = self.decision_team()
+        team.horizon = 8
+        team.weekly_market = pd.concat([team.market.assign(forecast_event=i) for i in range(5, 13)])
+        def planner(_team, **kwargs):
+            self.assertEqual(kwargs['weeks'], 8)
+            return {'weeks': [{'transfers_out': [], 'hit': 0}], 'global_optimum': True}
+        self.assertEqual(build_strategy_advice(team, planner=planner)['transfer']['horizon'], 8)
+
     def test_transfer_warnings_surface_model_disagreement_and_solver_status(self):
         row = player(1, "DEF", 2.0, price_change=105, projected=125)
         row["ep_next"] = 2.8

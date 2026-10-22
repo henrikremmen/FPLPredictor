@@ -37,7 +37,7 @@ from fpl_app import (
 )
 
 
-from decision_workspace import constrained_team, context, player_detail, changes_since_previous, compare_players
+from decision_workspace import constrained_team, context, player_detail, changes_since_previous, compare_players, change_horizon
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -51,6 +51,10 @@ class TeamImportRequest(BaseModel):
 class TeamSettingsRequest(BaseModel):
     bank: int = Field(ge=0, le=200)
     free_transfers: int = Field(ge=0, le=5)
+
+
+class HorizonRequest(BaseModel):
+    horizon: int = Field(ge=1, le=8)
 
 
 class SquadChangeRequest(BaseModel):
@@ -256,6 +260,17 @@ def update_settings(session_id: str, request: TeamSettingsRequest) -> dict:
     team.squad_source = "manual_override"
     save_team_override(ROOT, team)
     return _team_payload(session_id, team)
+
+
+@app.patch("/api/team/{session_id}/horizon")
+def update_horizon(session_id: str, request: HorizonRequest) -> dict:
+    try:
+        updated = change_horizon(STORE.get(session_id), request.horizon)
+        payload = _team_payload(session_id, updated)
+    except AppError as exc:
+        raise _as_http_error(exc) from exc
+    STORE.set(session_id, updated)
+    return payload
 
 
 @app.get("/api/team/{session_id}/squad-options")

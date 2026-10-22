@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "./api";
 import { Icon } from "./icons";
 import { WorkspaceProvider, useWorkspace, PlayerName, SinceLastTime, PlayerComparisonView, Preferences, SavedPlans, ForecastStatus, ResultStatus, SavePlan } from "./Workspace";
@@ -256,10 +256,11 @@ function Transfers({ team }: { team: TeamResponse }) {
         <div className={`hit-pill ${hit ? "has-hit" : ""}`}>{hit ? `−${hit} point hit` : "No hit"}</div>
         <button className="primary" onClick={calculate} disabled={loading || transferCount === 0}>{loading ? "Calculating…" : mode === "targeted" ? "Find best replacements" : "Find best plan"}</button>
       </section>
+      <p className="model-note">This searches exactly the number of transfers selected. A small positive gain does not by itself justify spending a free transfer. Strategy centre compares moving now with rolling and preserving options for later weeks.</p>
       {loading && <Loading label="Searching legal squads…" />}
       {result && (
         <section className="results">
-          <div className="section-title"><div><span className="eyebrow">{result.global_optimum ? "Global optimum" : "Ranked alternatives"}</span><h2>{result.outgoing_ids.length ? "Best replacements for the selected players" : "Recommended plan"}</h2></div></div>
+          <div className="section-title"><div><span className="eyebrow">{result.global_optimum ? "Global optimum for the selected transfer count" : "Ranked alternatives"}</span><h2>{result.outgoing_ids.length ? "Best replacements for the selected players" : "Best plans if you transfer now"}</h2></div></div>
           {result.plans.length === 0 ? <p className="panel">No legal plan was found for this selection and budget.</p> : result.plans.map((plan, index) => (
             <article className={`transfer-plan ${index === 0 ? "best-plan" : ""}`} key={`${plan.out}-${plan.in}-${index}`}>
               <SavePlan kind="Transfer" summary={`${plan.out} → ${plan.in}`} metrics={{ "Net expected gain": plan.expected_net_gain, "Net decision gain": plan.net_gain, "Hit": plan.hit, "Bank after (£m)": plan.money_left }} details={plan} signature={resultSignature} />
@@ -268,7 +269,7 @@ function Transfers({ team }: { team: TeamResponse }) {
               <div className="plan-stats"><div><small>Net gain</small><strong className={plan.net_gain >= 0 ? "positive" : "negative"}>{points(plan.net_gain, true)}</strong></div><div><small>Hit</small><strong>{plan.hit ? `−${plan.hit}` : "0"}</strong></div><div><small>Remaining</small><strong>{moneyMillions(plan.money_left)}</strong></div></div>
             </article>
           ))}
-          <p className="model-note">Net gain is the difference compared with keeping your current team over {team.horizon} GW, after any points hits. A negative value means the model would prefer to keep the player, but still shows the best legal replacement.</p>
+          <p className="model-note">These are the best options if you make exactly {result.number} transfer(s) now and hold that squad over {team.horizon} GW. Gains include XI and captain points after hits, with equal weighting across weeks. They do not value banked transfers or later moves. Use Strategy centre to compare acting now with rolling and making multiple transfers later.</p>
         </section>
       )}
     </>
@@ -437,13 +438,29 @@ function StrategyCenter({ team, onNavigate }: { team: TeamResponse; onNavigate: 
   const [advice, setAdvice] = useState<StrategyAdvice | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const latestSignature = useRef(workspace.signature);
+  latestSignature.current = workspace.signature;
+  const previousHorizon = useRef(team.horizon);
+  const requestNumber = useRef(0);
   const calculate = async () => {
     const calculationSignature = workspace.signature;
+    const number = ++requestNumber.current;
     setLoading(true); setError("");
-    try { setAdvice(await api.strategy(team.session_id, workspace.constraints)); setResultSignature(calculationSignature); }
-    catch (err) { setError(err instanceof Error ? err.message : "Strategy analysis failed."); }
-    finally { setLoading(false); }
+    try {
+      const result = await api.strategy(team.session_id, workspace.constraints);
+      if (number === requestNumber.current && latestSignature.current === calculationSignature) {
+        setAdvice(result); setResultSignature(calculationSignature);
+      }
+    }
+    catch (err) { if (number === requestNumber.current) setError(err instanceof Error ? err.message : "Strategy analysis failed."); }
+    finally { if (number === requestNumber.current) setLoading(false); }
   };
+  useEffect(() => {
+    if (previousHorizon.current !== team.horizon) {
+      previousHorizon.current = team.horizon;
+      if (advice || loading) void calculate();
+    }
+  }, [team.horizon]);
   const deadlineLabel = advice?.deadline.hours_remaining == null
     ? "Unknown"
     : advice.deadline.hours_remaining <= 0
@@ -457,13 +474,21 @@ function StrategyCenter({ team, onNavigate }: { team: TeamResponse; onNavigate: 
         action={<button className="primary" onClick={calculate} disabled={loading}>{loading ? "Analysing…" : advice ? <><Icon.Refresh size={15} />Refresh advice</> : "Create weekly plan"}</button>} />
       {error && <ErrorBanner message={error} onClose={() => setError("")} />}
       {advice && <ResultStatus signature={resultSignature} />}
-      {!advice && !loading && <section className="panel strategy-intro"><div className="strategy-orbit"><Icon.Compass size={32} /></div><div><h2>From forecast to decision</h2><p>Combine the multi-week engine, the FPL price indicator and the latest availability in one plan.</p><small>Can take up to ~45 seconds for long horizons.</small></div></section>}
+      {!advice && !loading && <section className="panel strategy-intro"><div className="strategy-orbit"><Icon.Compass size={32} /></div><div><h2>From forecast to decision</h2><p>Compare moving now with rolling, future transfers, team news and lineup impact over {team.horizon} GW.</p><small>Long horizons can take up to about two minutes to compare alternatives.</small></div></section>}
       {loading && <Loading label="Building and validating this week's recommended decisions…" />}
       {advice && <>
         <section className={`strategy-hero strategy-${advice.transfer.decision.toLowerCase()}`}>
           <div><span className="eyebrow">First Action · GW {advice.target_event}</span><h2>{advice.headline}</h2><p>{advice.transfer.reason}</p>{advice.transfer.warnings.length > 0 && <div className="strategy-warnings"><strong>Conflicting signals</strong>{advice.transfer.warnings.map(warning => <span key={warning}>{warning}</span>)}</div>}</div>
           <div className="strategy-stamp"><small>{advice.transfer.global_optimum ? "Global optimum" : "Best validated plan"}</small><strong>{advice.transfer.decision}</strong><span>{advice.transfer.horizon} GW · {advice.transfer.confidence === "high" ? "high" : advice.transfer.confidence === "medium" ? "medium" : "low"} confidence</span></div>
         </section>
+        {advice.transfer.roll_comparison?.evaluated && <section className="panel roll-comparison">
+          <span className="eyebrow">Transfer now versus roll now</span>
+          <h2>{advice.transfer.roll_comparison.candidate_out.join(", ")} → {advice.transfer.roll_comparison.candidate_in.join(", ")}</h2>
+          <p>Next-GW XI + captain gain after hits: <strong>{advice.transfer.roll_comparison.next_gw_lineup_gain == null ? "Unavailable" : points(advice.transfer.roll_comparison.next_gw_lineup_gain)}</strong>. Across {advice.transfer.horizon} GW, planning-score gain versus rolling: <strong>{advice.transfer.roll_comparison.gain_over_roll == null ? "Unavailable" : points(advice.transfer.roll_comparison.gain_over_roll)}</strong>.</p>
+          <p>{advice.transfer.roll_comparison.incoming_starts_now.length ? `Starts now: ${advice.transfer.roll_comparison.incoming_starts_now.join(", ")}.` : "The proposed buys stay on the bench this week."} {advice.transfer.roll_comparison.displaced_starters.length > 0 && `Replaces in the XI: ${advice.transfer.roll_comparison.displaced_starters.join(", ")}.`}</p>
+          {advice.transfer.roll_comparison.next_ft_if_roll != null && <p>Free transfers next GW: <strong>{advice.transfer.roll_comparison.next_ft_if_roll} if you roll</strong>, versus <strong>{advice.transfer.roll_comparison.next_ft_if_move} if you move now</strong>.</p>}
+          <p className="model-note">Both plans can transfer in later weeks. Later weeks use 0.9 weighting; saved transfers after the horizon receive an assumed 1.5-point reserve value each. Acting now must beat rolling by at least {advice.transfer.roll_comparison.minimum_gain.toFixed(1)} planning-score points, allowing for the solver's remaining uncertainty. These are cautious policy settings, not calibrated probabilities. Autosub points are not included.</p>
+        </section>}
         <section className="metric-grid strategy-metrics">
           <article><i className="metric-icon"><Icon.Shield size={16} /></i><small>Available players</small><strong>{advice.squad_health.playable_players}/15</strong><span>{advice.squad_health.rating === "healthy" ? "healthy squad" : "requires follow-up"}</span></article>
           <article><i className="metric-icon"><Icon.Captain size={16} /></i><small>Captain</small><strong>{advice.captain.captain.name}</strong><span>{points(advice.captain.margin)} margin</span></article>
@@ -778,6 +803,16 @@ export default function App() {
   const [bank, setBank] = useState(0);
   const [freeTransfers, setFreeTransfers] = useState(1);
   const activeLabel = useMemo(() => VIEWS.find(item => item.id === view)?.label, [view]);
+  const changeHorizon = async (value: number) => {
+    if (!team) { setHorizon(value); return; }
+    setLoading(true); setError("");
+    try {
+      const updated = await api.updateHorizon(team.session_id, value);
+      setTeam(updated); setHorizon(updated.horizon);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not change the horizon.");
+    } finally { setLoading(false); }
+  };
 
   const load = async () => {
     setLoading(true); setError("");
@@ -817,7 +852,7 @@ export default function App() {
         <div className="brand"><span><Icon.Shield size={20} /></span><div><strong>FPL Model</strong><small>Decision lab</small></div></div>
         <div className="load-form">
           <label>Team URL or ID<textarea value={reference} onChange={event => setReference(event.target.value)} rows={3} /></label>
-          <div className="form-row"><label>Horizon<select value={horizon} onChange={event => setHorizon(Number(event.target.value))}>{[1, 2, 3, 4, 5, 6, 7, 8].map(value => <option value={value} key={value}>{value} GW</option>)}</select></label><label>Profile<select value={risk} onChange={event => setRisk(event.target.value as RiskProfile)}><option value="balanced">Balanced</option><option value="stable">Stable</option><option value="upside">Upside</option></select></label></div>
+          <div className="form-row"><label>Horizon<select value={team?.horizon ?? horizon} disabled={loading || refreshing} onChange={event => void changeHorizon(Number(event.target.value))}>{[1, 2, 3, 4, 5, 6, 7, 8].map(value => <option value={value} key={value}>{value} GW</option>)}</select></label><label>Profile<select value={risk} onChange={event => setRisk(event.target.value as RiskProfile)}><option value="balanced">Balanced</option><option value="stable">Stable</option><option value="upside">Upside</option></select></label></div>
           <button className="primary full" onClick={load} disabled={loading || refreshing || !reference.trim()}>{loading && !team ? "Loading team…" : team ? "Reload team" : "Load team"}</button>
         </div>
         <nav>{VIEWS.map(item => <button key={item.id} className={view === item.id ? "active" : ""} disabled={!team} onClick={() => { setView(item.id); setMobileMenuOpen(false); }}><item.icon size={17} />{item.label}</button>)}</nav>
@@ -834,6 +869,7 @@ export default function App() {
         {error && <ErrorBanner message={error} onClose={() => setError("")} />}
         {loading && team && <div className="top-progress" />}
         <ForecastStatus team={team} refreshing={refreshing} />
+        {team && <div className="planning-toolbar"><label>Planning horizon <select aria-label="Planning horizon" value={team.horizon} disabled={loading || refreshing} onChange={event => void changeHorizon(Number(event.target.value))}>{[1, 2, 3, 4, 5, 6, 7, 8].map(value => <option key={value} value={value}>{value} GW</option>)}</select></label><span>{loading ? "Updating planning horizon…" : "Applies across all planning pages"}</span></div>}
         {!team ? <EmptyState /> : <WorkspaceProvider key={team.entry_id} team={team}><TeamViews team={team} view={view} onNavigate={setView} onUpdated={updated => { setTeam(updated); setBank(updated.bank); setFreeTransfers(updated.free_transfers); }} /></WorkspaceProvider>}
       </main>
       <nav className="mobile-nav">{VIEWS.map(item => <button key={item.id} className={view === item.id ? "active" : ""} disabled={!team} onClick={() => setView(item.id)}><item.icon size={19} /><small>{item.label}</small></button>)}</nav>

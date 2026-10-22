@@ -163,3 +163,8 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
   .mode-toggle button { min-width: 0; white-space: normal; }
 }
 .workspace-context { color: var(--green); font-size: .8rem; margin: 0 0 18px; }
+.planning-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .8rem 1rem; margin-bottom: 1.2rem; border: 1px solid var(--border, #294136); border-radius: 12px; flex-wrap: wrap; }
+.planning-toolbar label { display: flex; align-items: center; gap: .8rem; font-weight: 600; }
+.planning-toolbar span { font-size: .8rem; opacity: .75; }
+.planning-toolbar select { width: auto; min-width: 6rem; }
+.roll-comparison p { margin-top: .7rem; line-height: 1.6; }

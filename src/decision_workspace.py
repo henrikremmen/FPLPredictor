@@ -8,9 +8,45 @@ from pathlib import Path
 
 import pandas as pd
 
-from fpl_app import AppError, ImportedTeam, build_market, optimal_lineup, _validate_holdings
+from fpl_app import AppError, ImportedTeam, build_market, apply_risk_profile, optimal_lineup, _validate_holdings
 from capture_fpl import read_gzip_json
 from availability_forecast import availability_scenarios
+
+
+def change_horizon(team: ImportedTeam, horizon: int) -> ImportedTeam:
+    """Rebuild forecasts locally while retaining the exact active holdings."""
+    if not 1 <= horizon <= 8:
+        raise AppError('Horizon must be between one and eight gameweeks.')
+    raw = Path(manifest_for(team).get('source_capture', team.forecast_path.parent))
+    try:
+        bootstrap = read_gzip_json(raw / 'bootstrap.json.gz')
+        fixtures = read_gzip_json(raw / 'fixtures.json.gz')
+        frames = []
+        for event in range(team.target_event, team.target_event + horizon):
+            frame = apply_risk_profile(build_market(bootstrap, fixtures, team.forecast_path, event, 1), team.risk_profile)
+            frame['forecast_event'] = event
+            frames.append(frame)
+        market = apply_risk_profile(build_market(bootstrap, fixtures, team.forecast_path,
+                                                 team.target_event, horizon), team.risk_profile)
+    except (OSError, ValueError, KeyError) as exc:
+        raise AppError('The saved forecast cannot provide this horizon. Refresh the forecast first.') from exc
+
+    def holdings(values):
+        # Purchase/selling prices, manual picks and squad order belong to the
+        # active session, not the forecast snapshot.
+        columns = ['id'] + [c for c in team.squad if c not in team.market and c != 'id']
+        for column in ['purchase_price', 'selling_price', 'price_is_estimate', 'pick_position']:
+            if column in team.squad and column not in columns:
+                columns.append(column)
+        metadata = team.squad[columns]
+        result = metadata.merge(values.drop(columns=[c for c in columns if c != 'id' and c in values]),
+                                on='id', how='left', validate='one_to_one')
+        if result['name'].isna().any():
+            raise AppError('The forecast is missing a player in your active squad.')
+        return result
+
+    return replace(team, horizon=horizon, market=market, squad=holdings(market),
+                   lineup_squad=holdings(frames[0]), weekly_market=pd.concat(frames, ignore_index=True))
 
 
 def constrained_team(team: ImportedTeam, locked_ids=(), excluded_ids=()) -> ImportedTeam:

@@ -14,6 +14,8 @@ async function setup(page: Page) {
   let transferFails = false;
   let slowTransfer = false;
   let refreshed = false;
+  let activeHorizon = 3;
+  let horizonFails = false;
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error' && !m.text().includes('status of')) errors.push(m.text()); });
@@ -24,6 +26,26 @@ async function setup(page: Page) {
     requests.push({ path, body });
     const json = (data: unknown, status = 200) => route.fulfill({ status, json: data });
     if (path.endsWith('/import')) return json(team);
+    if (path.endsWith('/horizon')) {
+      if (horizonFails) return json({ detail: 'Saved forecast is missing this horizon' }, 400);
+      activeHorizon = body.horizon;
+      return json({ ...team, horizon: activeHorizon, forecast_context: { ...context, revision: `horizon-${activeHorizon}` } });
+    }
+    if (path.endsWith('/strategy')) return json({
+      target_event: 6, headline: 'Roll the free transfer',
+      transfer: { decision: 'ROLL', title: 'Roll the free transfer', reason: 'Keep flexibility for later transfers.',
+        transfers_out: [], transfers_in: [], hit: 0, free_transfers_before: 1, horizon: activeHorizon,
+        global_optimum: false, confidence: 'low', warnings: [],
+        roll_comparison: { evaluated: true, preferred_roll: true, gain_over_roll: .3, minimum_gain: 2,
+          next_gw_lineup_gain: .6, incoming_starts_now: ['Upgrade'], incoming_bench_now: [],
+          displaced_starters: ['Player 8'], candidate_out: ['Player 8'], candidate_in: ['Upgrade'] } },
+      captain: { captain: { name: 'Player 1' }, margin: 1, confidence: 'medium', alternatives: [] },
+      squad_health: { playable_players: 15, rating: 'healthy' },
+      deadline: { hours_remaining: 12, urgency: 'today' }, actions: [],
+      price_alerts: { available: false, caveat: 'No prices' },
+      watchlists: { top_targets: [], differentials: [], value: [], caveat: '' },
+      schedule: [], principles: [], method: '', caveat: 'Uncertain forecasts'
+    });
     if (path.endsWith('/squad-options')) return json({ players });
     if (path.endsWith('/changes')) return json({ previous_at: '2026-10-05T10:00:00Z', current_at: context.forecast_at, message: 'Changes to your squad', changes: [{ id: 8, name: 'Player 8', fields: { availability: { before: .75, after: 1 }, recommended_points: { before: 3, after: 4 }, news: { before: 'Knock', after: '' } } }] });
     if (path.includes('/players/')) {
@@ -49,9 +71,32 @@ async function setup(page: Page) {
   await page.goto('/');
   await page.getByRole('button', { name: 'Load team', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Workspace team' })).toBeVisible();
-  return { requests, errors, failRefresh: () => { refreshFails = true; }, failTransfer: () => { transferFails = true; slowTransfer = true; }, refreshed: () => refreshed };
+  return { requests, errors, failRefresh: () => { refreshFails = true; }, failHorizon: () => { horizonFails = true; }, failTransfer: () => { transferFails = true; slowTransfer = true; }, refreshed: () => refreshed };
 }
 const nav = (page: Page, name: string) => page.locator('.sidebar nav').getByRole('button', { name, exact: true }).click();
+
+test('horizon changes keep the current strategy page, preferences and session, and recalculate advice', async ({ page }) => {
+  const state = await setup(page);
+  await nav(page, 'Player preferences');
+  await page.locator('.preference-list > div').filter({ has: page.getByRole('button', { name: 'Player 8', exact: true }) }).getByRole('button', { name: 'Lock', exact: true }).click();
+  await nav(page, 'Strategy centre');
+  await page.getByRole('button', { name: 'Create weekly plan' }).click();
+  await expect(page.locator('.strategy-stamp')).toContainText('3 GW');
+  await page.getByLabel('Planning horizon', { exact: true }).selectOption('8');
+  await expect(page.getByRole('heading', { name: 'Strategy centre', exact: true })).toBeVisible();
+  await expect(page.locator('.strategy-stamp')).toContainText('8 GW');
+  await expect(page.locator('.roll-comparison')).toContainText('Replaces in the XI: Player 8');
+  expect(state.requests.filter(r => r.path.endsWith('/import'))).toHaveLength(1);
+  expect(state.requests.filter(r => r.path.endsWith('/strategy'))).toHaveLength(2);
+  expect(state.requests.filter(r => r.path.endsWith('/strategy')).at(-1)?.body.locked_ids).toEqual([8]);
+  expect(state.requests.find(r => r.path.endsWith('/horizon'))?.path).toBe('/api/team/test/horizon');
+  state.failHorizon();
+  await page.getByLabel('Planning horizon', { exact: true }).selectOption('7');
+  await expect(page.getByText('Saved forecast is missing this horizon')).toBeVisible();
+  await expect(page.getByLabel('Planning horizon', { exact: true })).toHaveValue('8');
+  await expect(page.locator('.strategy-stamp')).toContainText('8 GW');
+  expect(state.errors).toEqual([]);
+});
 
 test('news, keyboard-accessible player detail, comparison after hits and persistent A/B drafts', async ({ page }) => {
   const state = await setup(page);

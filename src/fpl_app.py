@@ -378,6 +378,20 @@ def acquisition_prices(client: FPLClient, entry_id: int, event: int,
     return prices, exact
 
 
+def planning_event(bootstrap: dict, fixtures: list[dict]) -> dict | None:
+    """Plan the next round once all matches finish, even during FPL checks.
+
+    This affects planning only; final-result evaluation still requires the
+    official finished/data_checked gameweek flags.
+    """
+    current = next((e for e in bootstrap['events'] if e.get('is_current')), None)
+    if current and not current.get('finished'):
+        matches = [f for f in fixtures if f.get('event') == current['id']]
+        if not matches or any(f.get('finished') is not True for f in matches):
+            return current
+    return next((e for e in bootstrap['events'] if e.get('is_next')), None)
+
+
 def import_team(reference: str, root: Path, client: FPLClient | None = None,
                 horizon: int = 1, risk_profile: str = "balanced") -> ImportedTeam:
     client = client or FPLClient()
@@ -394,10 +408,7 @@ def import_team(reference: str, root: Path, client: FPLClient | None = None,
     if event <= 0:
         raise AppError("The team has no completed or active Gameweek to import yet.")
     picks = client.get(f"entry/{entry_id}/event/{event}/picks/")
-    # Keep showing the current Gameweek until it is finished, then roll to the next.
-    target = next((row for row in bootstrap["events"]
-                   if row.get("is_current") and not row.get("finished")), None) \
-        or next((row for row in bootstrap["events"] if row.get("is_next")), None)
+    target = planning_event(bootstrap, fixtures)
     if target is None:
         raise AppError("FPL hasn't published a next Gameweek yet.")
     target_event = int(target["id"])

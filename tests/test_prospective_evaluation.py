@@ -1,15 +1,43 @@
 from pathlib import Path
 import sys
 import unittest
+import tempfile
+import json
+import gzip
+import hashlib
 
 import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from prospective_evaluation import score_predictions
+from prospective_evaluation import score_predictions, outcomes_from_snapshot
 
 
 class EvaluationTests(unittest.TestCase):
+    def test_provisional_is_explicit_and_requires_all_finished_fixtures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            manifest = {'season': '2026-27', 'status': 'complete', 'files': {}}
+            def write(key, value):
+                filename = key + '.json.gz'
+                raw = gzip.compress(json.dumps(value).encode())
+                (path / filename).write_bytes(raw)
+                manifest['files'][key] = {'file': filename, 'status': 200,
+                    'stored_sha256': hashlib.sha256(raw).hexdigest(), 'received_at': '2026-10-20T12:00:00Z'}
+                (path / 'manifest.json').write_text(json.dumps(manifest))
+            write('bootstrap', {'events': [{'id': 7, 'finished': False, 'data_checked': False}]})
+            write('fixtures', [{'id': 10, 'event': 7, 'finished': True}])
+            write('player_1', {'history': [{'round': 7, 'fixture': 10, 'total_points': 5,
+                                          'minutes': 90, 'starts': 1}]})
+            lock = {'GW': 7, 'season': '2026-27', 'deadline': '2026-10-17T10:00:00Z'}
+            with self.assertRaisesRegex(ValueError, 'not final'):
+                outcomes_from_snapshot(lock, path)
+            self.assertEqual(outcomes_from_snapshot(lock, path, provisional=True).target_points.iloc[0], 5)
+            write('fixtures', [{'id': 10, 'event': 7, 'finished': True},
+                               {'id': 11, 'event': 7, 'finished': False}])
+            with self.assertRaisesRegex(ValueError, 'every gameweek fixture'):
+                outcomes_from_snapshot(lock, path, provisional=True)
+
     def frames(self):
         keys = dict(season=["2026-27"] * 3, GW=[7] * 3, player_id=[1, 2, 3], fixture=[10] * 3)
         pred = pd.DataFrame({**keys, "model": ["test"] * 3, "prediction": [0., 2., 6.],

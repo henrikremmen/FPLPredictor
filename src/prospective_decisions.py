@@ -47,7 +47,7 @@ def score_selections(selections, forecasts, truth):
     return reports, scored
 
 
-def evaluate_decisions(bundle, snapshot, destination):
+def evaluate_decisions(bundle, snapshot, destination, *, provisional=False):
     bundle, snapshot, destination = Path(bundle), Path(snapshot), Path(destination)
     manifest = json.loads((bundle / "manifest.json").read_text())
     if manifest["status"] != "locked" or utc(manifest["completed_at"]) >= utc(manifest["deadline"]):
@@ -55,7 +55,7 @@ def evaluate_decisions(bundle, snapshot, destination):
     for name, expected in manifest["files"].items():
         if Path(name).name != name or digest(bundle / name) != expected:
             raise ValueError("Changed locked decision evidence")
-    truth = outcomes_from_snapshot(manifest, snapshot)
+    truth = outcomes_from_snapshot(manifest, snapshot, provisional=provisional)
     forecasts = pd.concat([pd.read_csv(bundle / name) for name in manifest["files"]
                            if name.startswith("forecast_")], ignore_index=True)
     reports, scored = score_selections(pd.read_csv(bundle / "selections.csv"), forecasts, truth)
@@ -63,7 +63,8 @@ def evaluate_decisions(bundle, snapshot, destination):
     scored.to_csv(destination / "scored_selections.csv", index=False)
     report = {"bundle_manifest_sha256": digest(bundle / "manifest.json"),
         "outcome_manifest_sha256": digest(snapshot / "manifest.json"), "metrics": reports,
-        "scope": manifest["scope"], "production_eligible": False}
+        "scope": manifest["scope"], "production_eligible": False,
+        "evaluation_mode": 'provisional' if provisional else 'final'}
     (destination / "report.json").write_text(json.dumps(report, indent=2, allow_nan=False))
     return report
 
@@ -74,5 +75,6 @@ if __name__ == "__main__":
     parser.add_argument("bundle")
     parser.add_argument("snapshot")
     parser.add_argument("destination")
+    parser.add_argument('--provisional', action='store_true')
     args = parser.parse_args()
-    evaluate_decisions(args.bundle, args.snapshot, args.destination)
+    evaluate_decisions(args.bundle, args.snapshot, args.destination, provisional=args.provisional)
