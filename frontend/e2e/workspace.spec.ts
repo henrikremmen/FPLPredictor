@@ -8,6 +8,8 @@ const players = [...positions.map((position, i) => ({ id: i + 1, name: `Player $
 const context = { revision: 'version-1', forecast_at: '2026-10-10T08:00:00Z', observed_at: '2026-10-10T07:58:00Z', model_family: 'test', source_url: 'https://fantasy.premierleague.com/api/bootstrap-static/' };
 const team = { session_id: 'test', entry_id: 1, event: 5, target_event: 6, manager_name: 'Manager', team_name: 'Workspace team', bank: 0, free_transfers: 0, deadline: '2026-10-10T10:00:00Z', horizon: 3, risk_profile: 'balanced', forecast_path: 'snapshot/forecast.csv', forecast_context: context,
   chip_status: {}, squad_source: 'fpl_public', manual_changes: [], squad: players.slice(0, 15), lineup: { formation: '3-4-3', projected_total: 48, expected_total: 48, captain_margin: 0, starters: players.slice(0, 11), bench: players.slice(11, 15) } };
+const upsideTeam = { ...team, risk_profile: 'upside', lineup: { ...team.lineup, projected_total: 60,
+  starters: team.lineup.starters.map(p => ({ ...p, decision_points: 5.5 })), bench: team.lineup.bench.map(p => ({ ...p, decision_points: 4.5 })) } };
 const transfer = { number: 1, outgoing_ids: [], global_optimum: true, plans: [{ out: 'Player 8', in: 'Upgrade', cost: 5, money_left: 0, lineup_gain: 12, expected_gain: 12, hit: 4, net_gain: 8, expected_net_gain: 8, projected_total: 56, is_global_optimum: true }] };
 const timelineWeek = (event: number, ids: number[], extra: Record<string, unknown> = {}) => ({
   event, points: 50 + event, total_points: 50 * event, rank: 1000, overall_rank: 5000 - event * 100, rank_change: event === 1 ? null : 100,
@@ -42,7 +44,7 @@ async function setup(page: Page, beforeLoad?: () => Promise<void>) {
     const body = request.postDataJSON();
     requests.push({ path, body });
     const json = (data: unknown, status = 200) => route.fulfill({ status, json: data });
-    if (path.endsWith('/import')) return json(team);
+    if (path.endsWith('/import')) return json(body?.risk_profile === 'upside' ? upsideTeam : team);
     if (request.method() === 'GET' && path === '/api/team/test') return restorable ? json(team) : json({ detail: 'Session expired' }, 404);
     if (path.endsWith('/timeline')) return json(timeline);
     if (path.endsWith('/horizon')) {
@@ -355,6 +357,26 @@ test('every page: buttons have accessible names and the menu works from the keyb
   await expect(page).toHaveURL(/#\/lineup$/);
   await page.keyboard.press('Tab');
   await expect(page.locator('.sidebar nav').getByRole('button', { name: 'Strategy centre', exact: true })).toBeFocused();
+  expect(state.errors).toEqual([]);
+});
+
+test('lineup shows the score the risk profile ranks by, with expected points alongside', async ({ page }) => {
+  const state = await setup(page);
+  await nav(page, 'Lineup');
+  await expect(page.locator('.profile-note')).toHaveCount(0);
+  await expect(page.locator('.pitch-player').first()).toContainText('4.00');
+  await page.getByRole('button', { name: 'Change', exact: true }).click();
+  await page.getByLabel('Profile').selectOption('upside');
+  await page.getByRole('button', { name: 'Reload team', exact: true }).click();
+  await expect(page.locator('.profile-note')).toContainText('0.7 × expected points + 0.3 × Q90');
+  await expect(page.locator('.pitch-player').first()).toContainText('5.50');
+  await expect(page.locator('.bench-row').first()).toContainText('4.00 expected');
+  await expect(page.getByRole('heading', { name: 'Lineup', exact: true })).toBeVisible();
+  expect(state.requests.filter(r => r.path.endsWith('/import')).at(-1)?.body.risk_profile).toBe('upside');
+  for (const viewport of shotDir ? [{ width: 1440, height: 900 }, { width: 390, height: 844 }] : []) {
+    await page.setViewportSize(viewport);
+    await page.screenshot({ path: `${shotDir}/lineup-upside-${viewport.width}.png`, fullPage: true });
+  }
   expect(state.errors).toEqual([]);
 });
 

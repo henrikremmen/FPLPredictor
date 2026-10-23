@@ -245,3 +245,5 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
   .sidebar.menu-open .team-chip { display: flex; }
   .team-chip button { min-height: var(--touch); }
 }
+.profile-note { margin: -8px 0 16px; padding: 10px 14px; border-left: 3px solid var(--captain); background: var(--surface); border-radius: var(--radius-sm); font-size: .8rem; color: var(--text-secondary); }
+.profile-note strong { color: var(--text-primary); }

@@ -17,6 +17,13 @@ export const RISK_PROFILE_LABELS: Record<RiskProfile, string> = {
   upside: "Upside",
 };
 
+/** What the lineup and optimisers rank by under each profile (src/fpl_app.py apply_risk_profile). */
+export const RISK_PROFILE_SCORE: Record<RiskProfile, { label: string; formula: string }> = {
+  balanced: { label: "Expected points", formula: "the model's expected points" },
+  stable: { label: "Stable score", formula: "expected points − 0.1 × (Q90 − Q10)" },
+  upside: { label: "Upside score", formula: "0.7 × expected points + 0.3 × Q90" },
+};
+
 export const CHIPS = ["wildcard", "free_hit", "triple_captain", "bench_boost"] as const;
 export type Chip = (typeof CHIPS)[number];
 

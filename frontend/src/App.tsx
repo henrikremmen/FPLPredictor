@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "./api";
 import { Icon } from "./icons";
-import { formatDeadline, teamIdFromReference } from "@fplmodell/shared";
+import { RISK_PROFILE_LABELS, RISK_PROFILE_SCORE, formatDeadline, teamIdFromReference } from "@fplmodell/shared";
 import { Timeline } from "./Timeline";
 import { WorkspaceProvider, useWorkspace, PlayerName, SinceLastTime, PlayerComparisonView, Preferences, SavedPlans, ForecastStatus, ResultStatus, SavePlan } from "./Workspace";
 import type {
@@ -160,35 +160,43 @@ function Overview({ team }: { team: TeamResponse }) {
   );
 }
 
-function PlayerCard({ player }: { player: Player }) {
+function PlayerCard({ player, value, hint }: { player: Player; value: number; hint?: string }) {
   return (
-    <div className={`pitch-player ${player.role ? "role-player" : ""}`}>
+    <div className={`pitch-player ${player.role ? "role-player" : ""}`} title={hint}>
       {player.role && <span className="role-badge">{player.role}</span>}
       <span className="shirt">{player.position === "GK" ? "◆" : "⬟"}</span>
       <PlayerName id={player.id}><strong>{player.name}</strong></PlayerName>
-      <small>{points(player.recommended_points)} · {player.opponent}</small>
+      <small>{points(value)} · {player.opponent}</small>
     </div>
   );
 }
 
 function Lineup({ team }: { team: TeamResponse }) {
+  // Stable/Upside rank by a decision score, not expected points: show the number that decided.
+  const scored = team.risk_profile !== "balanced";
+  const score = RISK_PROFILE_SCORE[team.risk_profile];
+  const value = (player: Player) => scored ? player.decision_points ?? player.recommended_points : player.recommended_points;
+  const hint = (player: Player) => scored ? `${score.label} ${points(value(player))} · expected ${points(player.recommended_points)}` : undefined;
   const rows = (["GK", "DEF", "MID", "FWD"] as Position[]).map(position =>
     team.lineup.starters.filter(player => player.position === position),
   );
   return (
     <>
-      <PageHeading view="lineup" eyebrow="Optimal XI" title="Lineup" subtitle={`${team.lineup.formation} · ${points(team.lineup.expected_total)} expected incl. Captain`} />
+      <PageHeading view="lineup" eyebrow="Optimal XI" title="Lineup" subtitle={scored
+        ? `${team.lineup.formation} · ${score.label} ${points(team.lineup.projected_total)} incl. captain · ${points(team.lineup.expected_total)} expected points`
+        : `${team.lineup.formation} · ${points(team.lineup.expected_total)} expected incl. Captain`} />
+      {scored && <p className="profile-note"><strong>{RISK_PROFILE_LABELS[team.risk_profile]} profile:</strong> players are ranked by {score.label.toLowerCase()} = {score.formula}. The pitch shows that score; expected points are listed on the bench and when you hover a player. Choose Balanced to rank by expected points.</p>}
       <div className="lineup-layout">
         <section className="pitch" aria-label="Recommended starting XI">
           <div className="pitch-lines" />
-          {rows.map((row, index) => <div className="pitch-row" key={index}>{row.map(player => <PlayerCard key={player.id} player={player} />)}</div>)}
+          {rows.map((row, index) => <div className="pitch-row" key={index}>{row.map(player => <PlayerCard key={player.id} player={player} value={value(player)} hint={hint(player)} />)}</div>)}
         </section>
         <aside className="bench panel">
           <span className="eyebrow">Bench</span><h2>Order</h2>
           {team.lineup.bench.map((player, index) => (
-            <div className="bench-row" key={player.id}><span>{player.position === "GK" ? "GK" : index}</span><div><PlayerName id={player.id}><strong>{player.name}</strong></PlayerName><small>{player.opponent}</small></div><b>{points(player.recommended_points)}</b></div>
+            <div className="bench-row" key={player.id} title={hint(player)}><span>{player.position === "GK" ? "GK" : index}</span><div><PlayerName id={player.id}><strong>{player.name}</strong></PlayerName><small>{player.opponent}{scored && ` · ${points(player.recommended_points)} expected`}</small></div><b>{points(value(player))}</b></div>
           ))}
-          <div className="captain-note"><span>C</span><p><strong>Captain margin {points(team.lineup.captain_margin)}</strong><br />The difference to the model's second best captain.</p></div>
+          <div className="captain-note"><span>C</span><p><strong>Captain margin {points(team.lineup.captain_margin)}</strong><br />The difference in {scored ? score.label.toLowerCase() : "expected points"} to the model's second best captain.</p></div>
         </aside>
       </div>
     </>
