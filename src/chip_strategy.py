@@ -25,8 +25,7 @@ CHIP_LABELS = {
     "wildcard": "Wildcard",
     "wildcard_bench_boost": "Wildcard → Bench Boost",
 }
-POSITION_COUNTS = {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}
-START_LIMITS = {"GK": (1, 1), "DEF": (3, 5), "MID": (2, 5), "FWD": (1, 3)}
+from fpl_rules import SQUAD_SHAPE as POSITION_COUNTS, START_LIMITS
 
 
 @dataclass

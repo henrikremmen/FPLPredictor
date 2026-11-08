@@ -25,11 +25,17 @@ import requests
 from scipy.optimize import Bounds, LinearConstraint, milp
 from scipy.sparse import csr_matrix, vstack
 
+from point_distribution import player_quantiles
+
 
 API = "https://fantasy.premierleague.com/api/"
 POSITIONS = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
 POSITION_ORDER = {"GK": 0, "DEF": 1, "MID": 2, "FWD": 3}
-SQUAD_POSITION_COUNTS = {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}
+from fpl_rules import HIT_COST, SQUAD_SHAPE as SQUAD_POSITION_COUNTS, chip_half, selling_price  # T4: shared rules
+# Plan P1: value of a bench place, in shares of that player's forecast, in FPL bench
+# order (reserve keeper, then outfield 1–3). A rough stand-in for autosub chances,
+# adjustable in the UI; season_simulator and backtests keep the XI-only score.
+BENCH_WEIGHTS = (0.03, 0.12, 0.06, 0.03)
 ENTRY_PATTERN = re.compile(r"(?:^|/)entry/(\d+)(?:/event/(\d+))?/?(?:[?#].*)?$")
 
 
@@ -46,13 +52,6 @@ def parse_entry_reference(value: str) -> tuple[int, int | None]:
     if not match:
         raise AppError("Invalid team reference. Paste an FPL URL or a numeric team ID.")
     return int(match.group(1)), int(match.group(2)) if match.group(2) else None
-
-
-def selling_price(purchase_price: int, current_price: int) -> int:
-    """FPL selling price in tenths of a million."""
-    if current_price < purchase_price:
-        return current_price
-    return purchase_price + (current_price - purchase_price) // 2
 
 
 def estimate_free_transfers(history: dict, through_event: int, started_event: int = 1) -> int:
@@ -83,8 +82,8 @@ def chip_inventory(history: dict, target_event: int) -> dict[str, dict]:
         "3xc": "triple_captain", "triplecaptain": "triple_captain",
         "bboost": "bench_boost", "benchboost": "bench_boost",
     }
-    half = 1 if target_event <= 19 else 2
-    start, end = (1, 19) if half == 1 else (20, 38)
+    start, end = chip_half(target_event)
+    half = 1 if start == 1 else 2
     used: dict[str, int] = {}
     all_free_hit_events = []
     for row in history.get("chips", []):
@@ -164,6 +163,8 @@ class ImportedTeam:
     locked_ids: set[int] = field(default_factory=set)
     excluded_ids: set[int] = field(default_factory=set)
     player_data_at: str | None = None
+    bench_weights: tuple[float, float, float, float] = BENCH_WEIGHTS
+    scenario_overrides: dict[str, float] = field(default_factory=dict)  # P5: user's chance of playing
 
 
 def latest_forecast(root: Path, target_event: int) -> Path:
@@ -228,6 +229,14 @@ def build_market(bootstrap: dict, fixtures: list[dict], forecast_path: Path,
         "market_player_goal_probability", "market_player_assist_probability",
     ]
                 if column in forecasts]
+    fixture_path = forecast_path.parent / "horizon_fixture_forecast.csv"
+    fixture_rows = forecasts  # one row per player and GW; per fixture when the capture has it
+    if fixture_path.exists() and source == horizon_path:
+        fixture_rows = pd.read_csv(fixture_path, usecols=lambda c: c in {
+            "GW", "player_id", "planned_fixture", "prediction_q10", "prediction_q50", "prediction_q90"})
+        fixture_rows = fixture_rows[fixture_rows["GW"].isin(events)]
+        if "planned_fixture" in fixture_rows:
+            fixture_rows = fixture_rows[fixture_rows["planned_fixture"].astype(bool)]
     forecasts = forecasts.groupby("player_id", as_index=False).agg(**{
         "prediction": ("prediction", "sum"),
         "planned_fixtures": ("planned_fixtures", "sum"),
@@ -308,15 +317,35 @@ def build_market(bootstrap: dict, fixtures: list[dict], forecast_path: Path,
         if column not in market:
             market[column] = np.nan
     market["recommended_points"] = market["prediction"] * market["availability"]
-    for label in [10, 50, 90]:
-        market[f"recommended_q{label}"] = (
-            market[f"prediction_q{label}"] * market["availability"]
-        )
+    attach_distribution_quantiles(market, fixture_rows)
     market["point_range_q10_q90"] = [
         f"{low:.1f}–{high:.1f}" if pd.notna(low) and pd.notna(high) else "–"
         for low, high in zip(market["recommended_q10"], market["recommended_q90"])
     ]
     return market
+
+
+def attach_distribution_quantiles(market: pd.DataFrame, fixture_rows: pd.DataFrame) -> None:
+    """Horizon Q10/Q50/Q90 from a point distribution, availability as a mixture (M9).
+
+    ``prediction_q*`` until now held quantiles summed over fixtures; they are
+    replaced by quantiles of the total. ``recommended_q*`` mixes in a zero with
+    probability 1 - availability instead of scaling. Expected points are not
+    touched. A player without planned fixtures keeps 0 (blank), one without any
+    forecast keeps NaN.
+    """
+    columns = [f"prediction_q{label}" for label in (10, 50, 90)]
+    if not set(columns) <= set(fixture_rows) or fixture_rows.empty:
+        for label in (10, 50, 90):  # no quantiles in this forecast: profiles that need them refuse
+            market[f"recommended_q{label}"] = market[f"prediction_q{label}"] * market["availability"]
+        return
+    rows = fixture_rows.dropna(subset=columns)
+    quantiles = player_quantiles(rows, market.set_index("id")["availability"]).set_index("player_id")
+    for label in (10, 50, 90):
+        blank = market[f"prediction_q{label}"] * 0  # 0 with a forecast, NaN without
+        for prefix in ("prediction", "recommended"):
+            column = f"{prefix}_q{label}"
+            market[column] = market["id"].map(quantiles[column]).fillna(blank).to_numpy()
 
 
 def apply_risk_profile(market: pd.DataFrame, profile: str) -> pd.DataFrame:
@@ -634,7 +663,7 @@ def apply_manual_squad_changes(team: ImportedTeam, changes: list[dict], mode: st
     else:
         new_bank = calculated_bank
         new_free_transfers = max(0, before_free - len(changes))
-        hit = max(0, len(changes) - before_free) * 4
+        hit = max(0, len(changes) - before_free) * HIT_COST
     if new_bank < 0:
         raise AppError("The bank cannot be negative.")
     if not 0 <= new_free_transfers <= 5:
@@ -776,8 +805,13 @@ def optimal_lineup(squad: pd.DataFrame) -> dict:
             "score_column": score_column}
 
 
-def _lineup_total_records(records: Iterable[tuple[int, str, float]]) -> float:
-    """Fast exact lineup score used inside the transfer search."""
+def _lineup_total_records(records: Iterable[tuple[int, str, float]],
+                          bench_weights: tuple[float, ...] | None = None) -> float:
+    """Fast exact lineup score used inside the transfer search.
+
+    With ``bench_weights`` (P1) the bench left by the best XI adds weight × score
+    in FPL bench order: reserve keeper, then outfield by score.
+    """
     grouped: dict[str, list[tuple[int, float]]] = {position: [] for position in POSITION_ORDER}
     for player_id, position, value in records:
         grouped[position].append((int(player_id), float(value)))
@@ -796,7 +830,13 @@ def _lineup_total_records(records: Iterable[tuple[int, str, float]]) -> float:
             if len(selected) != 11:
                 continue
             values = [row[1] for row in selected]
-            best = max(best, sum(values) + max(values))
+            total = sum(values) + max(values)
+            if bench_weights:
+                outfield = (grouped["DEF"][defenders:] + grouped["MID"][midfielders:] + grouped["FWD"][forwards:])
+                outfield = sorted((row[1] for row in outfield), reverse=True)
+                total += bench_weights[0] * sum(row[1] for row in grouped["GK"][1:2])
+                total += sum(w * v for w, v in zip(bench_weights[1:], outfield))
+            best = max(best, total)
     return best
 
 
@@ -811,7 +851,9 @@ def _exact_transfer_plan(team: ImportedTeam, weekly_source: pd.DataFrame,
     owned_mask = np.asarray([player_id in owned for player_id in ids], dtype=float)
     events = sorted(weekly_source["forecast_event"].astype(int).unique())
     n, periods = len(frame), len(events)
-    total_variables = n * (1 + 2 * periods)
+    integer_variables = n * (1 + 2 * periods)
+    bench0 = integer_variables  # P1: continuous bench-slot shares, 4 slots per period
+    total_variables = integer_variables + 4 * n * periods
     data: list[float] = []
     row_indices: list[int] = []
     column_indices: list[int] = []
@@ -842,7 +884,7 @@ def _exact_transfer_plan(team: ImportedTeam, weekly_source: pd.DataFrame,
             add([(index, 1)], 0, 0)
     for player_id in forced_outgoing:
         add([(index_by_id[player_id], 1)], 0, 0)
-    for position, count in {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}.items():
+    for position, count in SQUAD_POSITION_COUNTS.items():
         add([(index, 1) for index in range(n)
              if frame.loc[index, "position"] == position], count, count)
     for team_id in sorted(frame["team_id"].unique()):
@@ -875,6 +917,10 @@ def _exact_transfer_plan(team: ImportedTeam, weekly_source: pd.DataFrame,
         for index in range(n):
             add([(index, -1), (starter_offset + index, 1)], hi=0)
             add([(starter_offset + index, -1), (captain_offset + index, 1)], hi=0)
+            slots = [bench0 + (period * 4 + slot) * n + index for slot in range(4)]
+            add([(column, 1) for column in slots] + [(index, -1), (starter_offset + index, 1)], hi=0)
+        for slot in range(4):
+            add([(bench0 + (period * 4 + slot) * n + index, 1) for index in range(n)], hi=1)
 
     matrix = csr_matrix(
         (data, (row_indices, column_indices)),
@@ -886,10 +932,20 @@ def _exact_transfer_plan(team: ImportedTeam, weekly_source: pd.DataFrame,
         captain_offset = starter_offset + n
         objective[starter_offset:starter_offset + n] = -decision_scores[event]
         objective[captain_offset:captain_offset + n] = -decision_scores[event]
+        for slot, weight in enumerate(team.bench_weights or (0, 0, 0, 0)):
+            start = bench0 + (period * 4 + slot) * n
+            objective[start:start + n] = -weight * decision_scores[event]
+    keeper = frame["position"].eq("GK").to_numpy()
+    upper_bounds = np.ones(total_variables)
+    for period in range(periods):  # slot 0 is the reserve keeper, slots 1–3 outfield
+        upper_bounds[bench0 + period * 4 * n:bench0 + (period * 4 + 1) * n] = keeper
+        for slot in (1, 2, 3):
+            upper_bounds[bench0 + (period * 4 + slot) * n:bench0 + (period * 4 + slot + 1) * n] = ~keeper
+    integrality = np.r_[np.ones(integer_variables, dtype=np.uint8), np.zeros(4 * n * periods, dtype=np.uint8)]
     result = milp(
         objective,
-        integrality=np.ones(total_variables, dtype=np.uint8),
-        bounds=Bounds(0, 1),
+        integrality=integrality,
+        bounds=Bounds(0, upper_bounds),
         constraints=LinearConstraint(matrix, np.asarray(lower), np.asarray(upper)),
         options={"time_limit": 20},
     )
@@ -907,8 +963,8 @@ def _exact_transfer_plan(team: ImportedTeam, weekly_source: pd.DataFrame,
     cash_objective[:n] += 1e-7 * np.where(owned_mask > 0, -ids, ids)
     secondary = milp(
         cash_objective,
-        integrality=np.ones(total_variables, dtype=np.uint8),
-        bounds=Bounds(0, 1),
+        integrality=integrality,
+        bounds=Bounds(0, upper_bounds),
         constraints=LinearConstraint(
             secondary_matrix, secondary_lower, secondary_upper
         ),
@@ -925,7 +981,7 @@ def _exact_transfer_plan(team: ImportedTeam, weekly_source: pd.DataFrame,
     market_by_id = frame.set_index("id")
     squad_by_id = team.squad.set_index("id")
     new_total = sum(_lineup_total_records(
-        record for player_id, record in lookup.items() if player_id in selected
+        (record for player_id, record in lookup.items() if player_id in selected), team.bench_weights
     ) for lookup in {
         event: {
             int(player_id): (int(player_id), str(market_by_id.loc[player_id, "position"]), score)
@@ -940,7 +996,7 @@ def _exact_transfer_plan(team: ImportedTeam, weekly_source: pd.DataFrame,
     cost = sum(int(market_by_id.loc[player_id, "price"]) for player_id in incoming)
     budget = team.bank + sum(int(squad_by_id.loc[player_id, "selling_price"])
                              for player_id in outgoing)
-    hit = max(0, number - team.free_transfers) * 4
+    hit = max(0, number - team.free_transfers) * HIT_COST
     return {
         "out": " + ".join(str(squad_by_id.loc[x, "name"]) for x in outgoing),
         "in": " + ".join(str(market_by_id.loc[x, "name"]) for x in incoming),
@@ -997,7 +1053,7 @@ def recommend_transfers(team: ImportedTeam, number: int = 1, limit: int = 8,
     weekly_records = records_for(score_column)
     expected_records = records_for("recommended_points")
     baseline = sum(_lineup_total_records(
-        record for player_id, record in lookup.items() if player_id in owned
+        (record for player_id, record in lookup.items() if player_id in owned), team.bench_weights
     ) for lookup in weekly_records.values())
     expected_baseline = sum(_lineup_total_records(
         record for player_id, record in lookup.items() if player_id in owned
@@ -1077,14 +1133,14 @@ def recommend_transfers(team: ImportedTeam, number: int = 1, limit: int = 8,
                 continue
             proposed_ids = (owned - set(outgoing)) | set(incoming)
             new_total = sum(_lineup_total_records(
-                record for player_id, record in lookup.items() if player_id in proposed_ids
+                (record for player_id, record in lookup.items() if player_id in proposed_ids), team.bench_weights
             ) for lookup in weekly_records.values())
             expected_total = sum(_lineup_total_records(
                 record for player_id, record in lookup.items() if player_id in proposed_ids
             ) for lookup in expected_records.values())
             gain = new_total - baseline
             expected_gain = expected_total - expected_baseline
-            hit = max(0, number - team.free_transfers) * 4
+            hit = max(0, number - team.free_transfers) * HIT_COST
             results.append({
                 "out": " + ".join(str(by_id.loc[x, "name"]) for x in outgoing),
                 "in": " + ".join(str(market_by_id.loc[x, "name"]) for x in incoming),

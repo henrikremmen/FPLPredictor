@@ -59,6 +59,47 @@ separate from forward-looking forecasts. See
 [manager analytics research](manager_analytics_research_2026.md) for methods
 and limitations.
 
+## Decision-first layout (plan phase F, November 2026)
+
+- **Overview** opens with this week's decision: roll or move and why, captain
+  and the next best, the news that matters and chip availability. A note says
+  which public picks the squad comes from, with a link to correct it.
+- **Strategy, transfers and the multiweek plan** calculate as soon as you open
+  them. The API also precomputes the default answers after an import or
+  refresh. Results are cached under a key that covers the forecast, squad,
+  bank, free transfers, horizon, profile, preferences, bench weights and
+  options, so a fast answer is never a stale one (`src/result_cache.py`).
+- One status line shows the forecast time (details on tap) and the horizon.
+  Points have one decimal. Expected points are the main number; a Stable or
+  Upside score sits beside it.
+- **Players → Fixtures** shows the next Gameweeks per player: opponent, home or
+  away, expected points, the chance of 60+ minutes, blanks and doubles.
+- On a phone the bottom bar is the only navigation. A section with several
+  pages opens a sheet of them. The player panel is a bottom sheet with its
+  tables folded.
+
+## Scenarios, your assumptions and the decision journal (plan phase G)
+
+- **Transfers & plan → Scenarios** compares holding, the best plan (A) and the
+  best plan without A's first signing (B) on the same horizon and inputs. Each
+  row shows net points, hits, bank and free transfers. Each plan is scored on 50
+  sampled scenarios with a stored seed and reported as "chosen in X % of
+  scenarios"; that depends on how the scenarios are drawn and is not a chance of
+  winning.
+- **Your assumptions** ("What if he is benched?") set your own chance of playing
+  for a player. Every calculation uses it until you reset it. A notice on every
+  page says so. It stays in the browser and is never stored or trained on.
+- **Find the tipping point** gives the chance of playing at which the plan's
+  first-week action changes.
+- **Record my decision** (Overview) freezes the advice, the alternatives, your
+  choice and the source times before the deadline. History → Decision journal
+  shows them, and the outcome once FPL has checked the round. Entries sit next
+  to the shadow season in `artifacts/shadow_season/<season>_<team>/` and are
+  never overwritten.
+- The FPL rules (squad shape, formations, hits, selling price, free transfers,
+  chip halves) live in one module, `src/fpl_rules.py`, used by the planner, the
+  apps, the shadow season and the backtests.
+
 ## Decision workspace
 
 The web app now includes:
@@ -279,6 +320,32 @@ but lost 28 in the test; its 90th percentile rose from 76.0 to 79.8 with higher
 variation. These are optional utility functions, not new expected-point
 estimates or guarantees about risk.
 
+Q10, Q50 and Q90 come from a point distribution (`src/point_distribution.py`,
+plan M9), not from adding up quantiles. Each fixture's three model quantiles
+define a piecewise-linear distribution. Fixtures are drawn independently and
+summed over the Gameweek or horizon. Availability is a mixture: with
+probability 1 − availability the player scores 0. Expected points still add up
+and scale with availability, so Balanced is unaffected. The tails and the
+independence between fixtures are assumptions.
+`.venv/bin/python src/quantile_audit.py --team ID --output DIR` shows which
+Stable/Upside choices change compared with the old summed-and-scaled numbers.
+
+**Bench weights (plan P1).** Decisions also count a small share of each bench
+player's forecast, in FPL bench order: reserve keeper 0.03, then bench 1–3 at
+0.12, 0.06 and 0.03. This is a rough stand-in for autosubs. Change the weights
+under Player preferences (web) or Preferences (mobile); set all to 0 to ignore
+the bench. Expected points shown as XI totals stay XI + captain only.
+
+**Chips and requirements in the multiweek plan (P2, P4).** "Plan chips too"
+adds Bench Boost, Triple Captain, Free Hit and Wildcard to the optimisation:
+at most one per Gameweek, each at most once, and only until the chip expires
+(GW19 for the first set). A chip calendar shows each planned chip, the nearest
+alternative week and the points between them. Requirements ("own X by GW N",
+"sell Y in GW N", club and position limits) are hard constraints, and the plan
+shows what each one costs. The lineup page and each planned week also show the
+expectation with autosubs and vice-captain (P3, `GET /api/team/{id}/lineup-value`).
+It is a Monte Carlo over who plays, scored with the backtests' autosub rules.
+
 The decision engine enforces:
 
 - A 15-player squad: 2 goalkeepers, 5 defenders, 5 midfielders and 3 forwards.
@@ -355,6 +422,18 @@ hourly and decides from the files already committed what is due:
 Every payload is validated at the boundary and every export must pass the data
 contract (`src/data_contract.py`) before anything is written; a failure turns
 the run red. Corrections to exported rounds are logged in `corrections.csv`.
+
+GitHub can delay or silently stop scheduled runs (it did from 23 October to
+6 November 2026, with no failed run). Each run therefore reports `gap_hours`
+since the previous snapshot; above 36 hours the workflow commits the data and
+then fails, so GitHub's failed-run e-mail reports the hole. The app's lock
+banner also warns when the local `fpl-data` checkout's latest snapshot is over
+36 hours old. If runs stop, restart the schedule and backfill:
+
+```bash
+gh workflow disable collect -R henrikremmen/fpl-data && gh workflow enable collect -R henrikremmen/fpl-data
+gh workflow run collect -R henrikremmen/fpl-data -f mode=auto     # exports every missing data-checked round
+```
 The collector source is `src/fpl_collect.py`; `fpl-data/collector/` holds
 copies, and the test suite fails if they drift. Clone and refresh locally:
 
@@ -471,7 +550,72 @@ New models are challengers, never automatic replacements. They live in
 challenger and FPL's `ep_next` on identical rows within 30 hours of the next
 deadline (one bundle per round), evaluates every round FPL has data-checked
 and rebuilds `artifacts/prospective_eval/leaderboard.md`. A round that is not
-locked before its deadline is simply missing. A challenger becomes eligible
+locked before its deadline is simply missing.
+
+**Criterion v2** ([docs/prospective_criterion_v2_2026-11-06.md](prospective_criterion_v2_2026-11-06.md),
+`src/criterion_v2.py`) counts rounds locked from GW11. It compares weekly
+absolute error player by player on a cohort fixed in the lock: the top 100,
+players likely to appear and every locked squad. Rounds are resampled as blocks.
+The primary challenger is `features_v2_20261106`, and the others are corrected
+with Holm. The leaderboard shows v1 and v2 side by side, plus a secondary
+measure where each model picks XI and captain in 300 ownership-weighted legal
+squads.
+
+**Shadow season** (`src/shadow_season.py`, plan E2): each policy (`hold`,
+`incumbent`, challengers) carries your real squad, bank, purchase prices and
+free transfers forward round by round. It decides from the loop's locked bundle
+before the deadline and is scored with autosubs and vice-captain fallback.
+`prospective_loop.py auto` locks and scores shadow seasons automatically.
+
+```bash
+.venv/bin/python src/shadow_season.py start --team ID --event N --policies hold incumbent refit_20261031
+```
+
+The web History group has a **Model and data** page (mobile: History → Model
+and data quality). It shows data quality and what it means for decisions,
+locked rounds with their counts, calibration and known limitations
+(`GET /api/model-card`).
+
+Challengers added 6–8 November 2026 (phase D, all `production_eligible: false`, locked from GW11):
+
+```bash
+.venv/bin/python src/role_history.py --output data/processed/role_history_DATE.csv            # O5 roles/DC/price over time
+.venv/bin/python src/challengers.py features-v2 --features DIR --base refit_20261031 --roles CSV  # M11 (primary in v2)
+.venv/bin/python src/challengers.py top-calibration --features DIR --base refit_20261031         # M12
+.venv/bin/python src/challengers.py implied-market --base refit_20261031 --results E0_2627_DATE.csv  # M13
+```
+
+`implied-market` fits each club's attack, defence and home advantage to odds
+and results (`src/team_strengths.py`). It fills market features only where
+odds are missing and marks every row `market_source = odds | implied`.
+New capture and fpl-data manifests (schema 2) record `observed_at`,
+`available_at` and `published_at` per file. `published_at` is unknown (null)
+unless the source gives it; for odds it is the newest bookmaker update. They
+also record `source_version` and `rules_version`.
+
+Evaluation also writes `extended.json` per round (plan E3): Q10–Q90 hit rate
+and width, and bias by position and defensive-contribution band. The
+leaderboard shows them as secondary measures that never decide the criterion.
+Diagnostics that compare captures with fpl-data outcomes:
+
+```bash
+.venv/bin/python src/prospective_loop.py extend                                  # extended.json for older rounds
+.venv/bin/python src/availability_bias.py --output artifacts/m10_availability_bias_DATE   # M10: injury factor bias
+.venv/bin/python src/forecast_timing.py --output artifacts/e3_forecast_timing_DATE        # T-24h vs T-6h vs last
+```
+
+`GET /api/data-quality` (plan O3) reports source freshness, odds coverage per
+forecast Gameweek, the share of forecasts without market data, FPL `code`
+coverage, missed locks and the last evaluated round. Each issue is described
+by its effect on decisions.
+
+The app shows a banner while the lock window is open (30 hours before the
+deadline) and the round is not locked: **Lock window open for GW N – lock now**.
+Its button runs the same `prospective_loop.py auto` as a background job on the
+machine running the API (`POST /api/loop/lock`; progress in
+`GET /api/loop/status`). Nothing is scheduled; a second lock of a locked round
+is refused. The banner also lists rounds that were never locked and a stale
+`fpl-data` checkout. A challenger becomes eligible
 for a *manual* promotion review only under the pre-registered criterion in
 [docs/prospective_criterion_2026-10-22.md](prospective_criterion_2026-10-22.md).
 Reports: [data pipeline](data_pipeline_2026-10-22.md),

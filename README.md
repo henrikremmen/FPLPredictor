@@ -29,7 +29,7 @@ For a phone on the same Wi-Fi, start the backend with `npm run backend:lan`.
 
 ```bash
 .venv/bin/python src/capture_fpl.py                 # new FPL snapshot + forecasts (what Refresh forecast does)
-.venv/bin/python src/prospective_loop.py auto       # before each deadline and after FPL checks a round
+.venv/bin/python src/prospective_loop.py auto       # before each deadline and after FPL checks a round (or the app's Lock button)
 git -C fpl-data pull                                 # data collected hourly by the fpl-data repository
 .venv/bin/python src/build_dataset.py               # training table from vaastav + fpl-data seasons
 ```
@@ -37,11 +37,14 @@ git -C fpl-data pull                                 # data collected hourly by 
 ## What it does
 
 - **This round:** overview, recommended XI, captain and bench.
+- **This round** opens with this week's decision: move or roll, captain,
+  important news and chips.
 - **Transfers & plan:** strategy centre (roll or move), exact transfer search,
-  multiweek plan, chips, Free Hit and Wildcard squads.
-- **Players:** market, hold-versus-buy comparison, lock or exclude players.
-- **History:** manager and mini-league analysis, and a timeline of every
-  played Gameweek on the pitch.
+  a multiweek plan with chips, bench weights and requirements, plan A/B and
+  scenarios with your own assumptions, chips, Free Hit and Wildcard squads.
+- **Players:** market, fixture ticker, hold-versus-buy comparison, lock or exclude players, bench weights.
+- **History:** manager and mini-league analysis, a timeline of every played
+  Gameweek on the pitch, your decision journal, and the model and data quality.
 - **My team:** correct squad, bank and free transfers; saved plans.
 
 Risk profiles: **Balanced** ranks by expected points, **Stable** penalises wide
@@ -68,7 +71,7 @@ npm run typecheck:mobile && npm run test:mobile
 ## More
 
 [Handbook](docs/handbook.md) · [Data pipeline](docs/data_pipeline_2026-10-22.md) ·
-[Model phase](docs/model_phase_2026-10-22.md) · [Deploy](docs/deploy.md) ·
+[Model phase](docs/model_phase_2026-10-22.md) · [Plan 06.11, phases A–G](docs/improvement_plan_2026-11-06.md) · [Deploy](docs/deploy.md) ·
 [Chip strategy](docs/chip_strategy.md) · [Improvement plan](docs/forbedringsplan_2026-10-22.md)
 
 Two data checkouts live in the repository root and are ignored by Git:

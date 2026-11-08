@@ -1,6 +1,15 @@
 import type {
   ChipStrategy,
+  DataQuality,
+  Breakpoint,
+  FixtureTicker,
+  JournalEntry,
+  ScenarioComparison,
   HealthResponse,
+  LineupValue,
+  PlanRequirement,
+  LoopStatus,
+  ModelCard,
   ManagerAnalytics,
   MultiweekPlan,
   Player,
@@ -143,11 +152,43 @@ export class ApiClient {
     });
   }
 
-  plan(session: string, weeks: number, discount = 0.9, constraints?: PlayerConstraints) {
+  plan(session: string, weeks: number, discount = 0.9, constraints?: PlayerConstraints,
+       options?: { chips?: boolean; requirements?: PlanRequirement[] }) {
     return this.request<MultiweekPlan>(`/api/team/${session}/plan`, {
       method: "POST",
-      body: JSON.stringify({ weeks, discount, ...constraints }),
+      body: JSON.stringify({ weeks, discount, ...constraints, ...options }),
+      timeoutMs: REFRESH_TIMEOUT_MS,
     });
+  }
+
+  fixtures(session: string, scope: "squad" | "market" = "squad") {
+    return this.request<FixtureTicker>(`/api/team/${session}/fixtures?scope=${scope}`);
+  }
+
+  scenarios(session: string, constraints?: PlayerConstraints) {
+    return this.request<ScenarioComparison>(`/api/team/${session}/scenarios`, {
+      method: "POST", body: JSON.stringify({ ...constraints }), timeoutMs: REFRESH_TIMEOUT_MS,
+    });
+  }
+
+  breakpoint(session: string, playerId: number, constraints?: PlayerConstraints) {
+    return this.request<Breakpoint>(`/api/team/${session}/scenarios/breakpoint`, {
+      method: "POST", body: JSON.stringify({ ...constraints, player_id: playerId }), timeoutMs: REFRESH_TIMEOUT_MS,
+    });
+  }
+
+  journal(session: string) {
+    return this.request<{ entries: JournalEntry[] }>(`/api/team/${session}/journal`);
+  }
+
+  recordDecision(session: string, choice: JournalEntry["choice"]["kind"], note: string, constraints?: PlayerConstraints) {
+    return this.request<{ entries: JournalEntry[] }>(`/api/team/${session}/journal`, {
+      method: "POST", body: JSON.stringify({ ...constraints, choice, note }), timeoutMs: REFRESH_TIMEOUT_MS,
+    });
+  }
+
+  lineupValue(session: string) {
+    return this.request<LineupValue>(`/api/team/${session}/lineup-value`);
   }
 
   chips(session: string, constraints?: PlayerConstraints) {
@@ -198,6 +239,22 @@ export class ApiClient {
       method: "POST",
       timeoutMs: REFRESH_TIMEOUT_MS,
     });
+  }
+
+  loopStatus() {
+    return this.request<LoopStatus>("/api/loop/status");
+  }
+
+  modelCard() {
+    return this.request<ModelCard>("/api/model-card");
+  }
+
+  dataQuality() {
+    return this.request<DataQuality>("/api/data-quality");
+  }
+
+  lockRound() {
+    return this.request<LoopStatus>("/api/loop/lock", { method: "POST" });
   }
 
   refreshTeam(session: string) {

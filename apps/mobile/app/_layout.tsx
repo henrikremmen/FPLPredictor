@@ -39,6 +39,27 @@ export default function RootLayout() {
                 }}
               />
               <Stack.Screen
+                name="scenarios"
+                options={{
+                  headerShown: true, title: "Scenarios and journal", headerBackTitle: "Round",
+                  headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.textPrimary,
+                }}
+              />
+              <Stack.Screen
+                name="fixtures"
+                options={{
+                  headerShown: true, title: "Fixtures", headerBackTitle: "Players",
+                  headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.textPrimary,
+                }}
+              />
+              <Stack.Screen
+                name="model"
+                options={{
+                  headerShown: true, title: "Model and data", headerBackTitle: "History",
+                  headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.textPrimary,
+                }}
+              />
+              <Stack.Screen
                 name="correction"
                 options={{ presentation: "modal", headerShown: true, title: "Edit squad" }}
               />

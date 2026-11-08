@@ -26,6 +26,20 @@ const timeline = process.env.TIMELINE_FIXTURE ? JSON.parse(readFileSync(process.
     transfers: [{ in: { id: 16, name: 'Upgrade', team: 'T6', position: 'MID', cost: 55 }, out: { id: 8, name: 'Player 8', team: 'T3', position: 'MID', cost: 50 } }] }),
   timelineWeek(3, squadAfterMove, { final: false }),
 ] };
+const loopClosed = { event: 11, deadline: '2026-11-21T11:00:00Z', hours_to_deadline: 300, window_opens_at: '2026-11-20T05:00:00Z', window_open: false,
+  locked: false, lock_bundle: null, missed_locks: [], window_hours: 30, command: '.venv/bin/python src/prospective_loop.py auto',
+  job: { state: 'idle', error: null, result: null, elapsed_seconds: 0 },
+  fpl_data: { checkout: true, latest_snapshot_at: '2026-11-06T03:00:00Z', age_hours: 3, stale: false, exported_rounds: [1, 2], alert_hours: 36 } };
+const modelCard = { generated_at: '2026-11-06T15:00:00Z', production: { model_path: 'm', model_family: 'market_hgb', caveat: null },
+  rounds: { shown: 2, counted_v1: 1, counted_v2: 0, needed: 8 }, claim: 'No model is declared better until a pre-registered criterion is met.',
+  leaderboard: [{ model: 'incumbent', rounds_shown: 2, rounds_counted: 1, team_points_diff_mean: 0, team_points_diff_ci: null, weekly_MAE_mean: 1.14, weekly_MAE_diff_mean: 0, brier_60plus_mean: .102, interval_coverage_mean: .871, criterion_met: false },
+    { model: 'refit_20261022', rounds_shown: 1, rounds_counted: 1, team_points_diff_mean: 5, team_points_diff_ci: null, weekly_MAE_mean: 1.15, weekly_MAE_diff_mean: .01, brier_60plus_mean: .108, interval_coverage_mean: .886, criterion_met: false }],
+  criterion_v2: [], calibration: { brier_60plus: .102, interval_coverage: .871, interval_nominal: .8, minutes_recalibration: { rounds: 2, needed: 6 } },
+  limitations: ['Odds cover only the next one or two Gameweeks; later fixtures use the model without market data.'],
+  data_quality: { generated_at: '2026-11-06T15:00:00Z', fpl_data: { checkout: true, latest_snapshot_at: '2026-11-06T14:55:00Z', age_hours: 1, stale: false, exported_rounds: [8, 9], alert_hours: 36 },
+    capture: { capture: 'c', age_hours: 1, odds_coverage: { '10': 1, '11': 1, '12': 0 }, market_fallback_share: .75, sources: {} },
+    code_coverage: { players: 670, with_history: 534, share: .797 }, understat: 'research only', missed_locks: [9], last_evaluated_round: 8,
+    consequences: ['No odds for GW12–12: those forecasts use the model without market information, so later fixtures can look flatter than they are.'] } };
 async function setup(page: Page, beforeLoad?: () => Promise<void>) {
   const requests: Array<{ path: string; body: any }> = [];
   let refreshFails = false;
@@ -35,6 +49,8 @@ async function setup(page: Page, beforeLoad?: () => Promise<void>) {
   let activeHorizon = 3;
   let horizonFails = false;
   let restorable = false;
+  let loop: Record<string, any> = { ...loopClosed };
+  const journal: any[] = [];
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error' && !m.text().includes('status of')) errors.push(m.text()); });
@@ -78,8 +94,33 @@ async function setup(page: Page, beforeLoad?: () => Promise<void>) {
       if (slowTransfer) await new Promise(r => setTimeout(r, 800));
       return transferFails ? json({ detail: 'Temporary solver failure' }, 400) : json(transfer);
     }
-    if (path.endsWith('/plan')) return json({ weeks: [{ event: 6, transfers_out: ['Player 8'], transfers_in: ['Upgrade'], free_transfers_before: 0, paid_transfers: 1, hit: 4, bank: 0, captain: 'Upgrade', formation: '3-4-3', starters: ['Upgrade'], projected_points: 56 }], total_projected_points: 56, discounted_objective_points: 56, global_optimum: true, caveat: 'Static prices.' });
+    if (path.endsWith('/plan')) return json({ weeks: [{ event: 6, transfers_out: ['Player 8'], transfers_in: ['Upgrade'], free_transfers_before: 0, paid_transfers: 1, hit: 4, bank: 0, captain: 'Upgrade', formation: '3-4-3', starters: ['Upgrade'], projected_points: 56,
+      chip: body?.chips ? 'triple_captain' : null, bench: ['Player 2', 'Player 12'], bench_value: .8, autosub: { xi_expected: 56, expected_with_autosubs: 58.4, bench_and_vice_value: 2.4, draws: 150, note: '' } }],
+      total_projected_points: 56, discounted_objective_points: 56, global_optimum: true, caveat: 'Static prices.', bench_weights: body?.bench_weights ?? [.03, .12, .06, .03],
+      bench_note: 'projected_points is XI + captain only.', chip_calendar: body?.chips ? [{ chip: 'triple_captain', event: 6, alternative_event: 7, gain_over_alternative: 3.2 }] : [],
+      requirement_costs: (body?.requirements ?? []).map((r: any) => ({ ...r, cost: 1.3, weeks: 1 })) });
+    if (path.endsWith('/scenarios')) return json({ plans: [
+        { name: 'Hold', first_week_out: [], first_week_in: [], net_points: 150.1, hits: 0, final_bank: 0.5, free_transfers_after: 3, gain_vs_hold: 0, global_optimum: true },
+        { name: 'Plan A', first_week_out: ['Player 8'], first_week_in: ['Upgrade'], net_points: 154.5, hits: 0, final_bank: 0.5, free_transfers_after: 2, gain_vs_hold: 4.4, global_optimum: true }],
+      robustness: { scenarios: 50, seed: 20261108, chosen_share: { Hold: 0.2, 'Plan A': 0.8 }, mean_points: {}, note: 'Share of sampled scenarios.' },
+      assumptions: Object.fromEntries((body?.overrides ?? []).map((o: any) => [String(o.player_id), o.chance])) });
+    if (path.endsWith('/scenarios/breakpoint')) return json({ player_id: body.player_id, name: 'Upgrade', current_chance: 1, threshold: 0.44, above: 'sell Player 8 for Upgrade', below: 'hold',
+      message: "The plan changes from 'sell Player 8 for Upgrade' to 'hold' if Upgrade's chance of playing falls below 44% (now 100%)." });
+    if (path.endsWith('/journal')) {
+      if (request.method() === 'POST') journal.unshift({ event: 6, recorded_at: '2026-10-10T08:00:00Z', deadline: team.deadline, forecast_at: context.forecast_at, counts: true, file: `j${journal.length}`,
+        advice: { decision: 'ROLL', title: 'Roll the free transfer', reason: '', out: [], in: [], captain: 'Player 1' }, alternatives: [{ name: 'Hold', first_week_out: [], first_week_in: [], net_points: 150.1, gain_vs_hold: 0 }],
+        choice: { kind: body.choice, label: body.choice === 'follow' ? 'Follow the advice' : 'Something else', note: body.note } });
+      return json({ entries: journal });
+    }
+    if (path.endsWith('/lineup-value')) return json({ xi_expected: 48, expected_with_autosubs: 50.5, bench_and_vice_value: 2.5, draws: 300, note: 'Bench and vice-captain value.' });
     if (path.endsWith('/chips')) return json({ recommendation: 'Hold', summary: 'Compare chips', forecast_events: [6], best_by_chip: [{ chip: 'triple_captain', label: 'Triple Captain', event: 6, gain: 8, projected_points: 60, threshold: 10, decision: 'CONSIDER', available: true, reason: 'Strong captain', transfers_needed: 0, squad: [], double_players: 0, blank_players: 0 }], candidates: [] });
+    if (path === '/api/loop/status') return json(loop);
+    if (path === '/api/model-card') return json(modelCard);
+    if (path === '/api/loop/lock') {
+      if (loop.locked) return json({ detail: `GW${loop.event} is already locked.` }, 409);
+      loop = { ...loop, job: { ...loop.job, state: 'running' } };
+      return json(loop);
+    }
     if (path.endsWith('/status')) return json({ state: 'running', stage: 'Downloading player histories', elapsed_seconds: 1, captured: 100, total: 667, error: null });
     if (path.endsWith('/refresh')) {
       await new Promise(r => setTimeout(r, 900));
@@ -94,7 +135,7 @@ async function setup(page: Page, beforeLoad?: () => Promise<void>) {
   await page.getByLabel('FPL team ID').fill('5139814');
   await page.getByRole('button', { name: 'Load team', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Workspace team' })).toBeVisible();
-  return { requests, errors, allowRestore: () => { restorable = true; }, failRefresh: () => { refreshFails = true; }, failHorizon: () => { horizonFails = true; }, failTransfer: () => { transferFails = true; slowTransfer = true; }, refreshed: () => refreshed };
+  return { requests, errors, setLoop: (next: Record<string, any>) => { loop = next; }, allowRestore: () => { restorable = true; }, failRefresh: () => { refreshFails = true; }, failHorizon: () => { horizonFails = true; }, failTransfer: () => { transferFails = true; slowTransfer = true; }, refreshed: () => refreshed };
 }
 test('team ID field extracts the ID from a pasted link, ignores the Gameweek and remembers it', async ({ page }) => {
   const state = await setup(page, async () => {
@@ -117,14 +158,15 @@ test('horizon changes keep the current strategy page, preferences and session, a
   await nav(page, 'Player preferences');
   await page.locator('.preference-list > div').filter({ has: page.getByRole('button', { name: 'Player 8', exact: true }) }).getByRole('button', { name: 'Lock', exact: true }).click();
   await nav(page, 'Strategy centre');
-  await page.getByRole('button', { name: 'Create weekly plan' }).click();
+  // U10: the strategy page calculates on opening.
   await expect(page.locator('.strategy-stamp')).toContainText('3 GW');
   await page.getByLabel('Planning horizon', { exact: true }).selectOption('8');
   await expect(page.getByRole('heading', { name: 'Strategy centre', exact: true })).toBeVisible();
   await expect(page.locator('.strategy-stamp')).toContainText('8 GW');
   await expect(page.locator('.roll-comparison')).toContainText('Replaces in the XI: Player 8');
   expect(state.requests.filter(r => r.path.endsWith('/import'))).toHaveLength(1);
-  expect(state.requests.filter(r => r.path.endsWith('/strategy'))).toHaveLength(2);
+  // U9/U10: the overview card and the strategy page both ask; the cache makes repeats cheap.
+  expect(state.requests.filter(r => r.path.endsWith('/strategy')).length).toBeGreaterThanOrEqual(2);
   expect(state.requests.filter(r => r.path.endsWith('/strategy')).at(-1)?.body.locked_ids).toEqual([8]);
   expect(state.requests.find(r => r.path.endsWith('/horizon'))?.path).toBe('/api/team/test/horizon');
   state.failHorizon();
@@ -151,7 +193,7 @@ test('news, keyboard-accessible player detail, comparison after hits and persist
   await page.getByLabel('Player to buy').selectOption('16');
   await page.getByRole('button', { name: 'Compare after hits' }).click();
   await expect(page.locator('.comparison-result')).toContainText('Net expected gain');
-  await expect(page.locator('.comparison-result')).toContainText('8.00');
+  await expect(page.locator('.comparison-result')).toContainText('8.0');
   await page.getByLabel('Name for Comparison plan').fill('Plan A');
   await page.getByRole('button', { name: 'Save plan', exact: true }).click();
   await page.getByLabel('Name for Comparison plan').fill('Plan B');
@@ -179,8 +221,7 @@ test('preferences flow into transfers, multiweek and chips; refresh preserves an
   await page.getByRole('button', { name: 'Find best plan', exact: true }).click();
   await expect(page.locator('.transfer-plan')).toBeVisible();
   expect(state.requests.find(r => r.path.endsWith('/transfers'))?.body).toMatchObject({ locked_ids: [8], excluded_ids: [16] });
-  await nav(page, 'Multiweek plan');
-  await page.getByRole('button', { name: 'Create plan' }).click();
+  await nav(page, 'Multiweek plan');  // U10: the plan opens calculated
   await expect(page.locator('.plan-week')).toBeVisible();
   expect(state.requests.find(r => r.path.endsWith('/plan'))?.body).toMatchObject({ locked_ids: [8], excluded_ids: [16] });
   await nav(page, 'Chips');
@@ -227,7 +268,7 @@ test('mobile comparison and player panel fit viewport', async ({ page }) => {
   expect(size!.width).toBeLessThanOrEqual(390);
   await page.getByRole('button', { name: 'Close player details' }).click();
   await page.locator('.mobile-nav').getByRole('button', { name: 'Players', exact: true }).click();
-  await page.locator('.sub-nav').getByRole('button', { name: 'Compare players', exact: true }).click();
+  await page.locator('.group-sheet').getByRole('button', { name: 'Compare players', exact: true }).click();
   await page.getByLabel('Player to keep / sell').selectOption('8');
   await page.getByLabel('Player to buy').selectOption('16');
   await page.getByRole('button', { name: 'Compare after hits' }).click();
@@ -235,7 +276,7 @@ test('mobile comparison and player panel fit viewport', async ({ page }) => {
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await page.screenshot({ path: 'test-results/workspace-mobile.png', fullPage: true });
   await page.locator('.mobile-nav').getByRole('button', { name: 'Transfers & plan', exact: true }).click();
-  await page.locator('.sub-nav').getByRole('button', { name: 'Transfers', exact: true }).click();
+  await page.locator('.group-sheet').getByRole('button', { name: 'Transfers', exact: true }).click();
   await page.locator('.number-picker button').first().click();
   await page.getByRole('button', { name: 'Find best plan', exact: true }).click();
   await expect(page.locator('.transfer-plan')).toBeVisible();
@@ -317,7 +358,9 @@ test('timeline fits a phone screen', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const state = await setup(page);
   await page.locator('.mobile-nav').getByRole('button', { name: 'History', exact: true }).click();
-  await page.locator('.sub-nav').getByRole('button', { name: 'Timeline', exact: true }).click();
+  await page.locator('.group-sheet').getByRole('button', { name: 'Timeline', exact: true }).click();
+  await expect(page.locator('.group-sheet')).toHaveCount(0);  // U17: the sheet closes after choosing
+  await expect(page.locator('.sub-nav')).toHaveCount(0);      // and there is no second navigation
   await expect(page.locator('.timeline-stepper')).toContainText('GW3');
   await page.getByRole('button', { name: 'Show GW2' }).click();
   await expect(page.locator('.timeline-stepper')).toContainText('GW2');
@@ -344,7 +387,7 @@ test('every page has a deep link; back and refresh keep the page without a new i
 test('every page: buttons have accessible names and the menu works from the keyboard', async ({ page }) => {
   const state = await setup(page);
   for (const id of ['overview', 'lineup', 'strategy', 'transfers', 'plan', 'chips', 'squads', 'market', 'comparison',
-    'preferences', 'analysis', 'timeline', 'squad', 'saved']) {
+    'preferences', 'analysis', 'timeline', 'model', 'scenarios', 'journal', 'squad', 'saved']) {
     await page.evaluate(hash => { window.location.hash = `/${hash}`; }, id);
     await page.waitForTimeout(100);
     const unnamed = await page.evaluate(() => [...document.querySelectorAll('button')]
@@ -364,13 +407,13 @@ test('lineup shows the score the risk profile ranks by, with expected points alo
   const state = await setup(page);
   await nav(page, 'Lineup');
   await expect(page.locator('.profile-note')).toHaveCount(0);
-  await expect(page.locator('.pitch-player').first()).toContainText('4.00');
+  await expect(page.locator('.pitch-player').first()).toContainText('4.0');
   await page.getByRole('button', { name: 'Change', exact: true }).click();
   await page.getByLabel('Profile').selectOption('upside');
   await page.getByRole('button', { name: 'Reload team', exact: true }).click();
   await expect(page.locator('.profile-note')).toContainText('0.7 × expected points + 0.3 × Q90');
-  await expect(page.locator('.pitch-player').first()).toContainText('5.50');
-  await expect(page.locator('.bench-row').first()).toContainText('4.00 expected');
+  await expect(page.locator('.pitch-player').first()).toContainText('5.5');
+  await expect(page.locator('.bench-row').first()).toContainText('4.0 expected');
   await expect(page.getByRole('heading', { name: 'Lineup', exact: true })).toBeVisible();
   expect(state.requests.filter(r => r.path.endsWith('/import')).at(-1)?.body.risk_profile).toBe('upside');
   for (const viewport of shotDir ? [{ width: 1440, height: 900 }, { width: 390, height: 844 }] : []) {
@@ -378,6 +421,109 @@ test('lineup shows the score the risk profile ranks by, with expected points alo
     await page.screenshot({ path: `${shotDir}/lineup-upside-${viewport.width}.png`, fullPage: true });
   }
   expect(state.errors).toEqual([]);
+});
+
+test('lock banner: hidden between windows, lock button in the window, missed rounds and stale fpl-data noted', async ({ page }) => {
+  const app = await setup(page);
+  await expect(page.locator('.lock-banner')).toHaveCount(0);
+  app.setLoop({ ...loopClosed, window_open: true, hours_to_deadline: 20, missed_locks: [9], fpl_data: { ...loopClosed.fpl_data, age_hours: 340, stale: true } });
+  await page.reload();
+  const banner = page.locator('.lock-banner');
+  await expect(banner.getByText('Lock window open for GW11 – lock now')).toBeVisible();
+  await expect(banner.getByText('Never locked: GW9. These rounds cannot count for the model comparison.')).toBeVisible();
+  await expect(banner.getByText('fpl-data: last snapshot 340 h ago. Pull fpl-data or check its Actions runs.')).toBeVisible();
+  await banner.getByRole('button', { name: 'Lock GW11' }).click();
+  await expect(banner.getByText('Locking GW11…')).toBeVisible();
+  await expect(banner.getByRole('button', { name: 'Lock GW11' })).toHaveCount(0);
+  expect(app.requests.filter(r => r.path === '/api/loop/lock')).toHaveLength(1);
+  expect(app.errors).toEqual([]);
+});
+
+test('model card: data quality first, locked rounds with counts, no claim of superiority', async ({ page }) => {
+  const app = await setup(page);
+  await page.goto('/#/model');
+  const card = page.getByRole('region', { name: 'Model card' });
+  await expect(card.getByRole('heading', { name: 'Model and data' })).toBeVisible();
+  await expect(card.getByText('No model is declared better until a pre-registered criterion is met.')).toBeVisible();
+  await expect(card.getByText(/No odds for GW12/)).toBeVisible();
+  await expect(card.getByText('GW10 100% · GW11 100% · GW12 0%')).toBeVisible();
+  await expect(card.getByText('1 of 8 counted (v1) · 0 of 8 (v2)')).toBeVisible();
+  await expect(card.getByRole('row', { name: /Production \(incumbent\)/ })).toContainText('87%');
+  await expect(card.getByText(/never locked: GW9/)).toBeVisible();
+  expect(app.errors).toEqual([]);
+});
+
+test('planner: bench weights travel with every plan, chips and requirements are priced, autosub value shown', async ({ page }) => {
+  const app = await setup(page);
+  await page.goto('/#/preferences');
+  await page.getByLabel('Bench 1').fill('0.2');
+  await page.goto('/#/plan');
+  await page.getByLabel(/Plan chips too/).check();
+  await page.getByRole('combobox', { name: 'Requirement' }).selectOption('sell_in');
+  await page.getByRole('combobox', { name: 'Player', exact: true }).selectOption('8');
+  await page.getByRole('button', { name: 'Add requirement' }).click();
+  await expect(page.getByText('Sell Player 8 in GW6')).toBeVisible();
+  await page.getByRole('button', { name: 'Recalculate' }).click();
+  await expect(page.getByText('Triple Captain in GW6')).toBeVisible();
+  await expect(page.getByText(/nearest alternative GW7/)).toBeVisible();
+  await expect(page.getByText(/costs/)).toContainText('1.3 points');
+  await expect(page.getByText(/With autosubs and vice-captain: 58.4/)).toBeVisible();
+  const sent = app.requests.filter(r => r.path.endsWith('/plan')).at(-1)!.body;
+  expect(sent.chips).toBe(true);
+  expect(sent.bench_weights).toEqual([0.03, 0.2, 0.06, 0.03]);
+  expect(sent.requirements).toEqual([{ kind: 'sell_in', player_id: 8, event: 6 }]);
+  await page.goto('/#/lineup');
+  await expect(page.getByText(/with autosubs and vice-captain/)).toContainText('50.5');
+  expect(app.errors).toEqual([]);
+});
+
+test('phone: every visible control on every page is at least 44 px high and the section sheet closes with Escape', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page);
+  for (const id of ['overview', 'lineup', 'strategy', 'transfers', 'plan', 'chips', 'squads', 'market', 'fixtures', 'comparison',
+    'preferences', 'analysis', 'timeline', 'model', 'scenarios', 'journal', 'squad', 'saved']) {
+    await page.evaluate(hash => { window.location.hash = `/${hash}`; }, id);
+    await page.waitForTimeout(150);
+    const small = await page.evaluate(() => [...document.querySelectorAll('main button, main select, main input:not([type=checkbox]), main summary')]
+      .filter(el => (el as HTMLElement).offsetParent !== null && !el.closest('table') && !el.matches('.link-button, .player-link'))
+      .filter(el => el.getBoundingClientRect().height < 43.5).map(el => `${el.tagName} ${(el as HTMLElement).innerText.slice(0, 30)}`));
+    expect(small, id).toEqual([]);
+  }
+  await page.locator('.mobile-nav').getByRole('button', { name: 'Players', exact: true }).click();
+  await expect(page.locator('.group-sheet')).toBeVisible();
+  await page.locator('.group-sheet button').first().focus();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.group-sheet')).toHaveCount(0);
+});
+
+test('scenarios: plan A/B against holding, your assumptions with reset, tipping point, and the decision journal', async ({ page }) => {
+  const app = await setup(page);
+  await page.goto('/#/scenarios');
+  const scenarios = page.getByRole('region', { name: 'Scenarios' });
+  await expect(scenarios.getByRole('row', { name: /Plan A/ })).toContainText('80% of scenarios');
+  await expect(scenarios.getByRole('row', { name: /Hold/ })).toContainText('No transfer');
+  await expect(scenarios).toContainText('seed 20261108');
+  const assumptions = page.getByRole('region', { name: 'Your assumptions' });
+  await assumptions.getByRole('combobox', { name: 'Player', exact: true }).selectOption('8');
+  await assumptions.getByLabel('Chance of playing (%)').fill('25');
+  await assumptions.getByRole('button', { name: 'Set assumption' }).click();
+  await expect(page.locator('.assumptions-notice')).toContainText('Your assumptions are on (1 player)');
+  await expect.poll(() => app.requests.filter(r => r.path.endsWith('/scenarios')).at(-1)?.body.overrides).toEqual([{ player_id: 8, chance: 0.25 }]);
+  await page.getByRole('region', { name: 'Tipping point' }).getByRole('combobox', { name: 'Player', exact: true }).selectOption('16');
+  await page.getByRole('button', { name: 'Find the tipping point' }).click();
+  await expect(page.locator('.tipping-point')).toContainText('falls below 44%');
+  await page.locator('.assumptions-notice').getByRole('button', { name: 'Reset' }).click();
+  await expect(page.locator('.assumptions-notice')).toHaveCount(0);
+  await page.goto('/#/overview');
+  await page.getByText('Record my decision').click();
+  await page.getByLabel('My decision').selectOption('follow');
+  await page.getByLabel('Note').fill('trust the model');
+  await page.getByRole('button', { name: 'Save to journal' }).click();
+  await expect(page.getByText('Recorded in your decision journal.')).toBeVisible();
+  await page.goto('/#/journal');
+  await expect(page.getByRole('region', { name: 'Decision journal' })).toContainText('Follow the advice');
+  await expect(page.getByRole('region', { name: 'Decision journal' })).toContainText('“trust the model”');
+  expect(app.errors).toEqual([]);
 });
 
 // Visual review only: SCREENSHOT_DIR=/abs/dir npm run test:e2e:workspace --prefix frontend
@@ -388,7 +534,7 @@ for (const [size, viewport] of [['390x844', { width: 390, height: 844 }], ['1440
     await page.setViewportSize(viewport);
     await setup(page, () => page.screenshot({ path: `${shotDir}/${size}/00-load.png`, fullPage: true }));
     const pages = ['overview', 'lineup', 'strategy', 'transfers', 'plan', 'chips', 'squads', 'market', 'comparison',
-      'preferences', 'analysis', 'timeline', 'squad', 'saved'];
+      'preferences', 'analysis', 'timeline', 'model', 'squad', 'saved', 'fixtures', 'scenarios', 'journal'];
     for (const [index, id] of pages.entries()) {
       await page.evaluate(hash => { window.location.hash = `/${hash}`; }, id);
       await page.waitForTimeout(250);

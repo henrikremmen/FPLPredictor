@@ -1,9 +1,10 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from './api';
-import type { Player, PlayerConstraints, PlayerDetail, PlayerComparison, SnapshotChanges, TeamResponse, RefreshStatus } from '@fplmodell/api-client';
+import type { Player, PlayerConstraints, PlayerDetail, PlayerComparison, SnapshotChanges, TeamResponse, RefreshStatus, LoopStatus } from '@fplmodell/api-client';
+import { BENCH_SLOT_LABELS, BENCH_WEIGHTS, loopBanner } from '@fplmodell/shared';
 
 const empty: PlayerConstraints = { locked_ids: [], excluded_ids: [] };
-const value = (n: number | null | undefined) => n == null ? 'Unavailable' : n.toFixed(2);
+const value = (n: number | null | undefined) => n == null ? 'Unavailable' : n.toFixed(1);
 const date = (s: string | null | undefined) => s ? new Date(s).toLocaleString() : 'Unknown';
 const cash = (n: number) => `£${(n / 10).toFixed(1)}m`;
 const errorText = (e: unknown) => e instanceof Error ? e.message : 'Request failed. Try again.';
@@ -22,6 +23,7 @@ interface SavedPlan {
   details: unknown;
 }
 interface WorkspaceState {
+  riskProfile: TeamResponse['risk_profile'];
   constraints: PlayerConstraints;
   setConstraints: (c: PlayerConstraints) => void;
   signature: string;
@@ -81,7 +83,7 @@ export function WorkspaceProvider({ team, children }: { team: TeamResponse; chil
       constraints: { locked_ids: [...constraints.locked_ids], excluded_ids: [...constraints.excluded_ids] } };
     updatePlans([...plans, record]); setNotice(`Saved “${plan.name}”. Open Saved plans to compare alternatives.`);
   };
-  return <WorkspaceContext.Provider value={{ constraints, setConstraints, signature, inspect, save, plans,
+  return <WorkspaceContext.Provider value={{ riskProfile: team.risk_profile, constraints, setConstraints, signature, inspect, save, plans,
     remove: id => updatePlans(plans.filter(p => p.id !== id)),
     rename: (id, name) => updatePlans(plans.map(p => p.id === id ? { ...p, name: name.trim() || p.name } : p)),
     options, optionsError }}>
@@ -112,7 +114,7 @@ export function Preferences({ team }: { team: TeamResponse }) {
   const [query, setQuery] = useState('');
   const owned = new Set(team.squad.map(p => p.id));
   const names = new Map([...options, ...team.squad].map(p => [p.id, p.name]));
-  const toggle = (id: number, field: keyof PlayerConstraints) => {
+  const toggle = (id: number, field: 'locked_ids' | 'excluded_ids') => {
     const other = field === 'locked_ids' ? 'excluded_ids' : 'locked_ids';
     setConstraints({ ...constraints, [field]: constraints[field].includes(id) ? constraints[field].filter(i => i !== id) : [...constraints[field], id],
       [other]: constraints[other].filter(i => i !== id) });
@@ -127,6 +129,7 @@ export function Preferences({ team }: { team: TeamResponse }) {
       {owned.has(p.id) && <button className="secondary" aria-pressed={constraints.locked_ids.includes(p.id)} onClick={() => toggle(p.id, 'locked_ids')}>{constraints.locked_ids.includes(p.id) ? 'Unlock' : 'Lock'}</button>}
       <button className="secondary" aria-pressed={constraints.excluded_ids.includes(p.id)} onClick={() => toggle(p.id, 'excluded_ids')}>{constraints.excluded_ids.includes(p.id) ? 'Include again' : 'Exclude'}</button></div>)}</div>
     <button className="secondary" onClick={() => setConstraints(empty)}>Clear preferences</button>
+    <BenchWeights />
   </section>;
 }
 
@@ -166,6 +169,7 @@ function PlayerInspector({ team, id, close }: { team: TeamResponse; id: number; 
     return () => { active = false; };
   }, [team.session_id, id]);
   const probability = (n: number | undefined) => n == null ? 'Unavailable' : `${(n * 100).toFixed(0)}%`;
+  const narrow = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 760px)').matches;
   return <dialog className="player-dialog" ref={dialog} onCancel={close} aria-labelledby="player-title">
     <button className="secondary dialog-close" onClick={close} aria-label="Close player details">Close</button>
     <h2 id="player-title">{detail?.player.name ?? 'Player details'}</h2>
@@ -173,19 +177,21 @@ function PlayerInspector({ team, id, close }: { team: TeamResponse; id: number; 
       <p>{detail.player.team} · {detail.player.position} · {cash(detail.player.price)} · {team.horizon} GW</p>
       <div className="workspace-metrics"><span>Expected points<strong>{value(detail.player.recommended_points)}</strong></span><span>Decision score ({team.risk_profile})<strong>{value(detail.player.decision_points)}</strong></span><span>FPL playing chance<strong>{probability(detail.player.availability)}</strong></span></div>
       <h3>Team news</h3><p>{detail.player.news || 'No current FPL news reported.'}</p><small>News timestamp: {date(detail.news_added)}</small>
-      <h3>Fixtures and expected points</h3><div className="table-scroll"><table><thead><tr><th>GW</th><th>Opponent</th><th>Expected points</th><th>Decision score</th></tr></thead><tbody>{detail.weeks.map(w => <tr key={w.forecast_event}><td>{w.forecast_event}</td><td>{w.opponent}</td><td>{value(w.recommended_points)}</td><td>{value(w.decision_points)}</td></tr>)}</tbody></table></div>
-      <h3>Playing time and uncertainty per fixture</h3><p>{detail.minutes_note}</p>
+      <details className="sheet-section" open><summary><h3>Fixtures and expected points</h3></summary><div className="table-scroll"><table><thead><tr><th>GW</th><th>Opponent</th><th>Expected points</th><th>Decision score</th></tr></thead><tbody>{detail.weeks.map(w => <tr key={w.forecast_event}><td>{w.forecast_event}</td><td>{w.opponent}</td><td>{value(w.recommended_points)}</td><td>{value(w.decision_points)}</td></tr>)}</tbody></table></div></details>
+      {/* U14: summary first; detailed tables fold out (closed on a phone, where the panel is a bottom sheet). */}
+      <details className="sheet-section" open={!narrow}><summary><h3>Playing time and uncertainty per fixture</h3></summary><p>{detail.minutes_note}</p>
       <div className="table-scroll"><table><thead><tr><th>GW</th><th>Kickoff</th><th>No minutes</th><th>1–59 min</th><th>60+ min</th><th>Q10–Q90 points</th></tr></thead><tbody>{detail.fixtures.map((f, i) => <tr key={i}><td>{f.GW}</td><td>{date(f.kickoff_time)}</td><td>{probability(f.p_zero_minutes)}</td><td>{probability(f.p_1_59_minutes)}</td><td>{probability(f.p_60plus_minutes)}</td><td>{value(f.prediction_q10)} – {value(f.prediction_q90)}</td></tr>)}</tbody></table></div>
       {!detail.fixtures.length && <p>Fixture-level probabilities are unavailable in this snapshot.</p>}
-      <p>{detail.uncertainty_note}</p><p>Current recommendations retain the same FPL availability adjustment across future gameweeks.</p>
+      <p>{detail.uncertainty_note}</p><p>Current recommendations retain the same FPL availability adjustment across future gameweeks.</p></details>
       {!!detail.injury_scenarios?.length && <section aria-label="Return-date scenario">
         <h3>Return-date scenario</h3>
         <p>FPL reports an expected return on {date(detail.injury_scenarios[0].reported_return)}. The scenario below removes the extra injury adjustment for later rounds from that date. It is an assumption, not a calibrated recovery probability or a guaranteed start. Current recommendations use the conservative column.</p>
         <div className="table-scroll"><table><thead><tr><th>GW</th><th>Kickoff</th><th>Conservative points</th><th>If back as reported</th></tr></thead>
           <tbody>{detail.injury_scenarios.map(s => <tr key={s.fixture}><td>{s.GW}</td><td>{date(s.kickoff_time)}</td><td>{value(s.conservative_points)}</td><td>{value(s.reported_return_points)}</td></tr>)}</tbody></table></div>
       </section>}
+      <details className="sheet-section" open={!narrow}><summary><h3>Sources</h3></summary>
       <p>Forecast: {date(detail.context.forecast_at)}<br />Source snapshot: {date(detail.context.observed_at)}<br />Player news and prices checked: {date(detail.context.player_data_at)}</p>
-      <a href={detail.context.source_url} target="_blank" rel="noreferrer">Official FPL source</a>
+      <a href={detail.context.source_url} target="_blank" rel="noreferrer">Official FPL source</a></details>
     </>}
   </dialog>;
 }
@@ -244,7 +250,10 @@ export function SavedPlans({ team }: { team: TeamResponse }) {
   return <><header className="page-heading"><div><span className="eyebrow">Saved locally for {team.team_name}</span><h1>Saved plans</h1><p>Choose two plans to compare. Saved results retain their original inputs and never change your FPL squad.</p></div></header>
     {!workspace.plans.length && <section className="panel"><p>Save alternatives from transfers, player comparison, multiweek plans or chip analysis.</p></section>}
     <div className="saved-plan-list">{workspace.plans.map(p => <article className="panel" key={p.id}>
-      <label>Plan name<input value={p.name} maxLength={100} onChange={e => workspace.rename(p.id, e.target.value)} /></label><p>{p.kind} · {p.summary}</p><small>{date(p.created)} · GW{p.event} · {p.horizon} GW · {p.risk}</small>
+      <label>Plan name<input value={p.name} maxLength={100} onChange={e => workspace.rename(p.id, e.target.value)} /></label>
+      <span className="eyebrow">{p.kind}</span><p className="saved-moves">{p.summary}</p>
+      <dl className="fact-list saved-facts">{planFacts(p).map(([label, fact]) => <div key={label}><dt>{label}</dt><dd>{fact}</dd></div>)}</dl>
+      <small>{date(p.created)} · GW{p.event} · {p.horizon} GW · {p.risk}</small>
       <ResultStatus signature={p.signature} />
       <div className="saved-actions"><button className="secondary" aria-pressed={selected.includes(p.id)} disabled={selected.length === 2 && !selected.includes(p.id)} onClick={() => setSelected(ids => ids.includes(p.id) ? ids.filter(id => id !== p.id) : [...ids, p.id])}>{selected.includes(p.id) ? 'Selected for comparison' : 'Compare A/B'}</button><button className="secondary" onClick={() => { workspace.remove(p.id); setSelected(ids => ids.filter(id => id !== p.id)); }}>Delete</button></div>
       <details><summary>Saved plan and assumptions</summary><p>Bank: {cash(p.bank)} · {p.freeTransfers} FT · Locked: {p.constraints.locked_ids.join(', ') || 'None'} · Excluded: {p.constraints.excluded_ids.join(', ') || 'None'}</p><p>Forecast: {date(p.forecastAt)}<br />Original squad: {p.squad?.map(player => player.name).join(", ") ?? "Not recorded"}</p><PlanDetails data={p.details} /></details>
@@ -256,14 +265,27 @@ export function SavedPlans({ team }: { team: TeamResponse }) {
       </tbody></table></div></section>}
   </>;
 }
+/** U13: the facts a manager compares — hits, bank, free transfers and gain over holding. */
+function planFacts(p: SavedPlan): Array<[string, string]> {
+  const pick = (...keys: string[]) => keys.map(key => p.metrics[key]).find(v => v !== undefined);
+  const num = (v: unknown, unit = '') => typeof v === 'number' ? `${value(v)}${unit}` : v == null ? '—' : String(v);
+  const gain = pick('Net expected gain', 'Expected gain', 'Gain over roll');
+  return [
+    ['Hits', num(pick('Hit', 'Total hits') ?? 0)],
+    ['Bank after', typeof pick('Bank after (£m)', 'Final bank (£m)') === 'number' ? `£${Number(pick('Bank after (£m)', 'Final bank (£m)')).toFixed(1)}m` : '—'],
+    ['Free transfers at save', String(p.freeTransfers)],
+    ['vs holding', typeof gain === 'number' ? `${gain > 0 ? '+' : ''}${value(gain)} pts` : '—'],
+  ];
+}
+
 function PlanDetails({ data }: { data: unknown }) {
   if (data == null) return <span>—</span>;
   if (Array.isArray(data)) return <ul>{data.map((item, i) => <li key={i}><PlanDetails data={item} /></li>)}</ul>;
   if (typeof data === 'object') return <dl className="plan-details">{Object.entries(data).filter(([key]) => key !== 'context').map(([key, v]) => <div key={key}><dt>{key.replaceAll('_', ' ')}</dt><dd><PlanDetails data={v} /></dd></div>)}</dl>;
-  return <span>{typeof data === 'number' ? (Number.isInteger(data) ? data : data.toFixed(2)) : String(data)}</span>;
+  return <span>{typeof data === 'number' ? (Number.isInteger(data) ? data : data.toFixed(1)) : String(data)}</span>;
 }
 
-export function ForecastStatus({ team, refreshing }: { team: TeamResponse | null; refreshing: boolean }) {
+export function ForecastStatus({ team, refreshing, children }: { team: TeamResponse | null; refreshing: boolean; children?: ReactNode }) {
   const [status, setStatus] = useState<RefreshStatus | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [pollError, setPollError] = useState(false);
@@ -286,6 +308,62 @@ export function ForecastStatus({ team, refreshing }: { team: TeamResponse | null
     {refreshing ? <><strong>{status?.stage ?? 'Starting forecast update'} · {elapsed}s</strong>
       <progress value={status?.total && status.captured < status.total ? status.captured : undefined} max={status?.total ?? 1} />
       <span>{status?.captured ? `${status.captured}${status.total ? ` / ${status.total}` : ''} player histories received. ` : ''}Previous results remain visible until the update succeeds.</span>
-      {pollError && <span>Progress temporarily unavailable; the update request is still running.</span>}</> : team ? <><strong>Forecast updated {date(stamp)}</strong><span>Player news and prices checked {date(team.forecast_context?.player_data_at)}</span><span>{old ? 'Forecast age is unknown or over 24 hours. Refresh before acting.' : 'Check for late team news before the deadline.'}</span></> : null}
+      {pollError && <span>Progress temporarily unavailable; the update request is still running.</span>}</> : team ? <div className="status-line">
+      {/* U11: one line; the details open on demand. */}
+      <details><summary><strong className={old ? 'stale' : ''}>{old ? '⚠ ' : ''}Forecast {date(stamp)}</strong></summary>
+        <span>Player news and prices checked {date(team.forecast_context?.player_data_at)}.</span>
+        <span>{old ? 'Forecast age is unknown or over 24 hours. Refresh before acting.' : 'Check for late team news before the deadline.'}</span></details>
+      {children}</div> : null}
   </section>;
+}
+
+/** Plan O2: lock-window banner. Polls slowly, faster while a lock runs; nothing is scheduled. */
+/** P5: a reminder on every page while your own assumptions change the numbers. */
+export function AssumptionsNotice({ onOpen }: { onOpen: () => void }) {
+  const { constraints, setConstraints } = useWorkspace();
+  const count = constraints.overrides?.length ?? 0;
+  if (!count) return null;
+  return <p className="assumptions-notice" role="status">Your assumptions are on ({count} player{count === 1 ? "" : "s"}): every number uses your chance of playing.
+    {" "}<button className="link-button" onClick={onOpen}>Review</button>{" · "}<button className="link-button" onClick={() => { const { overrides: _, ...rest } = constraints; setConstraints(rest); }}>Reset</button></p>;
+}
+
+export function LockBanner() {
+  const [status, setStatus] = useState<LoopStatus | null>(null);
+  const [error, setError] = useState('');
+  const running = status?.job.state === 'running';
+  useEffect(() => {
+    let active = true;
+    const poll = () => api.loopStatus().then(next => { if (active) setStatus(next); }).catch(() => undefined);
+    void poll();
+    const timer = window.setInterval(poll, running ? 3000 : 60000);
+    return () => { active = false; clearInterval(timer); };
+  }, [running]);
+  const banner = status ? loopBanner(status) : null;
+  if (!banner && !error) return null;
+  const lock = async () => {
+    setError('');
+    try { setStatus(await api.lockRound()); } catch (e) { setError(errorText(e)); }
+  };
+  return <section className={`lock-banner ${banner?.tone ?? 'warning'}`} aria-live="polite" aria-busy={running}>
+    {banner?.headline && <strong>{banner.headline}</strong>}
+    {banner?.canLock && <button className="primary" onClick={() => void lock()}>Lock GW{status?.event}</button>}
+    {running && <progress aria-label="Locking" />}
+    {banner?.notes.map(note => <span key={note}>{note}</span>)}
+    {banner?.canLock && <small>Runs <code>{status?.command}</code> in the background. Deadline {date(status?.deadline)}.</small>}
+    {error && <span role="alert">{error}</span>}
+  </section>;
+}
+
+/** Plan P1: the bench's share of each player's forecast in decisions, shown and adjustable. */
+function BenchWeights() {
+  const { constraints, setConstraints } = useWorkspace();
+  const weights = constraints.bench_weights ?? [...BENCH_WEIGHTS];
+  const set = (slot: number, value: number) => setConstraints({ ...constraints,
+    bench_weights: weights.map((w, i) => i === slot ? Math.min(1, Math.max(0, value)) : w) });
+  return <fieldset className="bench-weights"><legend>Bench weights</legend>
+    <p>Decisions count this share of each bench player's forecast, in bench order, as a rough value of autosubs. Expected points shown elsewhere stay XI + captain only. Set all to 0 to ignore the bench.</p>
+    <div>{BENCH_SLOT_LABELS.map((label, slot) => <label key={label}>{label}<input type="number" min="0" max="1" step="0.01" value={weights[slot]}
+      onChange={e => set(slot, Number(e.target.value))} /></label>)}</div>
+    {constraints.bench_weights && <button className="secondary" onClick={() => { const { bench_weights: _, ...rest } = constraints; setConstraints(rest); }}>Default weights ({BENCH_WEIGHTS.join(' / ')})</button>}
+  </fieldset>;
 }
