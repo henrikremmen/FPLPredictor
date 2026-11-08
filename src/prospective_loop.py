@@ -17,6 +17,7 @@ results go to ``artifacts/prospective_eval/``.
     python src/prospective_loop.py lock --event 8
     python src/prospective_loop.py evaluate
     python src/prospective_loop.py leaderboard
+    python src/prospective_loop.py extend           # E3 metrics for rounds evaluated earlier
 """
 
 from __future__ import annotations
@@ -247,11 +248,16 @@ def round_table(root: Path) -> pd.DataFrame:
         meta = json.loads(meta_path.read_text())
         found = {}
         for report_path in sorted((meta_path.parent / "forecasts").glob("*/report.json")):
+            extended = report_path.with_name("extended.json")
+            intervals = {m["model"]: m.get("interval_q10_q90") or {} for m in
+                         (json.loads(extended.read_text())["metrics"] if extended.exists() else [])}
             for metric in json.loads(report_path.read_text())["metrics"]:
                 found.setdefault(metric["model"], {
                     "fixture_MAE": metric["fixture_points"]["MAE"], "fixture_RMSE": metric["fixture_points"]["RMSE"],
                     "weekly_MAE": metric["weekly_points"]["MAE"], "weekly_RMSE": metric["weekly_points"]["RMSE"],
                     "brier_60plus": metric.get("minutes", {}).get("brier_60plus"),
+                    "interval_coverage": intervals.get(metric["model"], {}).get("coverage"),
+                    "interval_width": intervals.get(metric["model"], {}).get("mean_width"),
                 })
         for metric in json.loads((meta_path.parent / "decisions" / "report.json").read_text())["metrics"]:
             if metric["model"] in found:
@@ -290,6 +296,9 @@ def summarize(table: pd.DataFrame) -> list[dict]:
             "team_points_diff_mean": float(points.mean()) if len(points) else None,
             "team_points_diff_ci": [low, high] if low is not None else None,
             "weekly_MAE_diff_mean": float(mae.mean()) if len(mae) else None,
+            **{f"{name}_mean": (float(frame[name].mean()) if name in frame and frame[name].notna().any() else None)
+               for name in ("brier_60plus", "interval_coverage", "interval_width")},
+            "rounds_with_intervals": int(frame["interval_coverage"].notna().sum()) if "interval_coverage" in frame else 0,
         }
         row["criterion_met"] = bool(model != REFERENCE and len(points) >= CRITERION["min_rounds"]
                                     and low is not None and low > 0 and row["weekly_MAE_diff_mean"] <= 0)
@@ -331,6 +340,85 @@ def fit_minutes_calibration(root: Path, model: str = REFERENCE) -> Path:
     return folder
 
 
+def secondary_table(models: list[dict]) -> str:
+    """E3: secondary measures; they never decide the criterion. Rounds shown with every number."""
+    fmt = lambda value, spec: "–" if value is None else format(value, spec)
+    lines = ["## Secondary measures (E3; do not decide the criterion)", "",
+             "| Model | Rounds | Brier 60+ | Q10–Q90 coverage (nominal 80%) | Mean Q10–Q90 width |",
+             "|---|---:|---:|---:|---:|"]
+    for row in models:
+        lines.append(f"| {row['model']} | {row['rounds_shown']} ({row.get('rounds_with_intervals', 0)} with intervals) | "
+                     f"{fmt(row.get('brier_60plus_mean'), '.3f')} | {fmt(row.get('interval_coverage_mean'), '.1%')} | "
+                     f"{fmt(row.get('interval_width_mean'), '.2f')} |")
+    return "\n".join(lines) + "\n\nOne or two rounds say little; see each round's extended.json for bias by position and DC band.\n\n"
+
+
+def extend(root: Path) -> list[str]:
+    """Write E3 extended.json for evaluated rounds that lack it (new files only)."""
+    from prospective_evaluation import write_extended
+    written = []
+    for report in sorted((Path(root) / "artifacts/prospective_eval").glob("*/forecasts/*/report.json")):
+        if report.with_name("extended.json").exists():
+            continue
+        bundle = Path(root) / "artifacts/prospective" / report.parent.name
+        if (bundle / "manifest.json").exists():
+            written.append(str(write_extended(bundle, report.parent)))
+    return written
+
+
+def criterion_v2_section(root: Path) -> dict:
+    """E1: v2 statistics. Only bundles locked after v2's registration count; earlier ones are diagnostics."""
+    import criterion_v2
+    counted, diagnostic, synthetic = [], [], []
+    prospective, results = Path(root) / "artifacts/prospective", Path(root) / "artifacts/prospective_eval"
+    for name, spec in rounds(root).items():
+        if spec["protocol"] != CRITERION["protocol"] or not (results / name / "round.json").exists():
+            continue
+        bundle, decisions = prospective / spec["forecasts"][0], prospective / spec["decisions"]
+        rows = criterion_v2.load_round(results / name, bundle, decisions)
+        (counted if criterion_v2.applies(bundle) else diagnostic).append(rows)
+        cache = results / name / "synthetic_squads.csv"  # new file; deterministic seed
+        if not cache.exists():
+            criterion_v2.synthetic_round(bundle, decisions, results / name).to_csv(cache, index=False)
+        synthetic.append(pd.read_csv(cache).assign(round=name, counted=criterion_v2.applies(bundle)))
+    frame = lambda parts: pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+    squads = frame(synthetic)
+    squad_means = (squads.groupby(["round", "model", "counted"]).points.mean().reset_index().to_dict("records")
+                   if len(squads) else [])
+    document = Path(root) / criterion_v2.CRITERION_V2["document"]
+    return {"criterion": criterion_v2.CRITERION_V2,
+            "criterion_document_sha256": hashlib.sha256(document.read_bytes()).hexdigest() if document.exists() else None,
+            "counted": criterion_v2.summarize(frame(counted)),
+            "diagnostic_not_counted": criterion_v2.summarize(frame(diagnostic)), "synthetic_squads": squad_means}
+
+
+def _v2_lines(section: dict) -> list[str]:
+    fmt = lambda value, spec="+.3f": "–" if value is None else format(value, spec)
+    lines = [f"## Criterion v2 ({section['criterion']['document']})", "",
+             f"Primary challenger: `{section['criterion']['primary_challenger']}`. Counts only rounds locked after "
+             f"{section['criterion']['registered']}. Δ is challenger − incumbent in weekly absolute error per cohort "
+             "player (negative = better).", ""]
+    for title, rows in (("Counted", section["counted"]), ("Diagnostic only, locked before v2 (not counted)",
+                                                         section["diagnostic_not_counted"])):
+        lines += [f"**{title}**", "", "| Model | Role | Rounds | Players/round | Δ MAE | 95% CI | Δ pinball | Holm p | Criterion |",
+                  "|---|---|---:|---:|---:|---|---:|---:|---|"]
+        if not rows:
+            lines.append("| – | – | 0 | – | – | – | – | – | – |")
+        for row in rows:
+            ci = "–" if row["mae_diff_ci"] is None else f"{row['mae_diff_ci'][0]:+.3f} … {row['mae_diff_ci'][1]:+.3f}"
+            lines.append(f"| {row['model']} | {row['role']} | {row['rounds']} | {row['players_per_round']:.0f} | "
+                         f"{fmt(row['mae_diff_mean'])} | {ci} | {fmt(row['pinball_diff_mean'])} | "
+                         f"{fmt(row['p_holm'], '.3f')} | {'met' if row['criterion_met'] else 'not met'} |")
+        lines.append("")
+    if section["synthetic_squads"]:
+        lines += ["**Synthetic squads (secondary)**: mean actual points of 300 ownership-weighted legal squads, "
+                  "each model choosing XI and captain.", "", "| Round | Model | Mean points | Counted |", "|---|---|---:|---|"]
+        lines += [f"| {r['round']} | {r['model']} | {r['points']:.2f} | {'yes' if r['counted'] else 'no'} |"
+                  for r in section["synthetic_squads"]]
+        lines.append("")
+    return lines
+
+
 def leaderboard(root: Path) -> dict:
     output = Path(root) / "artifacts/prospective_eval"
     output.mkdir(parents=True, exist_ok=True)
@@ -344,7 +432,8 @@ def leaderboard(root: Path) -> dict:
     calibration = calibration_rows(root)
     result["minutes_calibration"] = {"rounds": int(calibration["round"].nunique()) if len(calibration) else 0,
                                      "needed": MIN_CALIBRATION_ROUNDS}
-    (output / "leaderboard.json").write_text(json.dumps(result, indent=2))
+    result["criterion_v2"] = criterion_v2_section(root)
+    (output / "leaderboard.json").write_text(json.dumps(result, indent=2, default=str))
     lines = ["| Model | Rounds (counted) | Team points | Δ team pts/round | 95% CI | Weekly MAE | Δ MAE | Criterion |",
              "|---|---:|---:|---:|---|---:|---:|---|"]
     fmt = lambda value: "–" if value is None else f"{value:+.2f}"
@@ -357,9 +446,67 @@ def leaderboard(root: Path) -> dict:
         f"# Prospective leaderboard\n\nGenerated {result['generated_at']}. Criterion v{CRITERION['version']} "
         f"({CRITERION['document']}); only `{CRITERION['protocol']}` rounds count. "
         "The loop never changes the production model.\n\n" + "\n".join(lines) + "\n\n"
+        + secondary_table(result["models"]) + "\n".join(_v2_lines(result["criterion_v2"])) + "\n" +
         f"Playing-time calibration (M7): {result['minutes_calibration']['rounds']} of "
         f"{MIN_CALIBRATION_ROUNDS} evaluated rounds needed.\n")
     return result
+
+
+FIRST_LOOP_EVENT = 8  # the loop started with GW8; earlier rounds were never its job
+
+
+def _locked_events(root: Path) -> dict[int, str]:
+    found = {}
+    for path in sorted((Path(root) / "artifacts/prospective").glob("loop_gw*_*/manifest.json")):
+        event = path.parent.name.split("_")[1][2:]
+        if event.isdigit():
+            found.setdefault(int(event), path.parent.name)
+    return found
+
+
+def status(root: Path, events: list[dict], now=None) -> dict:
+    """Lock window for the next deadline (plan O2) and rounds the loop never locked.
+
+    ``events`` comes from any bootstrap; the next round is the first deadline
+    after ``now`` rather than FPL's ``is_next``, so an old capture still works.
+    """
+    now = utc(now or datetime.now(timezone.utc))
+    locked = _locked_events(root)
+    upcoming = sorted((e for e in events if utc(e["deadline_time"]) > now), key=lambda e: utc(e["deadline_time"]))
+    missed = sorted(int(e["id"]) for e in events if utc(e["deadline_time"]) <= now
+                    and int(e["id"]) >= FIRST_LOOP_EVENT and int(e["id"]) not in locked)
+    result = {"event": None, "deadline": None, "hours_to_deadline": None, "window_opens_at": None,
+              "window_open": False, "locked": False, "lock_bundle": None, "missed_locks": missed,
+              "window_hours": LOCK_WINDOW_HOURS}
+    if upcoming:
+        event, deadline = int(upcoming[0]["id"]), utc(upcoming[0]["deadline_time"])
+        hours = (deadline - now).total_seconds() / 3600
+        result.update(event=event, deadline=deadline.isoformat(), hours_to_deadline=round(hours, 2),
+                      window_opens_at=(deadline - pd.Timedelta(hours=LOCK_WINDOW_HOURS)).isoformat(),
+                      window_open=hours <= LOCK_WINDOW_HOURS, locked=event in locked,
+                      lock_bundle=locked.get(event))
+    return result
+
+
+def shadow_rounds(root: Path, now) -> list[str]:
+    """E2: lock every shadow season whose next round is locked here, score rounds with outcomes."""
+    import shadow_season
+    done = []
+    for base in sorted((Path(root) / "artifacts/shadow_season").glob("*_*")):
+        season, team = base.name.rsplit("_", 1)
+        for state in sorted(base.glob("state_gw*.json")):
+            event = int(state.stem.split("gw")[1])
+            locked, scored = base / f"lock_gw{event}.json", base / f"score_gw{event}.json"
+            try:
+                if not locked.exists() and any((Path(root) / "artifacts/prospective").glob(f"loop_gw{event}_*/manifest.json")):
+                    shadow_season.lock(root, season, int(team), event, now)
+                    done.append(f"locked {base.name} GW{event}")
+                elif locked.exists() and not scored.exists():
+                    shadow_season.score(root, season, int(team), event)
+                    done.append(f"scored {base.name} GW{event}")
+            except ValueError as exc:  # deadline passed or outcomes not exported yet
+                done.append(f"skipped {base.name} GW{event}: {exc}")
+    return done
 
 
 def auto(root: Path, now=None, run_capture=None) -> dict:
@@ -392,13 +539,14 @@ def auto(root: Path, now=None, run_capture=None) -> dict:
             result["captured"].append("outcomes")
             break
     result["evaluation"] = evaluate(root)
+    result["shadow_season"] = shadow_rounds(root, now)
     result["leaderboard"] = [(row["model"], row["rounds_shown"], row["criterion_met"]) for row in leaderboard(root)["models"]]
     return result
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["auto", "lock", "evaluate", "leaderboard"])
+    parser.add_argument("command", choices=["auto", "lock", "evaluate", "leaderboard", "extend"])
     parser.add_argument("--event", type=int)
     parser.add_argument("--root", type=Path, default=ROOT)
     args = parser.parse_args(argv)
@@ -410,6 +558,8 @@ def main(argv=None) -> int:
         result = evaluate(args.root)
     elif args.command == "leaderboard":
         result = leaderboard(args.root)
+    elif args.command == "extend":
+        result = {"written": extend(args.root), "leaderboard": leaderboard(args.root)["generated_at"]}
     else:
         result = auto(args.root)
     print(json.dumps(result, indent=2, default=str))

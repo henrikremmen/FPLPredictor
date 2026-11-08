@@ -22,6 +22,7 @@ export default function History() {
     <Screen onRefresh={pull.onRefresh} refreshing={pull.refreshing}>
       <Text style={typography.title}>History</Text>
       <Button label="Season timeline: squad per Gameweek" variant="secondary" onPress={() => router.push("/timeline")} />
+      <Button label="Model and data quality" variant="secondary" onPress={() => router.push("/model")} />
       <Segmented
         value={tab}
         onChange={setTab}
