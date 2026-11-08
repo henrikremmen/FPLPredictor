@@ -86,3 +86,4 @@ coverage/
 /fpl-data/
 data/processed/cleaned_merged_seasons_team_aggregated_expanded.csv
 data/processed/features_*/
+data/processed/role_history_*.csv

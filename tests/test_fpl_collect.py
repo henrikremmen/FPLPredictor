@@ -184,12 +184,15 @@ class ExportTest(unittest.TestCase):
             first = auto(root, observed_at="2026-09-01T03:00:00Z")
             second = auto(root, observed_at="2026-09-01T04:00:00Z")
             self.assertEqual(first["export"]["events"], [1, 2])
-            self.assertEqual(second, {"light_snapshot": None, "export": None})
+            self.assertEqual(second, {"light_snapshot": None, "export": None, "gap_hours": 4.0, "gap_alert": False})
+            self.assertIsNone(first["gap_hours"])
             manifest = json.loads((Path(first["light_snapshot"]) / "manifest.json").read_text())
             self.assertEqual(manifest["capture_phases"], ["daily"])
             self.assertEqual(sorted(manifest["files"]), ["bootstrap", "event_status", "fixtures", "set_piece_notes"])
             self.assertEqual(len(list((root / "snapshots").glob("*/*/manifest.json"))), 1)
             self.assertEqual(sorted(p.name for p in root.iterdir()), ["data", "snapshots"])
+            late = auto(root, observed_at="2026-09-03T04:00:00Z")  # two days of missed runs
+            self.assertEqual((late["gap_hours"], late["gap_alert"]), (52.0, True))
 
     def test_contract_failure_writes_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -228,3 +231,29 @@ class CollectorCopyTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ManifestTimingTest(unittest.TestCase):
+    """O4: new manifests carry observed/available/published times and versions; old ones still read."""
+
+    def test_snapshot_manifest_has_provenance_and_file_timing(self):
+        with tempfile.TemporaryDirectory() as tmp, SMALL, patch.object(fpl_collect, "REQUEST_INTERVAL", 0), \
+                patch.object(fpl_collect, "capture_endpoint",
+                             lambda *a: (lambda data, rec: (data, fpl_collect.timing({**rec, "received_at": "2026-09-01T00:00:01+00:00"})))(
+                                 *fake_api(*world(), [])(*a))):
+            first = auto(Path(tmp), observed_at="2026-09-01T03:00:00Z")
+            manifest = json.loads((Path(first["light_snapshot"]) / "manifest.json").read_text())
+            self.assertEqual((manifest["manifest_schema"], manifest["rules_version"]), (2, "fpl-2026-27"))
+            record = manifest["files"]["bootstrap"]
+            self.assertEqual(record["available_at"], record["observed_at"])
+            self.assertIsNone(record["published_at"])  # unknown stays unknown
+            old = {k: v for k, v in manifest.items() if k not in ("manifest_schema", "source_version", "rules_version")}
+            (Path(first["light_snapshot"]) / "manifest.json").write_text(json.dumps(old))
+            self.assertEqual(len(fpl_collect.snapshot_manifests(Path(tmp) / "snapshots")), 1)
+
+    def test_odds_publication_time_is_the_newest_bookmaker_update(self):
+        from capture_fpl import latest_update
+        payload = [{"bookmakers": [{"last_update": "2026-11-06T10:00:00Z"}, {"last_update": "2026-11-06T12:30:00Z"}]},
+                   {"bookmakers": [{"last_update": "2026-11-06T11:00:00Z"}]}]
+        self.assertEqual(latest_update(payload), "2026-11-06T12:30:00Z")
+        self.assertIsNone(latest_update({"matches": []}))

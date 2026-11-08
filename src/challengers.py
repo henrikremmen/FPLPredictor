@@ -182,7 +182,21 @@ def _residual_model():
                                          l2_regularization=1.0, min_samples_leaf=100, random_state=0)
 
 
-def _residual_fit(data: pd.DataFrame, featurize, select=lambda rows: rows):
+def _group_check(rows: pd.DataFrame, actual, base, adjusted, groups) -> dict:
+    """Retrospective MAE by stratum (e.g. position, DC band), with row counts."""
+    labels = groups(rows)
+    out = {}
+    for name in sorted(labels.dropna().unique()):
+        mask = (labels == name).to_numpy()
+        out[str(name)] = {"rows": int(mask.sum()), "base_MAE": float(np.abs(actual[mask] - base[mask]).mean()),
+                          "adjusted_MAE": float(np.abs(actual[mask] - adjusted[mask]).mean()),
+                          "base_bias": float((base[mask] - actual[mask]).mean()),
+                          "adjusted_bias": float((adjusted[mask] - actual[mask]).mean())}
+    return out
+
+
+def _residual_fit(data: pd.DataFrame, featurize, select=lambda rows: rows, groups=None,
+                  factory=None, alternatives=None):
     """Shared by M2, M5 and M8. Bases trained to 2024-25 and 2025-26 predict 2025-26 and
     this season out of sample; the correction learns actual minus base. The check fits
     on 2025-26 only and is applied to this season."""
@@ -191,15 +205,24 @@ def _residual_fit(data: pd.DataFrame, featurize, select=lambda rows: rows):
         rows = select(data[data.season.eq(target)].sort_values(["kickoff_time", "player_id"]).reset_index(drop=True))
         base = np.asarray(_production_model(data[data.season.le(last_training)], "market_hgb").predict(rows), float)
         actual = rows[TARGET].to_numpy(float)
-        frames[target] = (featurize(rows, base), actual - base, actual, base)
-    x_train, y_train, _, _ = frames["2025-26"]
-    x_test, _, actual, base_prediction = frames[CURRENT_SEASON]
-    adjusted = base_prediction + _residual_model().fit(x_train, y_train).predict(x_test)
+        frames[target] = (featurize(rows, base), actual - base, actual, base, rows)
+    x_train, y_train = frames["2025-26"][:2]
+    x_test, _, actual, base_prediction, test_rows = frames[CURRENT_SEASON]
+    factory = factory or _residual_model
+    adjusted = base_prediction + factory().fit(x_train, y_train).predict(x_test)
     check = {"rows": int(len(actual)), "base_MAE": float(np.abs(actual - base_prediction).mean()),
              "adjusted_MAE": float(np.abs(actual - adjusted).mean()),
              "base_RMSE": float(np.sqrt(((actual - base_prediction) ** 2).mean())),
              "adjusted_RMSE": float(np.sqrt(((actual - adjusted) ** 2).mean()))}
-    residual = _residual_model().fit(pd.concat([frames[t][0] for t in frames], ignore_index=True),
+    for name, grouping in (groups or {}).items():
+        check[f"by_{name}"] = _group_check(test_rows, actual, base_prediction, adjusted, grouping)
+    for name, other in (alternatives or {}).items():
+        other_adjusted = base_prediction + other().fit(x_train, y_train).predict(x_test)
+        check[f"alternative_{name}"] = {"adjusted_MAE": float(np.abs(actual - other_adjusted).mean()),
+            "adjusted_RMSE": float(np.sqrt(((actual - other_adjusted) ** 2).mean())),
+            **({f"by_{g}": _group_check(test_rows, actual, base_prediction, other_adjusted, fn)
+                for g, fn in (groups or {}).items()})}
+    residual = factory().fit(pd.concat([frames[t][0] for t in frames], ignore_index=True),
                                      np.concatenate([frames[t][1] for t in frames]))
     return residual, {"retrospective_check": check, "residual_training_rows": int(sum(len(f[1]) for f in frames.values()))}
 
@@ -330,6 +353,133 @@ def train_cup(root: Path, features_dir: Path, base_challenger: str, name: str | 
         "in the 7 and 14 days before kickoff (FPL-Core-Insights, research only).", **info)
 
 
+def _dc_band(rows: pd.DataFrame) -> pd.Series:
+    """DC per 90 over the last five matches, in the bands used by the E3 evaluation."""
+    dc = pd.to_numeric(rows.get("defensive_contribution90_last5"), errors="coerce")
+    return pd.cut(dc, [-np.inf, 5, 8, 11, np.inf], right=False, labels=["<5", "5-8", "8-11", "11+"]).astype(str).where(dc.notna())
+
+
+def features_v2(rows: pd.DataFrame, base: np.ndarray) -> pd.DataFrame:
+    """M11 correction inputs: DEFCON form, price and set-piece roles (O5) on top of the base.
+
+    Works on both schemas: training rows (``price_last1``, roles joined as-of
+    kickoff from the role history) and live deadline rows (``now_cost`` and the
+    bootstrap's own role columns). A missing role is unknown, coded -1 (not "no
+    role", and not NaN: a column that is empty in a training season breaks the
+    gradient-boosting binning).
+    """
+    number = lambda name: pd.to_numeric(rows[name], errors="coerce") if name in rows else pd.Series(np.nan, index=rows.index)
+    price = number("now_cost") / 10 if "now_cost" in rows else number("price_last1")
+    penalties, corners, freekicks = (number(c) for c in ("penalties_order", "corners_and_indirect_freekicks_order",
+                                                         "direct_freekicks_order"))
+    # FPL leaves the order empty for non-takers, so empty means "no role" whenever a bootstrap
+    # was seen (live rows always; training rows when the role history has a version).
+    known = rows["role_known"].astype(bool).to_numpy() if "role_known" in rows else np.ones(len(rows), bool)
+    first = lambda order: np.where(~known, -1.0, (order == 1).astype(float))
+    penalties = penalties.where(~known | penalties.notna(), 0.0)
+    return pd.DataFrame({
+        "dc90_last5": number("defensive_contribution90_last5").to_numpy(float),
+        "dc_rate5": number("defensive_contribution_rate5").to_numpy(float),
+        "price": price.to_numpy(float),
+        "penalty_first": first(penalties), "penalty_order": penalties.fillna(-1).to_numpy(float),
+        "set_piece_first": np.maximum(first(corners), first(freekicks)),
+        "base": base, "position": rows.position.map(POSITION_CODES).to_numpy(float)})
+
+
+class FeaturesV2Model(_Corrected):
+    """M11: base (M1 refit) plus a correction from DEFCON form, price and set-piece roles."""
+
+    def __init__(self, base, residual):
+        self.base, self.residual = base, residual
+
+    def _features(self, rows, base):
+        return features_v2(rows, base)
+
+
+def train_features_v2(root: Path, features_dir: Path, base_challenger: str, role_history: Path,
+                      name: str | None = None) -> Path:
+    import challengers  # pickle classes by module path, also when run as a script
+    from role_history import FIELDS, as_of
+    root = Path(root)
+    history = pd.read_csv(role_history)
+    data = _training_data(root, features_dir)
+    extra = ["defensive_contribution90_last5", "defensive_contribution_rate5", "price_last1"]
+    keys = ["season", "GW", "fixture", "player_id"]
+    table = pd.read_csv(Path(features_dir) / "player_fixture_features.csv", low_memory=False, usecols=keys + extra)
+    data = data.drop(columns=[c for c in extra if c in data]).merge(table, on=keys, how="left", validate="one_to_one")
+    roles = as_of(history, data[["season", "player_id", "kickoff_time"]], "kickoff_time")
+    for column in FIELDS[:3]:
+        data[column] = roles[column].to_numpy()
+    data["role_known"] = roles["now_cost"].notna().to_numpy()
+    residual, info = _residual_fit(data, features_v2,
+        groups={"position": lambda rows: rows.position, "dc_band": _dc_band})
+    current = data[data.season.eq(CURRENT_SEASON)]
+    return _save(root, name or f"features_v2_{datetime.now(timezone.utc):%Y%m%d}",
+        challengers.FeaturesV2Model(_base(root, base_challenger), residual), f"{base_challenger}+features_v2_residual",
+        plan_item="M11", base_challenger=base_challenger, role_history=str(role_history),
+        role_coverage_current=float(current.role_known.mean()) if len(current) else None,
+        description=f"{base_challenger} plus a correction from DEFCON per 90 and rate (last 5), price and "
+        "penalty/set-piece roles (as-of kickoff from archived bootstraps). Primary challenger in criterion v2.",
+        caveat="Roles exist only from 2026-09-08 (archived bootstraps); earlier rows have unknown roles.", **info)
+
+
+class MonotoneShift:
+    """M12 residual: calibrated(base) − base, with an isotonic or a linear map of the base forecast."""
+
+    def __init__(self, kind: str = "isotonic"):
+        self.kind = kind
+
+    def fit(self, features, residual):
+        base = features["base"].to_numpy(float)
+        target = base + np.asarray(residual, float)
+        if self.kind == "isotonic":
+            from sklearn.isotonic import IsotonicRegression
+            self.map = IsotonicRegression(out_of_bounds="clip").fit(base, target)
+        else:
+            self.map = np.poly1d(np.polyfit(base, target, 1))
+        return self
+
+    def predict(self, features):
+        base = features["base"].to_numpy(float)
+        mapped = self.map.predict(base) if self.kind == "isotonic" else self.map(base)
+        return mapped - base
+
+
+def calibration_features(rows: pd.DataFrame, base: np.ndarray) -> pd.DataFrame:
+    return pd.DataFrame({"base": base})
+
+
+class TopCalibratedModel(_Corrected):
+    """M12: base forecast passed through a monotone map learned out of sample (fixes a compressed top, F20)."""
+
+    def __init__(self, base, residual):
+        self.base, self.residual = base, residual
+
+    def _features(self, rows, base):
+        return calibration_features(rows, base)
+
+
+def _quintile(rows: pd.DataFrame) -> pd.Series:
+    """Forecast quintile within the season, from the base model's own column when present."""
+    values = pd.to_numeric(rows.get("points_avg5"), errors="coerce")
+    return pd.qcut(values.rank(method="first"), 5, labels=["Q1", "Q2", "Q3", "Q4", "Q5"]).astype(str)
+
+
+def train_top_calibration(root: Path, features_dir: Path, base_challenger: str, name: str | None = None) -> Path:
+    import challengers  # pickle classes by module path, also when run as a script
+    root = Path(root)
+    residual, info = _residual_fit(_training_data(root, features_dir), calibration_features,
+        groups={"position": lambda rows: rows.position, "form_quintile": _quintile},
+        factory=lambda: challengers.MonotoneShift("isotonic"),
+        alternatives={"linear": lambda: challengers.MonotoneShift("linear")})
+    return _save(root, name or f"top_calibration_{datetime.now(timezone.utc):%Y%m%d}",
+        challengers.TopCalibratedModel(_base(root, base_challenger), residual), f"{base_challenger}+isotonic_calibration",
+        plan_item="M12", base_challenger=base_challenger,
+        description=f"{base_challenger} with an isotonic map of its forecast, fitted on out-of-sample forecasts "
+        "(2025-26 from a base trained to 2024-25, this season from a base trained to 2025-26). "
+        "A linear map is reported as the simpler alternative.", **info)
+
+
 OPENFPL_FEATURES = [c for c in FEATURE_SETS["context"] if c != "position"] + EXTRA + ALL_MARKET_FEATURES
 
 
@@ -396,6 +546,18 @@ def train_openfpl_style(root: Path, features_dir: Path, name: str | None = None)
         retrospective_check=check)
 
 
+def train_implied_market(root: Path, base_challenger: str, results: Path, name: str | None = None) -> Path:
+    """M13: no training of its own; stores past odds/results observations for the strength fit."""
+    import team_strengths  # pickle the class by module path
+    past = team_strengths.load_results(results)
+    return _save(root, name or f"implied_market_{datetime.now(timezone.utc):%Y%m%d}",
+        team_strengths.ImpliedMarketModel(_base(root, base_challenger), past), f"{base_challenger}+implied_market",
+        plan_item="M13", base_challenger=base_challenger, results_file=str(results),
+        past_observations=int(len(past)),
+        description=f"{base_challenger} scored with market features implied from team strengths (Poisson, home "
+        "advantage, 90-day half-life) wherever odds are missing; real odds untouched, rows marked market_source.")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -414,12 +576,34 @@ def main(argv=None) -> int:
     cup.add_argument("--features", type=Path, required=True)
     cup.add_argument("--base", required=True)
     cup.add_argument("--name")
+    v2 = sub.add_parser("features-v2", help="M11 challenger: DEFCON, price and set-piece roles")
+    v2.add_argument("--features", type=Path, required=True)
+    v2.add_argument("--base", required=True)
+    v2.add_argument("--roles", type=Path, required=True, help="role history CSV from src/role_history.py")
+    v2.add_argument("--name")
+    calibration = sub.add_parser("top-calibration", help="M12 challenger: monotone calibration of the forecast")
+    calibration.add_argument("--features", type=Path, required=True)
+    calibration.add_argument("--base", required=True)
+    calibration.add_argument("--name")
+    implied = sub.add_parser("implied-market", help="M13 challenger: market features implied from team strengths")
+    implied.add_argument("--base", required=True)
+    implied.add_argument("--results", type=Path, required=True, help="football-data.co.uk current-season CSV")
+    implied.add_argument("--name")
     openfpl = sub.add_parser("openfpl-style", help="M6 position-specific ensemble")
     openfpl.add_argument("--features", type=Path, required=True)
     openfpl.add_argument("--name")
     args = parser.parse_args(argv)
     if args.command == "cup-minutes":
         print(train_cup(ROOT, args.features, args.base, args.name))
+        return 0
+    if args.command == "features-v2":
+        print(train_features_v2(ROOT, args.features, args.base, args.roles, args.name))
+        return 0
+    if args.command == "top-calibration":
+        print(train_top_calibration(ROOT, args.features, args.base, args.name))
+        return 0
+    if args.command == "implied-market":
+        print(train_implied_market(ROOT, args.base, args.results, args.name))
         return 0
     if args.command == "openfpl-style":
         print(train_openfpl_style(ROOT, args.features, args.name))

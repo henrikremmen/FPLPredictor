@@ -48,6 +48,9 @@ API = 'https://fantasy.premierleague.com/api/'
 USER_AGENT = 'fplmodell-snapshot/1.0'
 REQUEST_INTERVAL = 0.5  # at most two requests per second
 CHECKPOINTS = ((24.0, "24h"), (6.0, "6h"), (1.0, "1h"))
+RULES_VERSION = "fpl-2026-27"  # scoring and transfer rules the data were collected under
+MANIFEST_SCHEMA = 2  # O4: per-file observed/available/published times, source and rules versions
+GAP_ALERT_HOURS = 36  # a daily snapshot is due every day; more than this means missed runs
 DAILY_AFTER = pd.Timedelta(hours=2, minutes=30)  # UTC, after FPL price changes
 POSITIONS = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD", 5: "AM"}
 CLEANED_COLUMNS = [
@@ -94,13 +97,28 @@ def capture_endpoint(endpoint, directory, name):
             path.write_bytes(gzip.compress(body, mtime=0))
             record.update(file=path.name, sha256=digest(body), bytes=len(body),
                           stored_sha256=digest(path.read_bytes()))
-            return data, record
+            return data, timing(record)
         except (requests.RequestException, ValueError) as exc:
             record['error'] = str(exc)
             if attempt == 2 or record.get('status') == 429:
                 return None, record
             time.sleep(attempt+1)
     return None, record
+
+
+def timing(record: dict, published_at=None) -> dict:
+    """O4: when a payload was observed, when we can prove it was available, and when
+    its source published it. Only the receipt is evidence; an unknown publication
+    time stays None rather than being guessed."""
+    record.setdefault("observed_at", record.get("received_at"))
+    record.setdefault("available_at", record.get("received_at"))
+    record.setdefault("published_at", published_at)
+    return record
+
+
+def provenance() -> dict:
+    """Manifest-level versions; older manifests without these keys are still read."""
+    return {"manifest_schema": MANIFEST_SCHEMA, "source_version": USER_AGENT, "rules_version": RULES_VERSION}
 
 
 def checkpoint_for(deadline, observed_at=None) -> str | None:
@@ -194,7 +212,7 @@ def light_snapshot(snapshots: Path, directory: Path, bootstrap: dict, records: d
         "started_at": records["bootstrap"]["started_at"], "finished_at": now(),
         "status": "complete", "capture_phases": phases, "season": season,
         "target_event": {"id": target["id"], "deadline_time": target["deadline_time"]} if target else None,
-        "files": records,
+        "files": records, **provenance(),
     }
     (directory / "manifest.json").write_text(json.dumps(manifest, indent=2))
     final = snapshots / season / stamped(directory)
@@ -339,7 +357,7 @@ def export(data_root: Path, xp_dirs=()) -> dict:
         shutil.rmtree(summaries_dir)
         manifest = {"started_at": started, "finished_at": now(), "status": "complete",
                     "season": season, "checked_events": checked, "new_events": new,
-                    "corrections": corrections, "rows": len(rows), "files": records}
+                    "corrections": corrections, "rows": len(rows), "files": records, **provenance()}
         (staging / "manifest.json").write_text(json.dumps(manifest, indent=2))
         raw = season_dir / "raw" / f"export_{stamped(staging)}"
         raw.parent.mkdir(parents=True, exist_ok=True)
@@ -358,10 +376,16 @@ def auto(data_root: Path, xp_dirs=(), observed_at=None, phases=None) -> dict:
     snapshots.mkdir(parents=True, exist_ok=True)
     directory = Path(tempfile.mkdtemp(prefix="pending_", dir=data_root))
     records = {}
-    result = {"light_snapshot": None, "export": None}
+    manifests = snapshot_manifests(snapshots)
+    previous = max((pd.Timestamp(m["started_at"]) for m in manifests), default=None)
+    # Hours since the last snapshot. A schedule that silently stops firing cannot
+    # fail a run; the next run reports the hole so the workflow can end red.
+    gap = round((observed - previous).total_seconds() / 3600, 1) if previous is not None else None
+    result = {"light_snapshot": None, "export": None, "gap_hours": gap,
+              "gap_alert": gap is not None and gap > GAP_ALERT_HOURS}
     try:
         bootstrap = validate_bootstrap(fetch("bootstrap-static/", directory, "bootstrap", records))
-        due = phases or due_phases(bootstrap, snapshot_manifests(snapshots), observed)
+        due = phases or due_phases(bootstrap, manifests, observed)
         if due:
             result["light_snapshot"] = str(light_snapshot(snapshots, directory, bootstrap, records, due, observed))
         season_dir = data_root / "data" / season_of(bootstrap)
