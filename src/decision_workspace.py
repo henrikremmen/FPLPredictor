@@ -231,3 +231,37 @@ def compare_players(team: ImportedTeam, out_id: int, in_id: int) -> dict:
             'players': {'outgoing': json.loads(team.squad[team.squad.id.eq(out_id)].to_json(orient='records'))[0],
                         'incoming': json.loads(team.market[team.market.id.eq(in_id)].to_json(orient='records'))[0]},
             'caveat': 'Expected XI + captain points, with lineups selected using your risk profile. No future transfers, price changes or free-transfer opportunity value are assumed.'}
+
+
+def fixture_ticker(team: ImportedTeam, scope: str = 'squad', limit: int = 30) -> dict:
+    """U16: per player and Gameweek in the horizon — opponent(s), home/away, expected
+    points, chance of 60+ minutes, blanks (no fixture) and doubles (two fixtures)."""
+    weekly = team.weekly_market
+    if weekly is None:
+        raise AppError('The multiple-week forecast is missing. Please update the forecast first.')
+    events = sorted(int(e) for e in weekly.forecast_event.unique())
+    owned = set(team.squad.id.astype(int))
+    if scope == 'squad':
+        ids = team.squad.sort_values('recommended_points', ascending=False).id.astype(int).tolist()
+    else:
+        market = team.market[~team.market.id.isin(owned) & team.market.can_select.astype(bool)]
+        ids = market.nlargest(limit, 'recommended_points').id.astype(int).tolist()
+    by_player = weekly[weekly.id.isin(ids)].set_index(['id', 'forecast_event'])
+    info = team.market.set_index('id')
+    rows = []
+    for player_id in ids:
+        weeks = []
+        for event in events:
+            if (player_id, event) not in by_player.index:
+                weeks.append({'event': event, 'fixtures': 0, 'opponent': 'Blank', 'xp': 0.0, 'p60': None})
+                continue
+            row = by_player.loc[(player_id, event)]
+            p60 = row.get('expected_60plus_appearances')
+            weeks.append({'event': event, 'fixtures': int(row.get('planned_fixtures', 1) or 0), 'opponent': str(row.opponent),
+                          'xp': round(float(row.recommended_points), 2),
+                          'p60': None if p60 is None or pd.isna(p60) else round(min(1.0, float(p60)), 3)})
+        rows.append({'id': player_id, 'name': str(info.loc[player_id, 'name']), 'position': str(info.loc[player_id, 'position']),
+                     'team': str(info.loc[player_id, 'team']), 'owned': player_id in owned,
+                     'total_xp': round(sum(w['xp'] for w in weeks), 2), 'weeks': weeks})
+    return {'scope': scope, 'events': events, 'players': rows,
+            'note': 'Expected points per Gameweek after FPL availability; 60+ is the chance of at least one 60-minute appearance.'}

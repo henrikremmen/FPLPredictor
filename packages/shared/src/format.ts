@@ -7,7 +7,7 @@ export function formatMoney(tenths: number | null | undefined): string {
   return tenths == null ? "–" : `£${(tenths / 10).toFixed(1)}m`;
 }
 
-export function formatPoints(value: number | null | undefined, digits = 2): string {
+export function formatPoints(value: number | null | undefined, digits = 1): string {
   return value == null ? "–" : value.toFixed(digits);
 }
 

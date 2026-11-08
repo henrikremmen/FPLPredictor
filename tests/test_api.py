@@ -50,6 +50,10 @@ def fake_team() -> ImportedTeam:
 class ApiTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(api.app)
+        api.RESULTS = api.ResultCache()  # T3 cache: every test starts cold
+        warm = patch.object(api, "_warm")  # no background solves while endpoints are mocked
+        warm.start()
+        self.addCleanup(warm.stop)
 
     def test_health_and_explicit_local_cors(self):
         payload = self.client.get("/api/health").json()
@@ -204,13 +208,24 @@ class ApiTests(unittest.TestCase):
             "global_optimum": True,
             "caveat": "Static prices",
         }
-        with patch("api.plan_multiweek", return_value=payload) as planner:
+        with patch("api.plan_with_context", return_value=payload) as planner:
             response = self.client.post(
                 f"/api/team/{session}/plan", json={"weeks": 1, "discount": .9}
             )
+            chips = self.client.post(f"/api/team/{session}/plan", json={
+                "weeks": 1, "chips": True, "bench_weights": [0, .1, .05, 0],
+                "requirements": [{"kind": "own_by", "player_id": 3, "event": 5}]})
+            missing = self.client.post(f"/api/team/{session}/plan", json={"requirements": [{"kind": "max_club", "limit": 2}]})
+            bad = self.client.post(f"/api/team/{session}/plan", json={"bench_weights": [0, 2, 0, 0]})
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["global_optimum"])
-        planner.assert_called_once()
+        self.assertEqual(planner.call_count, 2)
+        self.assertEqual(chips.status_code, 200)
+        last = planner.call_args
+        self.assertEqual((last.kwargs["chips"], last.kwargs["requirements"]),
+                         (True, ({"kind": "own_by", "player_id": 3, "event": 5},)))
+        self.assertEqual(last.args[0].bench_weights, (0, .1, .05, 0))
+        self.assertEqual((missing.status_code, bad.status_code), (422, 422))
         self.assertEqual(
             self.client.post(f"/api/team/{session}/plan", json={"weeks": 9}).status_code,
             422,
@@ -253,3 +268,92 @@ class ApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LoopEndpointTests(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(api.app)
+
+    def test_lock_runs_in_background_and_rejects_locked_or_closed_window(self):
+        import threading
+        release = threading.Event()
+        job = api.LoopJob(run=lambda: release.wait(5) and {"locked": "loop_gw10_x"})
+        base = {"event": 10, "window_open": True, "locked": False}
+        with patch.object(api, "LOOP_JOB", job), patch.object(api.prospective_loop, "status", return_value=base), \
+                patch.object(api, "fpl_data_freshness", return_value={}):
+            started = self.client.post("/api/loop/lock")
+            self.assertEqual(started.json()["job"]["state"], "running")
+            self.assertEqual(self.client.post("/api/loop/lock").status_code, 409)  # no overlap
+            release.set()
+            for _ in range(100):
+                if job.snapshot()["state"] != "running":
+                    break
+                threading.Event().wait(.02)
+            self.assertEqual(self.client.get("/api/loop/status").json()["job"]["result"], {"locked": "loop_gw10_x"})
+        for state, detail in (({**base, "locked": True}, "already locked"), ({**base, "window_open": False}, "not open")):
+            with patch.object(api.prospective_loop, "status", return_value=state), \
+                    patch.object(api, "fpl_data_freshness", return_value={}):
+                response = self.client.post("/api/loop/lock")
+                self.assertEqual(response.status_code, 409)
+                self.assertIn(detail, response.json()["detail"])
+
+    def test_failed_loop_is_reported(self):
+        def boom():
+            raise ValueError("No capture with frozen GW10 forecasts before the deadline")
+        job = api.LoopJob(run=boom)
+        job.start()
+        for _ in range(100):
+            if job.snapshot()["state"] != "running":
+                break
+            __import__("time").sleep(.02)
+        self.assertEqual(job.snapshot()["state"], "failed")
+        self.assertIn("No capture", job.snapshot()["error"])
+
+
+class ResultCacheTests(unittest.TestCase):
+    """T3: a cached answer only under an identical key; any input change is a new key."""
+
+    def test_key_changes_with_every_input_and_hits_repeat(self):
+        from dataclasses import replace
+        from result_cache import ResultCache, cache_key
+        team = fake_team()
+        base = cache_key(team, "plan", weeks=4)
+        self.assertEqual(base, cache_key(fake_team(), "plan", weeks=4))
+        variants = [cache_key(team, "plan", weeks=5), cache_key(team, "strategy"),
+                    cache_key(replace(team, bank=team.bank + 1), "plan", weeks=4),
+                    cache_key(replace(team, free_transfers=team.free_transfers + 1), "plan", weeks=4),
+                    cache_key(replace(team, horizon=3), "plan", weeks=4),
+                    cache_key(replace(team, locked_ids={1}), "plan", weeks=4),
+                    cache_key(replace(team, bench_weights=(0, 0, 0, 0)), "plan", weeks=4)]
+        self.assertEqual(len(set(variants + [base])), len(variants) + 1)
+        cache, calls = ResultCache(max_entries=2), []
+        work = lambda: calls.append(1) or {"x": len(calls)}
+        self.assertEqual(cache.compute("a", work), ({"x": 1}, False))
+        self.assertEqual(cache.compute("a", work), ({"x": 1}, True))
+        cache.compute("b", work), cache.compute("c", work)
+        self.assertIsNone(cache.get("a"))  # oldest dropped
+        cache.warm([("d", lambda: {"x": 9}), ("e", lambda: 1 / 0)]).join()
+        self.assertEqual(cache.get("d")["result"], {"x": 9})
+        self.assertIsNone(cache.get("e"))  # failures are left for the page to report
+
+
+
+class FixtureTickerTests(unittest.TestCase):
+    """U16: per Gameweek opponent, expected points and 60+ chance; blanks are explicit."""
+
+    def test_squad_and_market_rows(self):
+        from decision_workspace import fixture_ticker
+        team = fake_team()
+        weekly = team.weekly_market.copy()
+        later = weekly.assign(forecast_event=6, planned_fixtures=2, opponent="A (H) + B (A)")
+        later = later[~later.id.eq(3)]  # player 3 has no GW6 fixture
+        team.weekly_market = pd.concat([weekly, later], ignore_index=True)
+        team.market = team.market.assign(can_select=True)
+        result = fixture_ticker(team, "squad")
+        self.assertEqual(result["events"], [5, 6])
+        three = next(p for p in result["players"] if p["id"] == 3)
+        self.assertEqual(three["weeks"][1], {"event": 6, "fixtures": 0, "opponent": "Blank", "xp": 0.0, "p60": None})
+        one = next(p for p in result["players"] if p["id"] == 1)
+        self.assertEqual(one["weeks"][1]["fixtures"], 2)
+        self.assertTrue(all(p["owned"] for p in result["players"]))
+        self.assertEqual(fixture_ticker(team, "market")["players"], [])  # everyone in this market is owned
