@@ -188,3 +188,29 @@ class CalibrationTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LockWindowStatusTest(unittest.TestCase):
+    EVENTS = [{"id": e, "deadline_time": f"2026-11-{d:02d}T11:00:00Z"} for e, d in ((8, 1), (9, 8), (10, 15), (11, 22))]
+
+    def status(self, now, locked=()):
+        with tempfile.TemporaryDirectory() as tmp:
+            for event in locked:
+                folder = Path(tmp) / "artifacts/prospective" / f"loop_gw{event}_20261101T000000Z"
+                folder.mkdir(parents=True)
+                (folder / "manifest.json").write_text("{}")
+            return prospective_loop.status(Path(tmp), self.EVENTS, now)
+
+    def test_closed_open_and_locked_window(self):
+        closed = self.status("2026-11-13T11:00:00Z", locked=[8])
+        self.assertEqual((closed["event"], closed["window_open"], closed["locked"]), (10, False, False))
+        self.assertEqual(closed["window_opens_at"], "2026-11-14T05:00:00+00:00")
+        self.assertEqual(closed["missed_locks"], [9])  # GW9 deadline passed without a bundle
+        opened = self.status("2026-11-14T06:00:00Z", locked=[8])
+        self.assertEqual((opened["window_open"], opened["locked"], opened["hours_to_deadline"]), (True, False, 29.0))
+        done = self.status("2026-11-14T06:00:00Z", locked=[8, 10])
+        self.assertEqual((done["locked"], done["lock_bundle"]), (True, "loop_gw10_20261101T000000Z"))
+
+    def test_after_last_deadline_nothing_upcoming(self):
+        last = self.status("2026-12-01T00:00:00Z", locked=[8, 9, 10, 11])
+        self.assertEqual((last["event"], last["window_open"], last["missed_locks"]), (None, False, []))
