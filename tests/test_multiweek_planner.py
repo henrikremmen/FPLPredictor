@@ -113,3 +113,110 @@ class MultiweekPlannerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BenchWeightTests(unittest.TestCase):
+    """P1: the bench has a small value in FPL bench order; it never buys points for the XI."""
+
+    def test_bench_order_and_value(self):
+        from dataclasses import replace
+        team = _team()
+        weekly = team.weekly_market.copy()
+        weekly.loc[weekly.id.eq(15), ["recommended_points", "decision_points"]] = 3.0  # weakest forward
+        team = replace(team, weekly_market=weekly, horizon=1)
+        plan = plan_multiweek(team, weeks=1, allow_hits=False)
+        week = plan["weeks"][0]
+        self.assertEqual(len(week["bench_ids"]), 4)
+        self.assertEqual(team.market.set_index("id").loc[week["bench_ids"][0], "position"], "GK")
+        self.assertNotIn(week["bench_ids"][0], week["starter_ids"])
+        self.assertEqual(plan["bench_weights"], [0.03, 0.12, 0.06, 0.03])
+        self.assertGreater(week["bench_value"], 0)
+        off = plan_multiweek(replace(team, bench_weights=(0, 0, 0, 0)), weeks=1, allow_hits=False)
+        self.assertEqual(off["weeks"][0]["bench_value"], 0)
+        self.assertEqual(off["weeks"][0]["projected_points"], week["projected_points"])  # XI score unchanged
+
+    def test_lineup_total_with_bench(self):
+        from fpl_app import _lineup_total_records
+        records = [(1, "GK", 5), (2, "GK", 2)] + [(10 + i, "DEF", 4 - i * .1) for i in range(5)] + \
+                  [(20 + i, "MID", 5 - i * .1) for i in range(5)] + [(30 + i, "FWD", 6 - i) for i in range(3)]
+        plain = _lineup_total_records(records)
+        weighted = _lineup_total_records(records, (0.1, 0.5, 0.25, 0.1))
+        self.assertGreater(weighted, plain)
+        self.assertLess(weighted - plain, 0.1 * 2 + 0.5 * 5 + 0.25 * 5 + 0.1 * 5)
+
+
+def _chip_team(expires=19, star_event=6, star_points=12.0):
+    from dataclasses import replace
+    team = _team()
+    weekly = team.weekly_market.copy()
+    star = weekly.id.eq(1 + 12) & weekly.forecast_event.eq(star_event)  # a forward with a huge week
+    weekly.loc[star, ["recommended_points", "decision_points"]] = star_points
+    status = {chip: {"available": True, "expires_after_gw": expires} for chip in
+              ("bench_boost", "triple_captain", "free_hit", "wildcard")}
+    return replace(team, weekly_market=weekly, chip_status=status, horizon=4)
+
+
+class ChipPlanTests(unittest.TestCase):
+    """P2: chips inside the multiweek MILP."""
+
+    def test_triple_captain_on_the_big_week_and_one_chip_per_week(self):
+        plan = plan_multiweek(_chip_team(), weeks=4, chips=True, allow_hits=False)
+        chips = {w["event"]: w["chip"] for w in plan["weeks"] if w["chip"]}
+        self.assertEqual(chips.get(6), "triple_captain")
+        self.assertLessEqual(max(list(chips.values()).count(c) for c in chips.values()), 1)  # each chip once
+        self.assertEqual(len(chips), len(set(chips)))  # at most one chip per Gameweek
+        week6 = next(w for w in plan["weeks"] if w["event"] == 6)
+        self.assertEqual(week6["captain"], "Player 13")
+
+    def test_chips_expire_after_their_last_gameweek(self):
+        plan = plan_multiweek(_chip_team(expires=5), weeks=4, chips=True, allow_hits=False)
+        self.assertTrue(all(w["chip"] is None for w in plan["weeks"] if w["event"] > 5))
+
+    def test_chips_off_by_default_and_calendar_prices_the_alternative(self):
+        from multiweek_planner import plan_with_context
+        team = _chip_team()
+        self.assertTrue(all(w["chip"] is None for w in plan_multiweek(team, weeks=4, allow_hits=False)["weeks"]))
+        context = plan_with_context(team, chips=True, weeks=4, allow_hits=False)
+        entry = next(c for c in context["chip_calendar"] if c["chip"] == "triple_captain")
+        self.assertEqual(entry["event"], 6)
+        self.assertGreater(entry["gain_over_alternative"], 0)  # 12 vs the next best captain week
+
+
+class RequirementTests(unittest.TestCase):
+    """P4: future requirements are hard constraints with an opportunity cost."""
+
+    def test_own_by_and_sell_in_with_cost(self):
+        from multiweek_planner import plan_with_context
+        team = _team()
+        plan = plan_with_context(team, weeks=3, allow_hits=False,
+                                 requirements=({"kind": "sell_in", "player_id": 8, "event": 6},))
+        week6 = next(w for w in plan["weeks"] if w["event"] == 6)
+        self.assertIn(8, week6["transfers_out_ids"])
+        self.assertNotIn(8, week6["squad_ids"])
+        self.assertGreaterEqual(plan["requirement_costs"][0]["cost"], 0)
+        bought = plan_with_context(team, weeks=3, allow_hits=False,
+                                   requirements=({"kind": "own_by", "player_id": 16, "event": 5},))
+        self.assertIn(16, bought["weeks"][0]["squad_ids"])
+
+    def test_club_and_position_limits_and_unknown_requirement(self):
+        team = _team()
+        plan = plan_multiweek(team, weeks=2, allow_hits=False,
+                              requirements=({"kind": "max_position", "position": "FWD", "limit": 1},))
+        positions = team.market.set_index("id").position
+        self.assertTrue(all(sum(positions[i] == "FWD" for i in w["starter_ids"]) <= 1 for w in plan["weeks"]))
+        with self.assertRaises(Exception):
+            plan_multiweek(team, weeks=2, requirements=({"kind": "teleport"},))
+
+
+class BenchBoostTests(unittest.TestCase):
+    def test_bench_boost_plays_all_fifteen(self):
+        from dataclasses import replace
+        team = _chip_team(star_points=4.0)
+        weekly = team.weekly_market.copy()
+        big = weekly.forecast_event.eq(7)  # a double Gameweek for everyone: the bench is worth most here
+        weekly.loc[big, ["recommended_points", "decision_points"]] *= 3
+        plan = plan_multiweek(replace(team, weekly_market=weekly), weeks=4, chips=True, allow_hits=False)
+        week7 = next(w for w in plan["weeks"] if w["event"] == 7)
+        self.assertEqual(week7["chip"], "bench_boost")
+        self.assertEqual(len(week7["starter_ids"]), 15)
+        self.assertEqual(week7["bench"], [])

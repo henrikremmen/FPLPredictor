@@ -42,4 +42,13 @@ describe("workspace preferences and saved plans", () => {
     act(() => result.current.deletePlan(id));
     expect(result.current.plans).toEqual([]);
   });
+
+  it("stores bench weights with the preferences and resets to the defaults (P1)", async () => {
+    const { result } = await mounted();
+    act(() => result.current.toggleLock(3));
+    act(() => result.current.setBenchWeights([0, 0.2, 0.1, 0]));
+    expect(result.current.constraints).toEqual({ locked_ids: [3], excluded_ids: [], bench_weights: [0, 0.2, 0.1, 0] });
+    act(() => result.current.setBenchWeights(undefined));
+    expect(result.current.constraints).toEqual({ locked_ids: [3], excluded_ids: [] });
+  });
 });

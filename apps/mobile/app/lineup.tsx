@@ -5,10 +5,12 @@ import { QueryState } from "../src/components/QueryState";
 import { Card, Stat } from "../src/components/ui";
 import { BenchStrip, PitchView } from "../src/components/PitchView";
 import { useTeam } from "../src/hooks/useTeam";
+import { useLineupValue } from "../src/hooks/useFeatures";
 import { typography, spacing } from "../src/theme";
 
 export default function Pitch() {
   const team = useTeam();
+  const value = useLineupValue();
   return (
     <Screen>
       <QueryState query={team}>
@@ -41,6 +43,14 @@ export default function Pitch() {
               </Card>
               <PitchView starters={data.lineup.starters} valueOf={(player) => formatPoints(scored ? player.decision_points ?? player.recommended_points : player.recommended_points, 1)} />
               <BenchStrip bench={data.lineup.bench} />
+              {value.data ? (
+                <Card>
+                  <Text style={typography.eyebrow}>If someone misses the round</Text>
+                  <Text style={styles.caption}>
+                    XI forecast {formatPoints(value.data.xi_expected, 1)} · with autosubs and vice-captain {formatPoints(value.data.expected_with_autosubs, 1)}
+                  </Text>
+                </Card>
+              ) : null}
             </>
           );
         }}

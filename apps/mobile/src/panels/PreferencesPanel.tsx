@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import type { Player } from "@fplmodell/api-client";
-import { formatMoney } from "@fplmodell/shared";
+import { BENCH_SLOT_LABELS, BENCH_WEIGHTS, formatMoney } from "@fplmodell/shared";
 import { QueryState } from "../components/QueryState";
 import { Button, Card, Section } from "../components/ui";
 import { useWorkspace } from "../context/workspace-context";
@@ -54,7 +54,33 @@ export function PreferencesPanel() {
       </Section>
       <Button label="Clear preferences" variant="secondary" disabled={!locked_ids.length && !excluded_ids.length}
         onPress={workspace.clearConstraints} />
+      <BenchWeights />
     </>
+  );
+}
+
+/** Plan P1: same bench weights as the web preferences, shown and adjustable. */
+function BenchWeights() {
+  const workspace = useWorkspace();
+  const weights = workspace.constraints.bench_weights ?? [...BENCH_WEIGHTS];
+  const set = (slot: number, text: string) => {
+    const value = Number(text.replace(",", "."));
+    if (Number.isFinite(value)) workspace.setBenchWeights(weights.map((w, i) => (i === slot ? Math.min(1, Math.max(0, value)) : w)));
+  };
+  return (
+    <Section title="Bench weights" subtitle="Share of each bench player's forecast counted in decisions">
+      <Card>
+        {BENCH_SLOT_LABELS.map((label, slot) => (
+          <View key={label} style={styles.row}>
+            <Text style={[typography.body, { flex: 1 }]}>{label}</Text>
+            <TextInput value={String(weights[slot])} onChangeText={(text) => set(slot, text)} keyboardType="decimal-pad"
+              accessibilityLabel={`${label} weight`} style={[styles.input, { width: 80 }]} />
+          </View>
+        ))}
+        <Button label={`Default weights (${BENCH_WEIGHTS.join(" / ")})`} variant="secondary"
+          disabled={!workspace.constraints.bench_weights} onPress={() => workspace.setBenchWeights(undefined)} />
+      </Card>
+    </Section>
   );
 }
 

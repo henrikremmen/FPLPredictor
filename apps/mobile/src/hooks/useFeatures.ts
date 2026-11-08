@@ -15,12 +15,12 @@ export function useTransfers(number: number, outgoingIds: number[], enabled = tr
   });
 }
 
-export function useMultiweekPlan(weeks: number) {
+export function useMultiweekPlan(weeks: number, chips = false) {
   const { sessionId } = useSession();
   const { constraints } = useWorkspace();
   return useQuery({
-    queryKey: ["plan", sessionId, weeks, constraints],
-    queryFn: () => api.plan(sessionId as string, weeks, 0.9, constraints),
+    queryKey: ["plan", sessionId, weeks, constraints, chips],
+    queryFn: () => api.plan(sessionId as string, weeks, 0.9, constraints, { chips }),
     enabled: Boolean(sessionId),
   });
 }
@@ -124,4 +124,14 @@ export function usePullToRefresh() {
     }
   };
   return { refreshing, onRefresh };
+}
+
+/** Plan P3: XI forecast against the expectation with autosubs and vice-captain. */
+export function useLineupValue() {
+  const { sessionId } = useSession();
+  return useQuery({
+    queryKey: ["lineup-value", sessionId],
+    queryFn: () => api.lineupValue(sessionId as string),
+    enabled: Boolean(sessionId),
+  });
 }

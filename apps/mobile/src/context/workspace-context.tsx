@@ -21,6 +21,8 @@ interface WorkspaceValue {
   toggleLock: (id: number) => void;
   toggleExclude: (id: number) => void;
   clearConstraints: () => void;
+  /** Plan P1: bench weights (reserve GK, bench 1–3); undefined = defaults. */
+  setBenchWeights: (weights: number[] | undefined) => void;
   plans: SavedPlan[];
   savePlan: (plan: Omit<SavedPlan, "id" | "created_at">) => void;
   renamePlan: (id: string, name: string) => void;
@@ -81,6 +83,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       excluded_ids: excluded_ids.includes(id) ? excluded_ids.filter((x) => x !== id) : [...excluded_ids, id],
     })),
     clearConstraints: () => updateConstraints(() => EMPTY),
+    setBenchWeights: (weights) => updateConstraints(({ bench_weights: _, ...rest }) => (weights ? { ...rest, bench_weights: weights } : rest)),
     plans,
     savePlan: (plan) => updatePlans((current) => [
       { ...plan, id: `${Date.now()}-${Math.round(Math.random() * 1e6)}`, created_at: new Date().toISOString() }, ...current,
