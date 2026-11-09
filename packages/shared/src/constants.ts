@@ -17,6 +17,13 @@ export const RISK_PROFILE_LABELS: Record<RiskProfile, string> = {
   upside: "Upside",
 };
 
+/** What the lineup and optimisers rank by under each profile (src/fpl_app.py apply_risk_profile). */
+export const RISK_PROFILE_SCORE: Record<RiskProfile, { label: string; formula: string }> = {
+  balanced: { label: "Expected points", formula: "the model's expected points" },
+  stable: { label: "Stable score", formula: "expected points − 0.1 × (Q90 − Q10)" },
+  upside: { label: "Upside score", formula: "0.7 × expected points + 0.3 × Q90" },
+};
+
 export const CHIPS = ["wildcard", "free_hit", "triple_captain", "bench_boost"] as const;
 export type Chip = (typeof CHIPS)[number];
 
@@ -38,3 +45,7 @@ export const STORAGE_KEYS = {
   sessionId: "fplmodell.sessionId",
   preferences: "fplmodell.preferences",
 } as const;
+
+/** Plan P1: share of a bench player's forecast counted in decisions, in FPL bench order. Same as fpl_app.BENCH_WEIGHTS. */
+export const BENCH_WEIGHTS = [0.03, 0.12, 0.06, 0.03] as const;
+export const BENCH_SLOT_LABELS = ["Reserve keeper", "Bench 1", "Bench 2", "Bench 3"] as const;

@@ -76,6 +76,52 @@ def score_predictions(predictions, truth):
     return reports, joined.drop(columns="_merge")
 
 
+POSITIONS = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
+DC_BANDS = [0, 5, 8, 11, np.inf]  # defensive contributions per 90 before the deadline
+
+
+def locked_strata(bundle) -> pd.DataFrame:
+    """Position and pre-deadline DC band per player from the bootstrap frozen in the lock."""
+    manifest = json.loads((Path(bundle) / "manifest.json").read_text())
+    source = next((f for f in manifest.get("files", []) if isinstance(f, dict) and f.get("kind") == "source"
+                   and str(f.get("original_path", "")).endswith("bootstrap.json.gz")), None)
+    if source is None:  # hand-locked GW7 bundles predate this layout
+        return pd.DataFrame(columns=["player_id", "position", "dc90", "dc_band"])
+    with gzip.open(Path(bundle) / source["file"], "rt") as handle:
+        elements = json.load(handle)["elements"]
+    frame = pd.DataFrame({"player_id": [e["id"] for e in elements],
+                          "position": [POSITIONS.get(e["element_type"]) for e in elements],
+                          "dc90": [float(e.get("defensive_contribution_per_90") or 0) for e in elements]})
+    frame["dc_band"] = pd.cut(frame.dc90, DC_BANDS, right=False, labels=["<5", "5-8", "8-11", "11+"]).astype(str)
+    return frame
+
+
+def extended_metrics(scored: pd.DataFrame, strata: pd.DataFrame) -> list[dict]:
+    """Plan E3: Q10–Q90 hit rate and width, bias by position and DC band, with row counts.
+
+    Bias is prediction minus outcome (positive = too high), as in the main report.
+    """
+    joined = scored.merge(strata, on="player_id", how="left")
+    reports = []
+    for model, frame in joined.groupby("model"):
+        report = {"model": model, "rows": int(len(frame))}
+        if {"prediction_q10", "prediction_q90"} <= set(frame) and frame.prediction_q90.notna().all():
+            inside = frame.target_points.between(frame.prediction_q10, frame.prediction_q90)
+            report["interval_q10_q90"] = {
+                "coverage": float(inside.mean()), "nominal": 0.8,
+                "below": float((frame.target_points < frame.prediction_q10).mean()),
+                "above": float((frame.target_points > frame.prediction_q90).mean()),
+                "mean_width": float((frame.prediction_q90 - frame.prediction_q10).mean())}
+        for column in ("position", "dc_band"):
+            report[f"bias_by_{column}"] = {
+                str(key): {"rows": int(len(group)), "bias": float((group.prediction - group.target_points).mean()),
+                           "se": float((group.prediction - group.target_points).std(ddof=1) / np.sqrt(len(group)))
+                           if len(group) > 1 else None}
+                for key, group in frame.groupby(column)}
+        reports.append(report)
+    return reports
+
+
 def read_verified(snapshot, manifest, key):
     entry = manifest["files"][key]
     path = snapshot / entry["file"]
@@ -85,16 +131,20 @@ def read_verified(snapshot, manifest, key):
         return json.load(handle), utc(entry["received_at"])
 
 
-def outcomes_from_snapshot(lock, snapshot):
+def outcomes_from_snapshot(lock, snapshot, *, provisional=False):
     snapshot = Path(snapshot)
     manifest = json.loads((snapshot / "manifest.json").read_text())
     if manifest.get("status") != "complete" or manifest["season"] != lock["season"]:
         raise ValueError("Wrong season or incomplete outcome snapshot")
     bootstrap, observed = read_verified(snapshot, manifest, "bootstrap")
     event = next(e for e in bootstrap["events"] if int(e["id"]) == lock["GW"])
-    if observed <= utc(lock["deadline"]) or not event.get("finished") or not event.get("data_checked"):
+    final = event.get("finished") and event.get("data_checked")
+    if observed <= utc(lock["deadline"]) or (not final and not provisional):
         raise ValueError("Gameweek outcomes are not final and checked yet")
     fixtures, _ = read_verified(snapshot, manifest, "fixtures")
+    round_fixtures = [f for f in fixtures if f.get('event') == lock['GW']]
+    if provisional and (not round_fixtures or any(f.get('finished') is not True for f in round_fixtures)):
+        raise ValueError('Provisional evaluation requires every gameweek fixture to be finished')
     finished = {int(f["id"]) for f in fixtures if f.get("finished") is True}
     rows = []
     for key in manifest["files"]:
@@ -115,10 +165,10 @@ def outcomes_from_snapshot(lock, snapshot):
     return pd.DataFrame(rows)
 
 
-def evaluate(bundle, snapshot, destination):
+def evaluate(bundle, snapshot, destination, *, provisional=False):
     bundle, snapshot, destination = Path(bundle), Path(snapshot), Path(destination)
     lock = verify_lock(bundle)
-    truth = outcomes_from_snapshot(lock, snapshot)
+    truth = outcomes_from_snapshot(lock, snapshot, provisional=provisional)
     predictions = pd.read_csv(bundle / "predictions.csv")
     reports, joined = score_predictions(predictions, truth)
     destination.mkdir(parents=True, exist_ok=False)
@@ -131,9 +181,22 @@ def evaluate(bundle, snapshot, destination):
         return None if isinstance(value, float) and not np.isfinite(value) else value
     report = {"bundle": str(bundle), "bundle_manifest_sha256": digest(bundle / "manifest.json"),
         "outcome_snapshot": str(snapshot), "outcome_manifest_sha256": digest(snapshot / "manifest.json"),
-        "production_eligible": False, "metrics": reports}
+        "production_eligible": False, "evaluation_mode": 'provisional' if provisional else 'final',
+        "metrics": reports}
     (destination / "report.json").write_text(json.dumps(clean(report), indent=2, allow_nan=False))
+    write_extended(bundle, destination)
     return report
+
+
+def write_extended(bundle, destination) -> Path:
+    """E3 metrics next to an evaluation's report.json (a new file; the report is not touched)."""
+    destination = Path(destination)
+    scored = pd.read_csv(destination / "scored_predictions.csv")
+    payload = {"bundle": str(bundle), "metrics": extended_metrics(scored, locked_strata(bundle)),
+               "strata_source": "bootstrap frozen in the lock (pre-deadline)"}
+    path = destination / "extended.json"
+    path.write_text(json.dumps(payload, indent=2, allow_nan=False))
+    return path
 
 
 if __name__ == "__main__":
@@ -142,5 +205,7 @@ if __name__ == "__main__":
     parser.add_argument("bundle")
     parser.add_argument("snapshot")
     parser.add_argument("destination")
+    parser.add_argument('--provisional', action='store_true',
+                        help='Diagnostic only after all fixtures finish; final FPL checks may still change outcomes')
     args = parser.parse_args()
-    evaluate(args.bundle, args.snapshot, args.destination)
+    evaluate(args.bundle, args.snapshot, args.destination, provisional=args.provisional)

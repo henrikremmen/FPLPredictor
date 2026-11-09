@@ -12,7 +12,8 @@ import type {
   ManagerAnalytics,
   SquadChange,
   SquadUpdateResponse,
-} from "./types";
+} from "@fplmodell/api-client";
+import type { Breakpoint, FixtureTicker, JournalEntry, LineupValue, ScenarioComparison, LoopStatus, ModelCard, PlanRequirement, TeamTimeline } from "@fplmodell/api-client";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   let response: Response;
@@ -46,6 +47,9 @@ export const api = {
     });
   },
   refreshStatus() { return request<RefreshStatus>("/api/forecast/status"); },
+  loopStatus() { return request<LoopStatus>("/api/loop/status"); },
+  modelCard() { return request<ModelCard>("/api/model-card"); },
+  lockRound() { return request<LoopStatus>("/api/loop/lock", { method: "POST" }); },
   importTeam(reference: string, horizon: number, riskProfile: RiskProfile) {
     return request<TeamResponse>("/api/team/import", {
       method: "POST",
@@ -56,6 +60,11 @@ export const api = {
     return request<TeamResponse>(`/api/team/${session}/settings`, {
       method: "PATCH",
       body: JSON.stringify({ bank, free_transfers: freeTransfers }),
+    });
+  },
+  updateHorizon(session: string, horizon: number) {
+    return request<TeamResponse>(`/api/team/${session}/horizon`, {
+      method: "PATCH", body: JSON.stringify({ horizon }),
     });
   },
   squadOptions(session: string) {
@@ -87,12 +96,25 @@ export const api = {
       body: JSON.stringify({ number, outgoing_ids: outgoingIds, ...constraints }),
     });
   },
-  plan(session: string, weeks: number, discount = 0.9, constraints?: PlayerConstraints) {
+  plan(session: string, weeks: number, discount = 0.9, constraints?: PlayerConstraints,
+       options?: { chips?: boolean; requirements?: PlanRequirement[] }) {
     return request<MultiweekPlan>(`/api/team/${session}/plan`, {
       method: "POST",
-      body: JSON.stringify({ weeks, discount, ...constraints }),
+      body: JSON.stringify({ weeks, discount, ...constraints, ...options }),
     });
   },
+  fixtures(session: string, scope: "squad" | "market" = "squad") { return request<FixtureTicker>(`/api/team/${session}/fixtures?scope=${scope}`); },
+  scenarios(session: string, constraints?: PlayerConstraints) {
+    return request<ScenarioComparison>(`/api/team/${session}/scenarios`, { method: "POST", body: JSON.stringify({ ...constraints }) });
+  },
+  breakpoint(session: string, playerId: number, constraints?: PlayerConstraints) {
+    return request<Breakpoint>(`/api/team/${session}/scenarios/breakpoint`, { method: "POST", body: JSON.stringify({ ...constraints, player_id: playerId }) });
+  },
+  journal(session: string) { return request<{ entries: JournalEntry[] }>(`/api/team/${session}/journal`); },
+  recordDecision(session: string, choice: JournalEntry["choice"]["kind"], note: string, constraints?: PlayerConstraints) {
+    return request<{ entries: JournalEntry[] }>(`/api/team/${session}/journal`, { method: "POST", body: JSON.stringify({ ...constraints, choice, note }) });
+  },
+  lineupValue(session: string) { return request<LineupValue>(`/api/team/${session}/lineup-value`); },
   chips(session: string, constraints?: PlayerConstraints) {
     return request<ChipStrategy>(`/api/team/${session}/chips`, { method: "POST", body: JSON.stringify(constraints ?? {}) });
   },
@@ -103,6 +125,12 @@ export const api = {
   },
   strategy(session: string, constraints?: PlayerConstraints) {
     return request<StrategyAdvice>(`/api/team/${session}/strategy`, { method: "POST", body: JSON.stringify(constraints ?? {}) });
+  },
+  team(session: string) {
+    return request<TeamResponse>(`/api/team/${session}`);
+  },
+  timeline(session: string) {
+    return request<TeamTimeline>(`/api/team/${session}/timeline`);
   },
   analytics(session: string, event?: number, leagueId?: number | null) {
     const params = new URLSearchParams();

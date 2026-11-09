@@ -20,8 +20,7 @@ from scipy.optimize import Bounds, LinearConstraint, milp
 from scipy.sparse import csr_matrix, eye, hstack, vstack
 
 
-POSITIONS = {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}
-START_LIMITS = {"GK": (1, 1), "DEF": (3, 5), "MID": (2, 5), "FWD": (1, 3)}
+from fpl_rules import SQUAD_SHAPE as POSITIONS, START_LIMITS
 RAW_URL = (
     "https://raw.githubusercontent.com/vaastav/Fantasy-Premier-League/"
     "master/data/{season}/gws/merged_gw.csv"

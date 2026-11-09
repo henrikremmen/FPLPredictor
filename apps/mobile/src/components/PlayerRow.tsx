@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from "react-native";
 import type { Player } from "@fplmodell/api-client";
-import { formatMoney, formatPoints } from "@fplmodell/shared";
+import { RISK_PROFILE_SCORE, formatMoney, formatPoints, type RiskProfile } from "@fplmodell/shared";
 import { colors, radii, spacing, typography } from "../theme";
 import { Badge } from "./ui";
 
@@ -23,9 +23,12 @@ interface PlayerRowProps {
   player: Player;
   right?: React.ReactNode;
   onPress?: () => void;
+  /** U12: Stable/Upside show their score beside the expected points. */
+  profile?: RiskProfile;
 }
 
-export function PlayerRow({ player, right }: PlayerRowProps) {
+export function PlayerRow({ player, right, profile }: PlayerRowProps) {
+  const scored = profile && profile !== "balanced" && player.decision_points != null;
   const flag = statusLabel(player.status);
   return (
     <View style={styles.row}>
@@ -47,7 +50,8 @@ export function PlayerRow({ player, right }: PlayerRowProps) {
       </View>
       {right ?? (
         <View style={styles.numbers}>
-          <Text style={styles.points}>{formatPoints(player.decision_points ?? player.recommended_points)} pts</Text>
+          <Text style={styles.points}>{formatPoints(player.recommended_points)} pts</Text>
+          {scored ? <Text style={styles.price}>{RISK_PROFILE_SCORE[profile].label} {formatPoints(player.decision_points)}</Text> : null}
           <Text style={styles.price}>{formatMoney(player.price)}</Text>
         </View>
       )}
@@ -75,7 +79,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     paddingVertical: 1,
   },
-  roleChipLabel: { fontSize: 10, fontWeight: "800", color: "#241900" },
+  roleChipLabel: { fontSize: 10, fontWeight: "800", color: colors.onAccent },
   numbers: { alignItems: "flex-end" },
   points: { ...typography.body, fontWeight: "700" },
   price: { ...typography.caption },

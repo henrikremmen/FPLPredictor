@@ -12,6 +12,7 @@ from fpl_app import (
     AppError,
     ImportedTeam,
     estimate_free_transfers,
+    import_team,
     optimal_lineup,
     parse_entry_reference,
     recommend_transfers,
@@ -23,6 +24,7 @@ from fpl_app import (
     chip_inventory,
     load_team_override,
     save_team_override,
+    planning_event,
 )
 
 
@@ -47,6 +49,15 @@ def player(player_id, name, position, team, points, price=50, selling=None):
 
 
 class FPLAppTests(unittest.TestCase):
+    def test_planning_advances_after_matches_finish_before_final_data_checks(self):
+        bootstrap = {'events': [{'id': 7, 'is_current': True, 'finished': False,
+                                 'data_checked': False}, {'id': 8, 'is_next': True}]}
+        fixtures = [{'id': 1, 'event': 7, 'finished': True}]
+        self.assertEqual(planning_event(bootstrap, fixtures)['id'], 8)
+        fixtures.append({'id': 2, 'event': 7, 'finished': False})
+        self.assertEqual(planning_event(bootstrap, fixtures)['id'], 7)
+        self.assertEqual(planning_event(bootstrap, [])['id'], 7)
+
     def test_multiweek_market_sums_frozen_forecasts(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -72,10 +83,38 @@ class FPLAppTests(unittest.TestCase):
             self.assertEqual(market.prediction.iloc[0],5.0)
             self.assertEqual(market.planned_fixtures.iloc[0],2)
             self.assertIn('GW6:',market.opponent.iloc[0])
-            self.assertEqual(market.point_range_q10_q90.iloc[0], '0.0–13.0')
+            # M9: quantiles of the two-week total, not the summed 0+0 / 6+7 (F16)
+            self.assertNotEqual(market.point_range_q10_q90.iloc[0], '0.0–13.0')
+            self.assertTrue(7.0 < market.prediction_q90.iloc[0] < 13.0)
+            self.assertTrue(0.0 < market.prediction_q10.iloc[0] < 5.0)
+            self.assertEqual(market.recommended_q90.iloc[0], market.prediction_q90.iloc[0])  # fully available
             self.assertEqual(market.selected_by_percent.iloc[0], 7.5)
             self.assertEqual(market.price_change_projected_percent.iloc[0], 104.5)
             self.assertEqual(market.price_change_likelihood.iloc[0], 5)
+
+    def test_double_gameweek_and_doubtful_player_use_the_distribution(self):
+        """M9/F16: per-fixture quantiles are combined, availability is a mixture, the mean is unchanged."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            path = parent / 'forecast.csv'
+            gw = {'GW': [5, 5], 'player_id': [1, 2], 'prediction': [6.0, 3.0], 'planned_fixtures': [2, 1],
+                  'prediction_q10': [0.0, 0.0], 'prediction_q50': [4.0, 2.0], 'prediction_q90': [20.0, 10.0]}
+            pd.DataFrame(gw).to_csv(path, index=False)
+            pd.DataFrame(gw).to_csv(parent / 'horizon_forecast.csv', index=False)
+            pd.DataFrame({'GW': [5, 5, 5], 'player_id': [1, 1, 2], 'fixture': [1, 2, 1], 'planned_fixture': [True] * 3,
+                          'prediction_q10': [0.0] * 3, 'prediction_q50': [2.0] * 3, 'prediction_q90': [10.0] * 3}
+                         ).to_csv(parent / 'horizon_fixture_forecast.csv', index=False)
+            element = lambda pid, chance: {'id': pid, 'web_name': f'P{pid}', 'element_type': 3, 'team': 1, 'now_cost': 50,
+                                           'status': 'd' if chance else 'a', 'news': '', 'chance_of_playing_next_round': chance}
+            bootstrap = {'teams': [{'id': 1, 'short_name': 'AAA'}, {'id': 2, 'short_name': 'BBB'}],
+                         'elements': [element(1, None), element(2, 50)]}
+            market = build_market(bootstrap, [{'event': 5, 'team_h': 1, 'team_a': 2}], path, 5).set_index('id')
+            self.assertLess(market.loc[1, 'prediction_q90'], 20.0)          # DGW: not the summed 10 + 10
+            self.assertGreater(market.loc[1, 'prediction_q90'], 10.0)
+            self.assertEqual(market.loc[2, 'recommended_points'], 1.5)      # expected points still scale
+            self.assertGreater(market.loc[2, 'recommended_q90'], 5.0)       # not 0.5 × Q90 any more
+            self.assertEqual(market.loc[2, 'recommended_q10'], 0.0)
 
     def setUp(self):
         specs = [
@@ -106,6 +145,26 @@ class FPLAppTests(unittest.TestCase):
         self.assertEqual(parse_entry_reference("5139814"), (5139814, None))
         with self.assertRaises(AppError):
             parse_entry_reference("not-a-team")
+
+    def test_import_ignores_event_in_url_and_uses_current_event(self):
+        class RecordingClient:
+            def __init__(self):
+                self.paths = []
+
+            def get(self, path):
+                self.paths.append(path)
+                if path.endswith("/picks/"):
+                    return {"picks": [], "entry_history": {}}
+                return {"entry/5139814/": {"current_event": 7}}.get(path, {"events": []})
+
+        picks_requested = []
+        for reference in ("5139814", "https://fantasy.premierleague.com/entry/5139814/event/4"):
+            client = RecordingClient()
+            # Stops after picks: the fake register has no next Gameweek.
+            with self.assertRaises(AppError):
+                import_team(reference, Path("."), client=client)
+            picks_requested.append([p for p in client.paths if p.endswith("/picks/")])
+        self.assertEqual(picks_requested, [["entry/5139814/event/7/picks/"]] * 2)
 
     def test_selling_price_rule(self):
         self.assertEqual(selling_price(50, 54), 52)

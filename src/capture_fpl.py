@@ -9,7 +9,6 @@ from pathlib import Path
 import argparse
 import fcntl
 import gzip
-import hashlib
 import json
 import os
 import tempfile
@@ -25,8 +24,10 @@ from external_context import (
     add_player_props_to_schedule,
     enrich_registry_with_workload,
 )
+# Shared with the standalone fpl-data collector (src/fpl_collect.py).
+from fpl_collect import API, capture_endpoint, digest, now, provenance, timing
+from point_distribution import player_quantiles
 
-API = 'https://fantasy.premierleague.com/api/'
 POSITIONS = {1:'GK', 2:'DEF', 3:'MID', 4:'FWD'}
 RAW_STATS = ['minutes','starts','total_points','bps','ict_index','threat','creativity',
              'influence','saves','clean_sheets','expected_goals','expected_assists',
@@ -58,45 +59,6 @@ TEAM_STRENGTH_FIELDS = [
     'strength_overall_home', 'strength_overall_away',
 ]
 
-def now():
-    return datetime.now(timezone.utc).isoformat()
-
-def digest(data):
-    return hashlib.sha256(data).hexdigest()
-
-def capture_endpoint(endpoint, directory, name):
-    record = {'endpoint': endpoint, 'url': API+endpoint, 'started_at': now()}
-    for attempt in range(3):
-        try:
-            r = requests.get(record['url'], timeout=(10, 35),
-                headers={'User-Agent':'fplmodell-snapshot/1.0', 'Cache-Control':'no-cache'})
-            record.update(received_at=now(), status=r.status_code,
-                http_date=r.headers.get('Date'), age=r.headers.get('Age'))
-            if r.status_code in [429, 500, 502, 503, 504] and attempt < 2:
-                try:
-                    delay = float(r.headers.get('Retry-After', 2**(attempt+1)))
-                except ValueError:
-                    delay = 5
-                if delay > 30:
-                    r.raise_for_status()  # defer long rate limits to a future run
-                time.sleep(max(1, delay))
-                continue
-            r.raise_for_status()
-            body = r.content
-            data = r.json()
-            path = directory / (name + '.json.gz')
-            path.write_bytes(gzip.compress(body, mtime=0))
-            record.update(file=path.name, sha256=digest(body), bytes=len(body),
-                          stored_sha256=digest(path.read_bytes()))
-            return data, record
-        except (requests.RequestException, ValueError) as exc:
-            record['error'] = str(exc)
-            if attempt == 2 or record.get('status') == 429:
-                return None, record
-            time.sleep(attempt+1)
-    return None, record
-
-
 def capture_external_json(url, directory, name, *, headers=None, params=None,
                           public_endpoint=None):
     """Capture an optional external source without persisting credentials."""
@@ -117,10 +79,19 @@ def capture_external_json(url, directory, name, *, headers=None, params=None,
         path.write_bytes(gzip.compress(body, mtime=0))
         record.update(file=path.name, sha256=digest(body), bytes=len(body),
                       stored_sha256=digest(path.read_bytes()))
-        return payload, record
+        return payload, timing(record, published_at=latest_update(payload))
     except (requests.RequestException, ValueError) as exc:
         record['error'] = f'{type(exc).__name__}: {exc}'
         return None, record
+
+
+def latest_update(payload):
+    """The Odds API stamps each bookmaker's prices (``last_update``); the newest is when the
+    archived odds were published. Other sources say nothing, so the answer is None."""
+    stamps = [book.get('last_update') for event in payload if isinstance(event, dict)
+              for book in event.get('bookmakers', []) if isinstance(book, dict) and book.get('last_update')] \
+        if isinstance(payload, list) else []
+    return max(stamps, key=pd.Timestamp) if stamps else None
 
 
 def capture_football_data_matches(directory, api_key, date_from, date_to):
@@ -417,11 +388,14 @@ def aggregate_forecast(rows):
     ]:
         if column in rows:
             aggregations[column] = (column, lambda values: values.sum(min_count=1))
-    for label in [10, 50, 90]:
-        column = f'prediction_q{label}'
-        if column in rows:
-            aggregations[column] = (column, 'sum')
     forecast = rows.groupby(['season','GW','player_id'],as_index=False).agg(**aggregations)
+    if {'prediction_q10', 'prediction_q50', 'prediction_q90'} <= set(rows):
+        # Quantiles do not add over a double Gameweek; take them from the total (M9).
+        keyed = rows.assign(key=rows.GW.astype(str) + ':' + rows.player_id.astype(str))
+        quantiles = player_quantiles(keyed, key='key').set_index('key')
+        keys = forecast.GW.astype(str) + ':' + forecast.player_id.astype(str)
+        for label in [10, 50, 90]:
+            forecast[f'prediction_q{label}'] = keys.map(quantiles[f'prediction_q{label}']).to_numpy()
     if 'p_60plus_minutes' in rows:
         played = rows.assign(p_played=rows.p_1_59_minutes + rows.p_60plus_minutes)
         appearances = played.groupby(['season','GW','player_id']).p_played.sum()
@@ -526,7 +500,7 @@ def run(root, capture_phase='manual'):
             return None
         dest=Path(tempfile.mkdtemp(prefix='capture_'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'_',dir=parent))
         manifest={'started_at':now(),'status':'collecting','files':{},
-                  'forecast_status':'not_generated','capture_phase':capture_phase}
+                  'forecast_status':'not_generated','capture_phase':capture_phase,**provenance()}
         def save():
             (dest/'manifest.json').write_text(json.dumps(manifest,indent=2))
         save()

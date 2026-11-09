@@ -1,11 +1,11 @@
 /**
- * Response shapes for the FastAPI bridge (src/api.py).
+ * Response shapes for the FastAPI bridge (src/api.py), shared by the web app
+ * and the mobile app.
  *
  * Endpoints return plain `-> dict`, not Pydantic `response_model`s, so these
- * are not generated from the OpenAPI schema (see openapi.d.ts) — they are
- * hand-ported from frontend/src/types.ts, which is verified against real
- * payloads from the running backend. Keep the two in sync when the backend
- * response shape changes.
+ * are not generated from the OpenAPI schema (see openapi.d.ts). They are
+ * verified against real payloads from the running backend; update them here
+ * when a backend response shape changes.
  */
 
 export type RiskProfile = "balanced" | "stable" | "upside";
@@ -36,6 +36,8 @@ export interface Player {
   price_change_likelihood?: number;
   defensive_contribution_per_90?: number;
   status: string;
+  news?: string;
+  availability?: number;
   role?: "" | "C" | "VC";
   bench_order?: string;
 }
@@ -70,6 +72,7 @@ export interface TeamResponse {
   horizon: number;
   risk_profile: RiskProfile;
   forecast_path: string;
+  forecast_context?: ForecastContext;
   chip_status: Record<string, ChipStatus>;
   overall_points?: number | null;
   overall_rank?: number | null;
@@ -287,7 +290,48 @@ export interface PlanWeek {
   formation: string;
   starters: string[];
   projected_points: number;
+  chip?: string | null;
+  bench?: string[];
+  bench_value?: number;
+  autosub?: LineupValue | null;
 }
+
+/** GET /api/team/{session}/fixtures — U16 fixture ticker. */
+export interface FixtureTicker {
+  scope: "squad" | "market";
+  events: number[];
+  note: string;
+  players: Array<{ id: number; name: string; position: Position; team: string; owned: boolean; total_xp: number;
+    weeks: Array<{ event: number; fixtures: number; opponent: string; xp: number; p60: number | null }> }>;
+}
+
+/** P5: "Your assumptions" — the user's chance of playing (0–1), sent with every optimiser call. */
+export interface ScenarioOverride { player_id: number; chance: number }
+
+/** POST /api/team/{session}/scenarios — P5. */
+export interface ScenarioPlan { name: string; first_week_out: string[]; first_week_in: string[]; net_points: number; hits: number;
+  final_bank: number; free_transfers_after: number; gain_vs_hold: number | null; global_optimum: boolean }
+export interface ScenarioComparison {
+  plans: ScenarioPlan[];
+  robustness: { scenarios: number; seed: number; chosen_share: Record<string, number>; mean_points: Record<string, number>; note: string };
+  assumptions: Record<string, number>;
+}
+export interface Breakpoint { player_id: number; name: string; current_chance: number; threshold: number | null; above?: string; below?: string; message: string }
+
+/** U19: decision journal entry. */
+export interface JournalEntry {
+  event: number; recorded_at: string; deadline: string; forecast_at: string | null; counts: boolean; file: string;
+  advice: { decision: string; title: string; reason: string; out: string[]; in: string[]; captain: string };
+  alternatives: Array<{ name: string; first_week_out: string[]; first_week_in: string[]; net_points: number; gain_vs_hold: number | null }>;
+  choice: { kind: "follow" | "roll" | "other"; label: string; note: string };
+  outcome?: { advised_xi_points: number | null; hold_xi_points: number | null; note: string };
+}
+
+/** P3: XI forecast versus the expectation with autosubs and vice-captain. */
+export interface LineupValue { xi_expected: number; expected_with_autosubs: number; bench_and_vice_value: number; draws: number; note: string }
+
+/** P4: a hard plan requirement. */
+export interface PlanRequirement { kind: "own_by" | "sell_in" | "max_club" | "max_position"; player_id?: number; event?: number; team_id?: number; position?: string; limit?: number }
 
 export interface MultiweekPlan {
   weeks: PlanWeek[];
@@ -298,6 +342,11 @@ export interface MultiweekPlan {
   solver_message: string;
   mip_gap: number | null;
   caveat: string;
+  bench_weights?: number[];
+  bench_note?: string;
+  chips_considered?: string[];
+  chip_calendar?: Array<{ chip: string; event: number; alternative_event: number | null; gain_over_alternative: number }>;
+  requirement_costs?: Array<PlanRequirement & { cost: number; weeks: number }>;
 }
 
 export type ChipDecision = "PLAY" | "CONSIDER" | "HOLD" | "UNAVAILABLE";
@@ -309,6 +358,8 @@ export interface ChipCandidate {
   gain: number;
   projected_points: number;
   threshold: number;
+  comparison_basis?: string;
+  evaluation_events?: number[];
   decision: ChipDecision;
   available: boolean;
   reason: string;
@@ -408,6 +459,14 @@ export interface StrategyAdvice {
     bank_after: number | null;
     global_optimum: boolean;
     horizon: number;
+    roll_comparison?: {
+      evaluated: boolean; preferred_roll: boolean; gain_over_roll: number | null;
+      minimum_gain: number; next_gw_lineup_gain: number | null;
+      gain_lower_bound?: number | null;
+      next_ft_if_move?: number | null; next_ft_if_roll?: number | null;
+      incoming_starts_now: string[]; incoming_bench_now: string[];
+      displaced_starters: string[]; candidate_out: string[]; candidate_in: string[];
+    };
     hit_guard: {
       evaluated: boolean;
       avoided: boolean;
@@ -454,8 +513,137 @@ export interface StrategyAdvice {
   caveat: string;
 }
 
+export interface ForecastContext {
+  revision: string;
+  forecast_at: string | null;
+  observed_at: string | null;
+  player_data_at?: string | null;
+  model_family: string | null;
+  source_url: string;
+}
+export interface PlayerConstraints { locked_ids: number[]; excluded_ids: number[]; bench_weights?: number[]; overrides?: ScenarioOverride[] }
+export interface PlayerDetail {
+  injury_scenarios?: Array<{ GW: number; fixture: number; kickoff_time: string;
+    reported_return: string; conservative_points: number; reported_return_points: number }>;
+  player: Player & { news?: string; availability?: number; prediction?: number };
+  weeks: Array<Player & { forecast_event: number }>;
+  fixtures: Array<{ GW: number; fixture?: number; kickoff_time?: string; p_zero_minutes?: number;
+    p_1_59_minutes?: number; p_60plus_minutes?: number; prediction_q10?: number; prediction_q90?: number }>;
+  context: ForecastContext;
+  news_added: string | null;
+  minutes_note: string;
+  uncertainty_note: string;
+}
+export interface SnapshotChanges {
+  previous_at: string | null;
+  current_at: string | null;
+  message: string;
+  changes: Array<{ id: number; name: string; fields: Record<string, { before: string | number | null; after: string | number | null }> }>;
+}
+export interface PlayerComparison {
+  out_id: number; in_id: number; out: string; in: string;
+  hold_points: number; buy_points: number; hit: number; net_gain: number; bank_after: number;
+  weeks: Array<{ event: number; hold: number; buy: number; gain: number }>;
+  players?: { outgoing: Player; incoming: Player };
+  context: ForecastContext; caveat: string;
+}
+export interface RefreshStatus {
+  state: string; stage: string; elapsed_seconds: number; captured: number; total: number | null; error: string | null;
+}
+
+/** GET /api/loop/status — lock window for the prospective loop (plan O2) and fpl-data freshness. */
+export interface LoopStatus {
+  event: number | null;
+  deadline: string | null;
+  hours_to_deadline: number | null;
+  window_opens_at: string | null;
+  window_open: boolean;
+  locked: boolean;
+  lock_bundle: string | null;
+  missed_locks: number[];
+  window_hours: number;
+  command: string;
+  job: { state: "idle" | "running" | "complete" | "failed"; error: string | null; result: Record<string, unknown> | null; elapsed_seconds: number };
+  fpl_data: { checkout: boolean; latest_snapshot_at: string | null; age_hours: number | null; stale: boolean; exported_rounds: number[]; alert_hours: number };
+}
+
+/** GET /api/data-quality — plan O3. */
+export interface DataQuality {
+  generated_at: string;
+  fpl_data: LoopStatus["fpl_data"] & { latest_snapshot_at: string | null };
+  capture: { capture?: string; forecast_at?: string; age_hours?: number; odds_coverage?: Record<string, number>; market_fallback_share?: number | null; sources?: Record<string, { ok: boolean; received_at: string | null }> };
+  code_coverage: { players: number; with_history: number; share: number | null };
+  understat: string;
+  missed_locks: number[];
+  last_evaluated_round: number | null;
+  consequences: string[];
+}
+
+/** GET /api/model-card — plan E4. */
+export interface ModelCard {
+  generated_at: string | null;
+  production: { model_path: string | null; model_family: string | null; caveat: string | null };
+  rounds: { shown: number; counted_v1: number; counted_v2: number; needed: number };
+  leaderboard: Array<{ model: string; rounds_shown: number; rounds_counted: number; team_points_diff_mean: number | null; team_points_diff_ci: [number, number] | null; weekly_MAE_mean: number | null; weekly_MAE_diff_mean: number | null; brier_60plus_mean: number | null; interval_coverage_mean: number | null; criterion_met: boolean }>;
+  criterion_v2: Array<{ model: string; role: string; rounds: number; mae_diff_mean: number | null; mae_diff_ci: [number, number] | null; criterion_met: boolean }>;
+  calibration: { brier_60plus: number | null; interval_coverage: number | null; interval_nominal: number; minutes_recalibration: { rounds: number; needed: number } | null };
+  claim: string;
+  limitations: string[];
+  data_quality: DataQuality;
+}
+
 export interface HealthResponse {
   status: string;
   uptime_seconds: number;
   active_sessions: number;
+}
+
+/** GET /api/team/{session}/timeline — every Gameweek of the public FPL team. */
+export interface TimelinePlayer {
+  id: number;
+  name: string;
+  team: string;
+  position: Position | "?";
+}
+
+export interface TimelinePick extends TimelinePlayer {
+  /** 1–11 starting XI, 12–15 bench order. */
+  slot: number;
+  multiplier: number;
+  is_captain: boolean;
+  is_vice_captain: boolean;
+  points: number;
+  minutes: number;
+}
+
+export interface TimelineTransfer {
+  in: TimelinePlayer & { cost: number };
+  out: TimelinePlayer & { cost: number };
+}
+
+export interface TimelineWeek {
+  event: number;
+  points: number;
+  total_points: number;
+  rank: number | null;
+  overall_rank: number | null;
+  /** Positive means the overall rank improved. */
+  rank_change: number | null;
+  bank: number;
+  value: number;
+  transfers_made: number;
+  transfer_cost: number;
+  bench_points: number;
+  chip: string | null;
+  picks: TimelinePick[];
+  automatic_subs: { in: TimelinePlayer; out: TimelinePlayer }[];
+  transfers: TimelineTransfer[];
+  /** FPL has data-checked the round; points will not change. */
+  final: boolean;
+}
+
+export interface TeamTimeline {
+  entry_id: number;
+  weeks: TimelineWeek[];
+  caveat: string;
 }

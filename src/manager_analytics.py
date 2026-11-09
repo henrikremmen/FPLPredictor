@@ -5,13 +5,15 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+import json
+from pathlib import Path
 from threading import RLock
 import time
 
 import numpy as np
 import pandas as pd
 
-from fpl_app import AppError, FPLClient, ImportedTeam
+from fpl_app import POSITIONS, AppError, FPLClient, ImportedTeam
 
 
 def _number(value, default=0.0) -> float:
@@ -21,6 +23,9 @@ def _number(value, default=0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return float(default)
+
+
+TIMELINE_SCHEMA = 2  # bump when the cached round record changes shape or meaning
 
 
 def _rounded(value, digits=1):
@@ -421,6 +426,93 @@ class AnalyticsService:
                 "League EO is exact for small leagues; leagues with over 100 members use a clearly labelled sample.",
                 "Top-rank EO uses a stratified public sample, not a full census of the top 10,000.",
             ],
+        }
+
+    def timeline(self, entry_id: int, cache_dir: Path) -> dict:
+        """Squad, points and moves for every Gameweek of a public FPL team (T2).
+
+        Rounds FPL has data-checked never change, so each assembled round is
+        stored in ``cache_dir/entry/{id}/gw{N}.json`` and never requested
+        again. Unchecked rounds only use the in-memory TTL cache.
+        """
+        entry_id = int(entry_id)
+        base = self.many([f"entry/{entry_id}/history/", f"entry/{entry_id}/transfers/", "bootstrap-static/"])
+        bootstrap = base["bootstrap-static/"]
+        rows = sorted(base[f"entry/{entry_id}/history/"].get("current", []), key=lambda row: int(row["event"]))
+        if not rows:
+            raise AppError("The FPL team has no Gameweek history yet.")
+        checked = {int(e["id"]) for e in bootstrap.get("events", []) if e.get("data_checked")}
+        folder = Path(cache_dir) / "entry" / str(entry_id)
+        weeks = {}
+        for row in rows:
+            path = folder / f"gw{int(row['event'])}.json"
+            if path.exists():
+                cached = json.loads(path.read_text())
+                if cached.get("schema") == TIMELINE_SCHEMA:
+                    weeks[int(row["event"])] = cached
+        missing = [int(row["event"]) for row in rows if int(row["event"]) not in weeks]
+        fetched = self.many([endpoint for gw in missing for endpoint in (
+            f"entry/{entry_id}/event/{gw}/picks/", f"event/{gw}/live/")])
+        players = {int(p["id"]): p for p in bootstrap.get("elements", [])}
+        clubs = {int(t["id"]): t.get("short_name", t.get("name", "")) for t in bootstrap.get("teams", [])}
+
+        def player(player_id) -> dict:
+            meta = players.get(int(player_id), {})
+            return {"id": int(player_id), "name": meta.get("web_name", str(player_id)),
+                    "team": clubs.get(int(meta.get("team", 0)), ""),
+                    "position": POSITIONS.get(int(meta.get("element_type", 0)), "?")}
+
+        moves = defaultdict(list)
+        for transfer in sorted(base[f"entry/{entry_id}/transfers/"], key=lambda t: t.get("time", "")):
+            moves[int(transfer["event"])].append({
+                "in": {**player(transfer["element_in"]), "cost": int(transfer["element_in_cost"])},
+                "out": {**player(transfer["element_out"]), "cost": int(transfer["element_out_cost"])},
+            })
+        for row in rows:
+            gw = int(row["event"])
+            if gw in weeks:
+                continue
+            picks = fetched[f"entry/{entry_id}/event/{gw}/picks/"]
+            live = {int(e["id"]): e.get("stats", {}) for e in fetched[f"event/{gw}/live/"].get("elements", [])}
+            week = {
+                "event": gw, "points": int(_number(row.get("points"))),
+                "total_points": int(_number(row.get("total_points"))),
+                "rank": row.get("rank"), "overall_rank": row.get("overall_rank"),
+                "bank": int(_number(row.get("bank"))), "value": int(_number(row.get("value"))),
+                # Wildcard and Free Hit moves are free, so event_transfers is 0 for them.
+                "transfers_made": max(int(_number(row.get("event_transfers"))), len(moves.get(gw, []))),
+                "transfer_cost": int(_number(row.get("event_transfers_cost"))),
+                "bench_points": int(_number(row.get("points_on_bench"))),
+                "chip": picks.get("active_chip"),
+                "picks": [{
+                    **player(pick["element"]), "slot": int(pick["position"]),
+                    "multiplier": int(pick.get("multiplier", 0)),
+                    "is_captain": bool(pick.get("is_captain")),
+                    "is_vice_captain": bool(pick.get("is_vice_captain")),
+                    "points": int(_number(live.get(int(pick["element"]), {}).get("total_points"))),
+                    "minutes": int(_number(live.get(int(pick["element"]), {}).get("minutes"))),
+                } for pick in sorted(picks.get("picks", []), key=lambda pick: int(pick["position"]))],
+                "automatic_subs": [{"in": player(sub["element_in"]), "out": player(sub["element_out"])}
+                                   for sub in picks.get("automatic_subs", [])],
+                "transfers": moves.get(gw, []),
+                "final": gw in checked, "schema": TIMELINE_SCHEMA,
+            }
+            if week["final"]:
+                folder.mkdir(parents=True, exist_ok=True)
+                temporary = folder / f"gw{gw}.json.tmp"
+                temporary.write_text(json.dumps(week))
+                temporary.replace(folder / f"gw{gw}.json")
+            weeks[gw] = week
+        ordered, previous_rank = [], None
+        for row in rows:
+            week = weeks[int(row["event"])]
+            rank = week.get("overall_rank")
+            change = previous_rank - rank if previous_rank is not None and rank is not None else None
+            ordered.append({**week, "rank_change": change})
+            previous_rank = rank if rank is not None else previous_rank
+        return {
+            "entry_id": entry_id, "weeks": ordered,
+            "caveat": "Player points come from FPL live data and stay provisional until FPL data-checks the round.",
         }
 
     @staticmethod

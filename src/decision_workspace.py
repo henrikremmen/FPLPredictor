@@ -8,9 +8,45 @@ from pathlib import Path
 
 import pandas as pd
 
-from fpl_app import AppError, ImportedTeam, build_market, optimal_lineup, _validate_holdings
+from fpl_app import AppError, ImportedTeam, build_market, apply_risk_profile, optimal_lineup, _validate_holdings
 from capture_fpl import read_gzip_json
 from availability_forecast import availability_scenarios
+
+
+def change_horizon(team: ImportedTeam, horizon: int) -> ImportedTeam:
+    """Rebuild forecasts locally while retaining the exact active holdings."""
+    if not 1 <= horizon <= 8:
+        raise AppError('Horizon must be between one and eight gameweeks.')
+    raw = Path(manifest_for(team).get('source_capture', team.forecast_path.parent))
+    try:
+        bootstrap = read_gzip_json(raw / 'bootstrap.json.gz')
+        fixtures = read_gzip_json(raw / 'fixtures.json.gz')
+        frames = []
+        for event in range(team.target_event, team.target_event + horizon):
+            frame = apply_risk_profile(build_market(bootstrap, fixtures, team.forecast_path, event, 1), team.risk_profile)
+            frame['forecast_event'] = event
+            frames.append(frame)
+        market = apply_risk_profile(build_market(bootstrap, fixtures, team.forecast_path,
+                                                 team.target_event, horizon), team.risk_profile)
+    except (OSError, ValueError, KeyError) as exc:
+        raise AppError('The saved forecast cannot provide this horizon. Refresh the forecast first.') from exc
+
+    def holdings(values):
+        # Purchase/selling prices, manual picks and squad order belong to the
+        # active session, not the forecast snapshot.
+        columns = ['id'] + [c for c in team.squad if c not in team.market and c != 'id']
+        for column in ['purchase_price', 'selling_price', 'price_is_estimate', 'pick_position']:
+            if column in team.squad and column not in columns:
+                columns.append(column)
+        metadata = team.squad[columns]
+        result = metadata.merge(values.drop(columns=[c for c in columns if c != 'id' and c in values]),
+                                on='id', how='left', validate='one_to_one')
+        if result['name'].isna().any():
+            raise AppError('The forecast is missing a player in your active squad.')
+        return result
+
+    return replace(team, horizon=horizon, market=market, squad=holdings(market),
+                   lineup_squad=holdings(frames[0]), weekly_market=pd.concat(frames, ignore_index=True))
 
 
 def constrained_team(team: ImportedTeam, locked_ids=(), excluded_ids=()) -> ImportedTeam:
@@ -195,3 +231,37 @@ def compare_players(team: ImportedTeam, out_id: int, in_id: int) -> dict:
             'players': {'outgoing': json.loads(team.squad[team.squad.id.eq(out_id)].to_json(orient='records'))[0],
                         'incoming': json.loads(team.market[team.market.id.eq(in_id)].to_json(orient='records'))[0]},
             'caveat': 'Expected XI + captain points, with lineups selected using your risk profile. No future transfers, price changes or free-transfer opportunity value are assumed.'}
+
+
+def fixture_ticker(team: ImportedTeam, scope: str = 'squad', limit: int = 30) -> dict:
+    """U16: per player and Gameweek in the horizon — opponent(s), home/away, expected
+    points, chance of 60+ minutes, blanks (no fixture) and doubles (two fixtures)."""
+    weekly = team.weekly_market
+    if weekly is None:
+        raise AppError('The multiple-week forecast is missing. Please update the forecast first.')
+    events = sorted(int(e) for e in weekly.forecast_event.unique())
+    owned = set(team.squad.id.astype(int))
+    if scope == 'squad':
+        ids = team.squad.sort_values('recommended_points', ascending=False).id.astype(int).tolist()
+    else:
+        market = team.market[~team.market.id.isin(owned) & team.market.can_select.astype(bool)]
+        ids = market.nlargest(limit, 'recommended_points').id.astype(int).tolist()
+    by_player = weekly[weekly.id.isin(ids)].set_index(['id', 'forecast_event'])
+    info = team.market.set_index('id')
+    rows = []
+    for player_id in ids:
+        weeks = []
+        for event in events:
+            if (player_id, event) not in by_player.index:
+                weeks.append({'event': event, 'fixtures': 0, 'opponent': 'Blank', 'xp': 0.0, 'p60': None})
+                continue
+            row = by_player.loc[(player_id, event)]
+            p60 = row.get('expected_60plus_appearances')
+            weeks.append({'event': event, 'fixtures': int(row.get('planned_fixtures', 1) or 0), 'opponent': str(row.opponent),
+                          'xp': round(float(row.recommended_points), 2),
+                          'p60': None if p60 is None or pd.isna(p60) else round(min(1.0, float(p60)), 3)})
+        rows.append({'id': player_id, 'name': str(info.loc[player_id, 'name']), 'position': str(info.loc[player_id, 'position']),
+                     'team': str(info.loc[player_id, 'team']), 'owned': player_id in owned,
+                     'total_xp': round(sum(w['xp'] for w in weeks), 2), 'weeks': weeks})
+    return {'scope': scope, 'events': events, 'players': rows,
+            'note': 'Expected points per Gameweek after FPL availability; 60+ is the chance of at least one 60-minute appearance.'}

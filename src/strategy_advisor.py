@@ -278,7 +278,7 @@ def build_strategy_advice(
         if team.weekly_market is not None and "forecast_event" in team.weekly_market else
         [team.target_event]
     )
-    weeks = min(max(1, team.horizon), len(known_events), 5)
+    weeks = min(max(1, team.horizon), len(known_events), 8)
     unrestricted_plan = planner(team, weeks=weeks, discount=.9)
     if not unrestricted_plan.get("weeks"):
         raise AppError("The strategy centre did not have a validated multi-week plan.")
@@ -305,6 +305,49 @@ def build_strategy_advice(
             "model_gain_after_hit": round(gain, 2) if np.isfinite(gain) else None,
             "required_uncertainty_buffer": required_buffer,
         }
+    # Compare acting now with waiting one deadline, not with doing nothing
+    # for the entire horizon. Both branches may make later transfers.
+    roll_comparison = {"evaluated": False, "preferred_roll": False,
+                       "gain_over_roll": None, "minimum_gain": 2.0,
+                       "next_gw_lineup_gain": None, "incoming_starts_now": [],
+                       "incoming_bench_now": [], "displaced_starters": [],
+                       "candidate_out": [], "candidate_in": []}
+    if plan["weeks"][0].get("transfers_out"):
+        candidate = plan["weeks"][0]
+        roll_plan = planner(team, weeks=weeks, discount=.9, force_roll_now=True)
+        if not roll_plan.get("weeks"):
+            raise AppError("Could not validate the roll alternative. Please recalculate.")
+        roll_first = roll_plan["weeks"][0]
+        move_value = float(plan.get("discounted_objective_points", np.nan))
+        roll_value = float(roll_plan.get("discounted_objective_points", np.nan))
+        gain = move_value - roll_value
+        roll_upper = roll_plan.get('objective_upper_bound')
+        if roll_upper is None and roll_plan.get('global_optimum'):
+            roll_upper = roll_value
+        proven_gain = move_value - float(roll_upper) if roll_upper is not None else np.nan
+        transfers_now = len(candidate.get("transfers_out", []))
+        # At five FTs one would overflow on a roll, so spending that first
+        # transfer does not sacrifice a bankable option.
+        bankable_spent = max(0, min(team.free_transfers, transfers_now)
+                             - max(0, team.free_transfers - 4))
+        required = 2.0 * bankable_spent
+        starts = set(candidate.get("starters", []))
+        incoming = candidate.get("transfers_in", [])
+        next_gain = (float(candidate["projected_points"]) - float(roll_first["projected_points"])
+                     if "projected_points" in candidate and "projected_points" in roll_first else None)
+        prefer_roll = not np.isfinite(proven_gain) or proven_gain < required
+        roll_comparison.update(evaluated=True, preferred_roll=prefer_roll,
+            gain_over_roll=round(gain, 2) if np.isfinite(gain) else None,
+            minimum_gain=required, next_gw_lineup_gain=round(next_gain, 2) if next_gain is not None else None,
+            gain_lower_bound=round(proven_gain, 2) if np.isfinite(proven_gain) else None,
+            next_ft_if_move=candidate.get('free_transfers_next_gw'),
+            next_ft_if_roll=roll_first.get('free_transfers_next_gw'),
+            incoming_starts_now=[name for name in incoming if name in starts],
+            incoming_bench_now=[name for name in incoming if name not in starts],
+            displaced_starters=sorted(set(roll_first.get("starters", [])) - starts),
+            candidate_out=candidate.get("transfers_out", []), candidate_in=incoming)
+        if prefer_roll:
+            plan = roll_plan
     first = plan["weeks"][0]
     outgoing = list(first.get("transfers_out", []))
     incoming = list(first.get("transfers_in", []))
@@ -336,6 +379,17 @@ def build_strategy_advice(
             + f"against the uncertainty buffer of {hit_guard['required_uncertainty_buffer']:.2f}; "
               "It is therefore rejected."
         )
+    if roll_comparison["evaluated"]:
+        gain = roll_comparison["gain_over_roll"]
+        if gain is None:
+            reason += " The gain from acting now could not be established; prefer waiting."
+        else:
+            reason += (f" Acting now versus rolling and allowing later transfers adds {gain:.2f} "
+                       f"planning-score points over {weeks} GW; the cautious decision margin is "
+                       f"{roll_comparison['minimum_gain']:.2f}. This margin is a policy assumption, "
+                       "not a statistical confidence interval.")
+        if roll_comparison.get('gain_lower_bound') is None or roll_comparison.get('gain_lower_bound', -np.inf) < roll_comparison['minimum_gain']:
+            reason += " The solver has not established enough benefit over the roll alternative to justify acting now."
     warnings = _transfer_warnings(
         next_market, outgoing, incoming, bool(plan.get("global_optimum", False))
     )
@@ -352,6 +406,7 @@ def build_strategy_advice(
         "global_optimum": bool(plan.get("global_optimum", False)),
         "horizon": weeks,
         "hit_guard": hit_guard,
+        "roll_comparison": roll_comparison,
         "confidence": confidence,
         "warnings": warnings,
     }

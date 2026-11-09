@@ -28,13 +28,15 @@ CONTEXT = ['team_goals_for_per_game_before', 'team_goals_against_per_game_before
 FEATURE_SETS = {'core': CORE, 'football': CORE + ATTACK, 'context': CORE + ATTACK + CONTEXT}
 APPROVED_REVIEW = {'position', 'was_home'}
 
-def load_data(root):
+def load_data(root, features_dir=None):
+    """Feature table from data/processed, or from another build (e.g. a challenger refit)."""
     root = Path(root)
-    meta = pd.read_csv(root / 'data/processed/feature_metadata.csv')
+    processed = Path(features_dir) if features_dir else root / 'data/processed'
+    meta = pd.read_csv(processed / 'feature_metadata.csv')
     assert not meta.feature_name.duplicated().any()
     cols = list(dict.fromkeys(FEATURE_SETS['context'] +
         ['season', 'player_id', 'fixture', 'GW', 'kickoff_time', 'name', 'minutes', TARGET]))
-    data = pd.read_csv(root / 'data/processed/player_fixture_features.csv', usecols=cols, low_memory=False)
+    data = pd.read_csv(processed / 'player_fixture_features.csv', usecols=cols, low_memory=False)
     assert not data.duplicated(['season', 'player_id', 'fixture']).any()
     status = meta.set_index('feature_name').safe_for_prediction
     for c in FEATURE_SETS['context']:

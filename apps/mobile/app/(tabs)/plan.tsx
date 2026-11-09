@@ -1,31 +1,35 @@
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { formatMoney, formatPoints } from "@fplmodell/shared";
+import { CHIP_LABELS, type Chip, formatHoursRemaining, formatMoney, formatPoints } from "@fplmodell/shared";
 import type { ChipCandidate, PlanWeek, StrategyAction } from "@fplmodell/api-client";
 import { Screen } from "../../src/components/Screen";
 import { QueryState } from "../../src/components/QueryState";
 import { Segmented } from "../../src/components/Segmented";
+import { TransfersPanel } from "../../src/panels/TransfersPanel";
 import { Badge, Card, Section } from "../../src/components/ui";
-import { useChipStrategy, useMultiweekPlan, useRecommendedSquads, useStrategyAdvice } from "../../src/hooks/useFeatures";
+import { useChipStrategy, useMultiweekPlan, useRecommendedSquads, useStrategyAdvice, usePullToRefresh } from "../../src/hooks/useFeatures";
 import { colors, spacing, typography } from "../../src/theme";
 
-type PanelView = "strategy" | "plan" | "chips";
+type PanelView = "strategy" | "transfers" | "plan" | "chips";
 
-export default function Strategy() {
+export default function TransfersAndPlan() {
+  const pull = usePullToRefresh();
   const [view, setView] = useState<PanelView>("strategy");
   return (
-    <Screen>
-      <Text style={typography.title}>Strategy centre</Text>
+    <Screen onRefresh={pull.onRefresh} refreshing={pull.refreshing}>
+      <Text style={typography.title}>Transfers & plan</Text>
       <Segmented
         value={view}
         onChange={setView}
         options={[
-          { value: "strategy", label: "Strategi" },
-          { value: "plan", label: "Multiweek plan" },
+          { value: "strategy", label: "Strategy" },
+          { value: "transfers", label: "Transfers" },
+          { value: "plan", label: "Multiweek" },
           { value: "chips", label: "Chips" },
         ]}
       />
       {view === "strategy" ? <StrategyPanel /> : null}
+      {view === "transfers" ? <TransfersPanel /> : null}
       {view === "plan" ? <PlanPanel /> : null}
       {view === "chips" ? <ChipsPanel /> : null}
     </Screen>
@@ -48,7 +52,7 @@ function StrategyPanel() {
             <Text style={typography.eyebrow}>GW{data.target_event}</Text>
             <Text style={typography.heading}>{data.headline}</Text>
             <Text style={styles.caption}>
-              Deadline om {data.deadline.hours_remaining != null ? `${data.deadline.hours_remaining.toFixed(1)} t` : "unknown time"}
+              Deadline in {data.deadline.hours_remaining != null ? formatHoursRemaining(data.deadline.hours_remaining) : "unknown time"}
             </Text>
           </Card>
 
@@ -146,13 +150,19 @@ function StrategyPanel() {
 
 function PlanPanel() {
   const [weeks, setWeeks] = useState(4);
-  const plan = useMultiweekPlan(weeks);
+  const [chips, setChips] = useState(false);
+  const plan = useMultiweekPlan(weeks, chips);
   return (
     <>
       <Segmented
         value={String(weeks)}
         onChange={(value) => setWeeks(Number(value))}
         options={[2, 3, 4, 5, 6, 8].map((value) => ({ value: String(value), label: `${value} GW` }))}
+      />
+      <Segmented
+        value={chips ? "chips" : "plain"}
+        onChange={(value) => setChips(value === "chips")}
+        options={[{ value: "plain", label: "Without chips" }, { value: "chips", label: "Plan chips too" }]}
       />
       <QueryState query={plan}>
         {(data) => (
@@ -163,7 +173,18 @@ function PlanPanel() {
                 {data.global_optimum ? <Badge label="Global optimum" tone="positive" /> : null}
               </View>
               <Text style={styles.caption}>{data.caveat}</Text>
+              {data.bench_weights ? <Text style={styles.caption}>Bench weights {data.bench_weights.join(" / ")} (reserve GK, bench 1–3).</Text> : null}
             </Card>
+            {data.chip_calendar?.length ? (
+              <Card>
+                <Text style={styles.actionTitle}>Chip calendar</Text>
+                {data.chip_calendar.map((entry) => (
+                  <Text key={entry.chip} style={styles.caption}>
+                    {CHIP_LABELS[entry.chip as Chip] ?? entry.chip} in GW{entry.event} · {entry.alternative_event ? `alternative GW${entry.alternative_event}` : "no other week"} · {formatPoints(entry.gain_over_alternative, 1)} pts over it
+                  </Text>
+                ))}
+              </Card>
+            ) : null}
             {data.weeks.map((week) => (
               <PlanWeekCard key={week.event} week={week} />
             ))}
@@ -178,7 +199,7 @@ function PlanWeekCard({ week }: { week: PlanWeek }) {
   return (
     <Card>
       <View style={styles.actionHeader}>
-        <Text style={styles.actionTitle}>GW{week.event}</Text>
+        <Text style={styles.actionTitle}>GW{week.event}{week.chip ? ` · ${CHIP_LABELS[week.chip as Chip] ?? week.chip}` : ""}</Text>
         <Text style={styles.caption}>{week.formation}</Text>
       </View>
       {week.transfers_out.length > 0 ? (
@@ -195,6 +216,8 @@ function PlanWeekCard({ week }: { week: PlanWeek }) {
       </View>
       <Text style={styles.caption}>Captain: {week.captain}</Text>
       <Text style={styles.body}>{formatPoints(week.projected_points)} pts</Text>
+      {week.autosub ? <Text style={styles.caption}>With autosubs and vice-captain {formatPoints(week.autosub.expected_with_autosubs, 1)}</Text> : null}
+      {week.bench?.length ? <Text style={styles.caption}>Bench: {week.bench.join(" · ")}</Text> : null}
     </Card>
   );
 }

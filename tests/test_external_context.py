@@ -19,6 +19,12 @@ BOOTSTRAP = {"teams": [
 
 
 class ExternalContextTests(unittest.TestCase):
+
+    def test_promoted_club_names_match_across_sources(self):
+        from external_context import team_key
+        for names in (("Coventry", "Coventry City", "Coventry City FC"), ("Hull", "Hull City", "Hull City FC"),
+                      ("Ipswich", "Ipswich Town", "Ipswich Town FC"), ("Man United", "Manchester United FC")):
+            self.assertEqual(len({team_key(name) for name in names}), 1, names)
     def test_team_aliases_and_cross_competition_workload(self):
         self.assertEqual(team_key("Manchester United FC"), "manutd")
         payload = {"matches": [

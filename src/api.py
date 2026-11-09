@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import os
 import time
 from pathlib import Path
-from threading import RLock
+from threading import RLock, Thread
 from uuid import uuid4
 
 import numpy as np
@@ -15,9 +16,16 @@ from fastapi import FastAPI, HTTPException, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+import prospective_loop
+from autosub_value import lineup_value
 from chip_strategy import recommend_chip_strategy
+import data_quality
+from data_quality import fpl_data_freshness
 from manager_analytics import AnalyticsService
-from multiweek_planner import plan_multiweek
+from multiweek_planner import plan_multiweek, plan_with_context
+from result_cache import ResultCache, cache_key
+from scenarios import apply_overrides, breakpoint, compare_plans, robustness
+import decision_journal
 from session_store import SessionRegistry
 from squad_recommendations import recommend_squads
 from strategy_advisor import build_strategy_advice
@@ -37,7 +45,7 @@ from fpl_app import (
 )
 
 
-from decision_workspace import constrained_team, context, player_detail, changes_since_previous, compare_players
+from decision_workspace import constrained_team, context, fixture_ticker, player_detail, changes_since_previous, compare_players, change_horizon
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -51,6 +59,10 @@ class TeamImportRequest(BaseModel):
 class TeamSettingsRequest(BaseModel):
     bank: int = Field(ge=0, le=200)
     free_transfers: int = Field(ge=0, le=5)
+
+
+class HorizonRequest(BaseModel):
+    horizon: int = Field(ge=1, le=8)
 
 
 class SquadChangeRequest(BaseModel):
@@ -68,6 +80,10 @@ class SquadEditRequest(BaseModel):
 class ConstraintsRequest(BaseModel):
     locked_ids: list[int] = Field(default_factory=list, max_length=15)
     excluded_ids: list[int] = Field(default_factory=list, max_length=800)
+    # P1: reserve GK, bench 1, 2, 3. Omitted = the defaults in fpl_app.BENCH_WEIGHTS.
+    bench_weights: list[float] | None = Field(default=None, min_length=4, max_length=4)
+    # P5 "Your assumptions": chance of playing (0–1) per player; request-only, never stored or trained on.
+    overrides: list[dict] = Field(default_factory=list, max_length=15)
 
 
 class CompareRequest(ConstraintsRequest):
@@ -76,10 +92,18 @@ class CompareRequest(ConstraintsRequest):
 
 
 def _constrained(team, request):
+    weights = request.bench_weights
+    if weights is not None and any(not 0 <= w <= 1 for w in weights):
+        raise HTTPException(status_code=422, detail="Bench weights must be between 0 and 1.")
     try:
-        return constrained_team(team, request.locked_ids, request.excluded_ids)
+        team = constrained_team(team, request.locked_ids, request.excluded_ids)
     except AppError as exc:
         raise _as_http_error(exc) from exc
+    team = replace(team, bench_weights=tuple(weights)) if weights is not None else team
+    try:
+        return apply_overrides(team, request.overrides)
+    except (AppError, KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc) or "Invalid assumption.") from exc
 
 
 class TransferRequest(ConstraintsRequest):
@@ -87,9 +111,21 @@ class TransferRequest(ConstraintsRequest):
     outgoing_ids: list[int] = Field(default_factory=list, max_length=5)
 
 
+class PlanRequirement(BaseModel):
+    """P4: own_by / sell_in need player_id and event; max_club needs team_id; max_position needs position."""
+    kind: str = Field(pattern="^(own_by|sell_in|max_club|max_position)$")
+    player_id: int | None = Field(default=None, gt=0)
+    event: int | None = Field(default=None, ge=1, le=38)
+    team_id: int | None = Field(default=None, gt=0)
+    position: str | None = Field(default=None, pattern="^(GK|DEF|MID|FWD)$")
+    limit: int | None = Field(default=None, ge=0, le=5)
+
+
 class PlanRequest(ConstraintsRequest):
     weeks: int = Field(default=4, ge=1, le=8)
     discount: float = Field(default=.9, ge=.5, le=1.0)
+    chips: bool = False  # P2: plan Bench Boost, Triple Captain, Free Hit and Wildcard too
+    requirements: list[PlanRequirement] = Field(default_factory=list, max_length=6)
 
 
 class TeamStore:
@@ -218,6 +254,29 @@ def _as_http_error(exc: AppError) -> HTTPException:
     return HTTPException(status_code=400, detail=str(exc))
 
 
+RESULTS = ResultCache()
+
+
+def _cached(team, endpoint: str, work, **options) -> dict:
+    """T3/U10: answer from the cache when nothing that matters has changed."""
+    key = cache_key(team, endpoint, **options)
+    result, hit = RESULTS.compute(key, work)
+    return {**result, "cache": {"key": key, "hit": hit, "computed_at": RESULTS.get(key)["computed_at"]}}
+
+
+def _warm(team) -> None:
+    """U10: compute the default strategy, one-transfer search and plan in the background."""
+    requirements: tuple = ()
+    RESULTS.warm([
+        (cache_key(team, "strategy"), lambda: _json_safe(build_strategy_advice(team))),
+        # The transfer page opens on min(2, max(1, FT)) transfers.
+        (cache_key(team, "transfers", number=min(2, max(1, team.free_transfers)), outgoing=[]),
+         lambda: _transfers_payload(team, min(2, max(1, team.free_transfers)), [])),
+        (cache_key(team, "plan", weeks=team.horizon, discount=.9, chips=False, requirements=requirements),
+         lambda: _json_safe(plan_with_context(team, weeks=team.horizon, discount=.9))),
+    ])
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {
@@ -238,6 +297,7 @@ def load_team(request: TeamImportRequest) -> dict:
     except AppError as exc:
         raise _as_http_error(exc) from exc
     session_id = STORE.add(team)
+    _warm(team)
     return _team_payload(session_id, team)
 
 
@@ -255,7 +315,20 @@ def update_settings(session_id: str, request: TeamSettingsRequest) -> dict:
     team.team_value = int(team.squad["selling_price"].sum() + team.bank)
     team.squad_source = "manual_override"
     save_team_override(ROOT, team)
+    _warm(team)
     return _team_payload(session_id, team)
+
+
+@app.patch("/api/team/{session_id}/horizon")
+def update_horizon(session_id: str, request: HorizonRequest) -> dict:
+    try:
+        updated = change_horizon(STORE.get(session_id), request.horizon)
+        payload = _team_payload(session_id, updated)
+    except AppError as exc:
+        raise _as_http_error(exc) from exc
+    STORE.set(session_id, updated)
+    _warm(updated)
+    return payload
 
 
 @app.get("/api/team/{session_id}/squad-options")
@@ -286,6 +359,7 @@ def update_squad(session_id: str, request: SquadEditRequest) -> dict:
         save_team_override(ROOT, team)
     except AppError as exc:
         raise _as_http_error(exc) from exc
+    _warm(team)
     payload = _team_payload(session_id, team)
     payload["squad_update"] = result
     return payload
@@ -303,6 +377,7 @@ def reset_squad(session_id: str) -> dict:
     except AppError as exc:
         raise _as_http_error(exc) from exc
     STORE.set(session_id, team)
+    _warm(team)
     return _team_payload(session_id, team)
 
 
@@ -310,16 +385,17 @@ def reset_squad(session_id: str) -> dict:
 def transfers(session_id: str, request: TransferRequest) -> dict:
     team = _constrained(STORE.get(session_id), request)
     try:
-        frame = recommend_transfers(
-            team,
-            number=request.number,
-            forced_outgoing=request.outgoing_ids or None,
-        )
+        return _cached(team, "transfers", lambda: _transfers_payload(team, request.number, request.outgoing_ids),
+                       number=request.number, outgoing=sorted(request.outgoing_ids))
     except AppError as exc:
         raise _as_http_error(exc) from exc
+
+
+def _transfers_payload(team, number: int, outgoing_ids: list[int]) -> dict:
+    frame = recommend_transfers(team, number=number, forced_outgoing=outgoing_ids or None)
     return {
-        "number": request.number,
-        "outgoing_ids": request.outgoing_ids,
+        "number": number,
+        "outgoing_ids": outgoing_ids,
         "global_optimum": bool(not frame.empty and frame.iloc[0]["is_global_optimum"]),
         "plans": _records(frame),
     }
@@ -329,7 +405,15 @@ def transfers(session_id: str, request: TransferRequest) -> dict:
 def multiweek_plan(session_id: str, request: PlanRequest) -> dict:
     team = _constrained(STORE.get(session_id), request)
     try:
-        return _json_safe(plan_multiweek(team, weeks=request.weeks, discount=request.discount))
+        requirements = tuple(r.model_dump(exclude_none=True) for r in request.requirements)
+        for requirement in requirements:
+            needed = {"own_by": ("player_id", "event"), "sell_in": ("player_id", "event"),
+                      "max_club": ("team_id", "limit"), "max_position": ("position", "limit")}[requirement["kind"]]
+            if any(key not in requirement for key in needed):
+                raise HTTPException(status_code=422, detail=f"{requirement['kind']} needs {', '.join(needed)}.")
+        return _cached(team, "plan", lambda: _json_safe(plan_with_context(
+            team, chips=request.chips, requirements=requirements, weeks=request.weeks, discount=request.discount)),
+            weeks=request.weeks, discount=request.discount, chips=request.chips, requirements=requirements)
     except AppError as exc:
         raise _as_http_error(exc) from exc
 
@@ -378,7 +462,7 @@ def recommended_squads(session_id: str, request: ConstraintsRequest = Body(defau
 def strategy(session_id: str, request: ConstraintsRequest = Body(default=ConstraintsRequest())) -> dict:
     team = _constrained(STORE.get(session_id), request)
     try:
-        return _json_safe(build_strategy_advice(team))
+        return _cached(team, "strategy", lambda: _json_safe(build_strategy_advice(team)))
     except AppError as exc:
         raise _as_http_error(exc) from exc
 
@@ -392,6 +476,15 @@ def analytics(
     team = STORE.get(session_id)
     try:
         return _json_safe(ANALYTICS.build(team, event=event, league_id=league_id))
+    except AppError as exc:
+        raise _as_http_error(exc) from exc
+
+
+@app.get("/api/team/{session_id}/timeline")
+def timeline(session_id: str) -> dict:
+    team = STORE.get(session_id)
+    try:
+        return _json_safe(ANALYTICS.timeline(team.entry_id, ROOT / "data" / "local" / "cache"))
     except AppError as exc:
         raise _as_http_error(exc) from exc
 
@@ -516,4 +609,158 @@ def refresh_team(session_id: str) -> dict:
     except AppError as exc:
         raise _as_http_error(exc) from exc
     STORE.set(session_id, team)
+    _warm(team)
     return _team_payload(session_id, team)
+
+
+class LoopJob:
+    """Runs ``prospective_loop.auto`` once in the background (plan O2).
+
+    Still manual: nothing schedules it. The loop itself refuses a second lock
+    of the same round; this guard only stops two runs from overlapping.
+    """
+
+    def __init__(self, run=None) -> None:
+        self._lock = RLock()
+        self._run = run or (lambda: prospective_loop.auto(ROOT))
+        self.state, self.error, self.result, self.started_at = "idle", None, None, None
+
+    def start(self) -> None:
+        with self._lock:
+            if self.state == "running":
+                raise HTTPException(status_code=409, detail="The prospective loop is already running.")
+            self.state, self.error, self.result, self.started_at = "running", None, None, time.time()
+        Thread(target=self._work, daemon=True).start()
+
+    def _work(self) -> None:
+        try:
+            result = self._run()
+            with self._lock:
+                self.state, self.result = "complete", json.loads(json.dumps(result, default=str))
+        except Exception as exc:  # reported through the status endpoint
+            with self._lock:
+                self.state, self.error = "failed", str(exc)
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            return {"state": self.state, "error": self.error, "result": self.result,
+                    "elapsed_seconds": round(time.time() - self.started_at) if self.started_at else 0}
+
+
+LOOP_JOB = LoopJob()
+
+
+def _loop_events() -> list[dict]:
+    found = prospective_loop.captures(ROOT)
+    if not found:
+        return []
+    return prospective_loop._gz(found[-1][0] / "bootstrap.json.gz")["events"]
+
+
+def _loop_status() -> dict:
+    return {**prospective_loop.status(ROOT, _loop_events()), "job": LOOP_JOB.snapshot(),
+            "command": ".venv/bin/python src/prospective_loop.py auto", "fpl_data": fpl_data_freshness(ROOT)}
+
+
+@app.get("/api/loop/status")
+def loop_status() -> dict:
+    return _loop_status()
+
+
+@app.post("/api/loop/lock")
+def loop_lock() -> dict:
+    current = _loop_status()
+    if current["locked"]:
+        raise HTTPException(status_code=409, detail=f"GW{current['event']} is already locked.")
+    if not current["window_open"]:
+        raise HTTPException(status_code=409, detail="The lock window is not open yet.")
+    LOOP_JOB.start()
+    return _loop_status()
+
+
+@app.get("/api/data-quality")
+def data_quality_report() -> dict:
+    """Plan O3: source freshness, odds coverage, fallback share, ID coverage and their decision impact."""
+    return _json_safe(data_quality.report(ROOT))
+
+
+@app.get("/api/model-card")
+def model_card() -> dict:
+    """Plan E4: production model, locked-round results, calibration, limitations and data coverage."""
+    return _json_safe(data_quality.model_card(ROOT))
+
+
+@app.get("/api/team/{session_id}/lineup-value")
+def lineup_autosub_value(session_id: str) -> dict:
+    """Plan P3: XI forecast and the expectation including autosubs and vice-captain."""
+    team = STORE.get(session_id)
+    source = team.lineup_squad if team.lineup_squad is not None else team.squad
+    return _json_safe(lineup_value(optimal_lineup(source)))
+
+
+@app.get("/api/team/{session_id}/fixtures")
+def fixtures(session_id: str, scope: str = Query(default="squad", pattern="^(squad|market)$"),
+             limit: int = Query(default=30, ge=1, le=100)) -> dict:
+    """U16: fixture ticker for your squad or the best players you do not own."""
+    try:
+        return _json_safe(fixture_ticker(STORE.get(session_id), scope, limit))
+    except AppError as exc:
+        raise _as_http_error(exc) from exc
+
+
+class ScenarioRequest(ConstraintsRequest):
+    scenarios: int = Field(default=50, ge=20, le=100)
+
+
+class BreakpointRequest(ConstraintsRequest):
+    player_id: int = Field(gt=0)
+
+
+@app.post("/api/team/{session_id}/scenarios")
+def scenarios(session_id: str, request: ScenarioRequest) -> dict:
+    """P5: hold vs plan A vs plan B on the same inputs, and how often each wins across sampled scenarios."""
+    team = _constrained(STORE.get(session_id), request)
+    def work():
+        plans = compare_plans(team)
+        return _json_safe({"plans": plans, "robustness": robustness(team, plans, request.scenarios),
+                           "assumptions": team.scenario_overrides})
+    try:
+        return _cached(team, "scenarios", work, scenarios=request.scenarios)
+    except AppError as exc:
+        raise _as_http_error(exc) from exc
+
+
+@app.post("/api/team/{session_id}/scenarios/breakpoint")
+def scenario_breakpoint(session_id: str, request: BreakpointRequest) -> dict:
+    """P5: the chance of playing for one player at which the first-week action changes."""
+    team = _constrained(STORE.get(session_id), request)
+    try:
+        return _cached(team, "breakpoint", lambda: _json_safe(breakpoint(team, request.player_id)), player=request.player_id)
+    except AppError as exc:
+        raise _as_http_error(exc) from exc
+
+
+class JournalRequest(ConstraintsRequest):
+    choice: str = Field(pattern="^(follow|roll|other)$")
+    note: str = Field(default="", max_length=500)
+
+
+@app.post("/api/team/{session_id}/journal")
+def journal_record(session_id: str, request: JournalRequest) -> dict:
+    """U19: freeze the current advice, the hold/A/B alternatives and your choice before the deadline."""
+    team = _constrained(STORE.get(session_id), request)
+    try:
+        strategy = _cached(team, "strategy", lambda: _json_safe(build_strategy_advice(team)))
+        strategy = {**strategy, "context": context(team)}
+        alternatives = _cached(team, "scenarios-plans", lambda: {"plans": _json_safe(compare_plans(team))})["plans"]
+        decision_journal.record(ROOT, team, strategy, alternatives, request.choice, request.note)
+        return {"entries": decision_journal.entries(ROOT, decision_journal.season_of(team), team.entry_id)}
+    except AppError as exc:
+        raise _as_http_error(exc) from exc
+
+
+@app.get("/api/team/{session_id}/journal")
+def journal_entries(session_id: str) -> dict:
+    team = STORE.get(session_id)
+    return _json_safe({"entries": decision_journal.entries(ROOT, decision_journal.season_of(team), team.entry_id)})
+
