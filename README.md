@@ -71,8 +71,8 @@ npm run typecheck:mobile && npm run test:mobile
 ## More
 
 [Handbook](docs/handbook.md) · [Data pipeline](docs/data_pipeline_2026-10-22.md) ·
-[Model phase](docs/model_phase_2026-10-22.md) · [Plan 06.11, phases A–G](docs/improvement_plan_2026-11-06.md) · [Deploy](docs/deploy.md) ·
-[Chip strategy](docs/chip_strategy.md) · [Improvement plan](docs/forbedringsplan_2026-10-22.md)
+[Deploy](docs/deploy.md) · [Chip strategy](docs/chip_strategy.md) ·
+[Archive](docs/archive/) (finished plans, phase reports and research)
 
 Two data checkouts live in the repository root and are ignored by Git:
 `data-source/` ([vaastav/Fantasy-Premier-League](https://github.com/vaastav/Fantasy-Premier-League))

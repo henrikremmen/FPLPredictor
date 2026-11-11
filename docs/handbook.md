@@ -56,7 +56,7 @@ same FPL ID and Gameweek, survives forecast refreshes and can be removed with
 
 The **Analysis** tab uses public data only. Historical outcomes and EO are
 separate from forward-looking forecasts. See
-[manager analytics research](manager_analytics_research_2026.md) for methods
+[manager analytics research](archive/manager_analytics_research_2026.md) for methods
 and limitations.
 
 ## Decision-first layout (plan phase F, November 2026)
@@ -155,7 +155,9 @@ frontend/            React web app
 apps/mobile/         Expo/React Native app with TypeScript and Expo Router
 packages/api-client/ Typed client for src/api.py and shared API types
 packages/shared/     Shared constants and formatting
-notebooks/           Data exploration, model evaluation and forecast comparisons
+tests/               Python unit tests (unittest)
+notebooks/           Deadline backtest, live snapshots, prediction vs actual; dataset parity reference
+docs/archive/        Finished plans, phase reports and research
 ```
 
 `packages/*` and `apps/*` are npm workspaces. `frontend/` is installed and run
@@ -473,9 +475,9 @@ only from 2023/24, without Europa League, Conference League, FA Cup or League
 Cup coverage. The tested CL workload model did not improve RMSE, candidate
 RMSE and top-25 selection across both evaluation seasons, so it was not enabled.
 
-See [model research](model_research_2026.md),
-[product research](product_feature_research_2026.md) and
-[manager strategy research](fpl_manager_strategy_research_2026.md).
+See [model research](archive/model_research_2026.md),
+[product research](archive/product_feature_research_2026.md) and
+[manager strategy research](archive/fpl_manager_strategy_research_2026.md).
 
 ## Chip strategy
 
@@ -620,7 +622,7 @@ is refused. The banner also lists rounds that were never locked and a stale
 for a *manual* promotion review only under the pre-registered criterion in
 [docs/prospective_criterion_2026-10-22.md](prospective_criterion_2026-10-22.md).
 Reports: [data pipeline](data_pipeline_2026-10-22.md),
-[model phase](model_phase_2026-10-22.md).
+[model phase](archive/model_phase_2026-10-22.md).
 
 The component model separately learns minutes, goals, assists, clean sheets,
 goals conceded, saves, bonus, cards and defensive contributions, then applies
@@ -693,7 +695,7 @@ The strategy centre combines rolling/transferring/hits, squad health, captain
 margin, deadline checks, official price indicators and model-filtered watchlists.
 Hit plans are compared against a separate no-hit scenario and need an uncertainty
 buffer before they are recommended. Further research and priorities are in
-[manager strategy research](fpl_manager_strategy_research_2026.md).
+[manager strategy research](archive/fpl_manager_strategy_research_2026.md).
 
 
 Two data checkouts live in the repository root and are ignored by Git:

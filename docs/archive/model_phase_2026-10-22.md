@@ -1,7 +1,7 @@
 # Modellfasen: utfordrere, prospektiv løype og ledertavle (fase 4)
 
 22. oktober 2026. Gjelder fase 4 i [forbedringsplanen](forbedringsplan_2026-10-22.md)
-(M1–M8). Bygger på datafasen ([rapport](data_pipeline_2026-10-22.md)).
+(M1–M8). Bygger på datafasen ([rapport](../data_pipeline_2026-10-22.md)).
 
 Produksjonsmodellen er **uendret**:
 `artifacts/models/production_market_0erysib7`, `market_hgb + fallback + minutes + quantiles`,
@@ -15,7 +15,7 @@ med `production_eligible: false`. Appen og innhentingen leser aldri derfra.
 | Utfordrere er låst | Oppfylt | GW8 er låst 22.10 kl. 16:20 UTC, før deadline 23.10 kl. 17:30 UTC: `artifacts/prospective/loop_gw8_20261022T162032Z` og `…_decisions`. Pakken har 2 672 rader og identiske kohorter for `incumbent`, `refit_20261022` (M1), `season_transfer_20261022` (M2) og `fpl_ep_next`. Hver modell har sin egen låste tropp, ellever og kaptein. |
 | Utfordrere evalueres automatisk | Oppfylt | `prospective_loop.py auto` evaluerer hver runde FPL har kontrollert. GW7 er allerede evaluert endelig av løypen (`artifacts/prospective_eval/gw7_manual_20261010`). GW8 evalueres ved første kjøring etter at FPL har kontrollert runden (rundt 27.10). Etter ditt valg kjøres kommandoen manuelt, ikke av en installert tidsplan. |
 | Ledertavle finnes | Oppfylt | `artifacts/prospective_eval/leaderboard.{md,json}` og `leaderboard_rounds.csv`. |
-| Ingen produksjonsbytte uten forhåndsregistrert kriterium | Oppfylt | [Kriterium v1](prospective_criterion_2026-10-22.md) er registrert før noe GW8-utfall finnes. Det krever minst 8 løyperunder, et 95 %-bootstrapintervall for differansen i lagpoeng som ligger over 0, og MAE som ikke er dårligere. Løypen skriver aldri til `artifacts/models`; det er testet. |
+| Ingen produksjonsbytte uten forhåndsregistrert kriterium | Oppfylt | [Kriterium v1](../prospective_criterion_2026-10-22.md) er registrert før noe GW8-utfall finnes. Det krever minst 8 løyperunder, et 95 %-bootstrapintervall for differansen i lagpoeng som ligger over 0, og MAE som ikke er dårligere. Løypen skriver aldri til `artifacts/models`; det er testet. |
 
 ## Hva som er laget
 

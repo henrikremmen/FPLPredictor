@@ -1,6 +1,6 @@
 # Egen datainnhenting og skriptet datasett (fase 1)
 
-22. oktober 2026. Gjelder fase 1 i [forbedringsplanen](forbedringsplan_2026-10-22.md):
+22. oktober 2026. Gjelder fase 1 i [forbedringsplanen](archive/forbedringsplan_2026-10-22.md):
 D1 (automatisk innhenting), D2 (skriptet datasett), D3 (datakontrakt) og
 backfill av 2026-27. Beslutning: GitHub Actions i privat repo
 `henrikremmen/fpl-data`; FPL-Core-Insights brukes bare til forskning/validering;
