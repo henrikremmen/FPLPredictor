@@ -105,7 +105,7 @@ and limitations.
 - Set `ANTHROPIC_API_KEY` in the root `.env` (see `.env.example`), load your
   team and click **Ask Claude** in the bottom right corner. The key is reread
   on every message, so no restart is needed. The web app only; not the mobile app.
-- Claude (`claude-sonnet-5-5`, medium effort) sees what the app shows you:
+- Claude (`claude-opus-5-5`, low effort) sees what the app shows you:
   - the forecast for every player and club over every forecast gameweek (up to 8);
   - the model card;
   - your squad, finances, chips, preferences and assumptions;

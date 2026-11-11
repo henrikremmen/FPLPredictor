@@ -90,8 +90,8 @@ class RespondTests(unittest.TestCase):
         self.assertIn({"type": "text", "text": "Keep him."}, events)
         self.assertEqual(events[-1]["type"], "done")
         self.assertEqual(events[-1]["usage"]["cache_read_input_tokens"], 14)
-        self.assertEqual(fake.requests[0]["model"], "claude-sonnet-5-5")
-        self.assertEqual(fake.requests[0]["output_config"], {"effort": "medium"})
+        self.assertEqual(fake.requests[0]["model"], "claude-opus-5-5")
+        self.assertEqual(fake.requests[0]["output_config"], {"effort": "low"})
         self.assertEqual(fake.requests[0]["cache_control"], {"type": "ephemeral", "ttl": "1h"})
         self.assertEqual(chat.transcript(convo), [{"role": "user", "text": "Sell Haaland?"},
                                                   {"role": "assistant", "text": "Keep him."}])

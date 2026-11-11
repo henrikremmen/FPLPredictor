@@ -27,8 +27,8 @@ import data_quality
 from decision_workspace import change_horizon
 from fpl_app import AppError
 
-MODEL = "claude-sonnet-5-5"  # half the price of Opus 5.5 at near-equal quality
-EFFORT = "medium"
+MODEL = "claude-opus-5-5"  # supports the mid-conversation system messages below; Sonnet 5 does not
+EFFORT = "low"  # Opus 5.5 defaults to medium
 MAX_TOKENS = 64000
 MAX_TOOL_ROUNDS = 10
 MIN_XP = 1.0  # players below this many expected points over the whole window are left out of the snapshot
