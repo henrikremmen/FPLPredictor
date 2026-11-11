@@ -1,7 +1,7 @@
 """Data quality for the app and the lock banner (plans O1b, O2, O3).
 
-Reads local files only: the ``fpl-data`` checkout (pull it to see the bot's
-latest commits) and ``data/raw/live_fpl`` captures. Nothing here fetches.
+Reads local files only: the ``fpl-data`` checkout (filled by
+``src/fpl_collect.py``) and ``data/raw/live_fpl`` captures. Nothing here fetches.
 """
 
 from __future__ import annotations

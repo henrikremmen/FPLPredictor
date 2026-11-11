@@ -31,7 +31,7 @@ export function loopBanner(status: LoopBannerInput): LoopBanner | null {
   }
   if (status.fpl_data.stale) {
     notes.push(status.fpl_data.checkout && status.fpl_data.age_hours != null
-      ? `fpl-data: last snapshot ${Math.round(status.fpl_data.age_hours)} h ago. Pull fpl-data or check its Actions runs.`
+      ? `fpl-data: last snapshot ${Math.round(status.fpl_data.age_hours)} h ago. Run src/fpl_collect.py --data-root fpl-data auto.`
       : "fpl-data checkout not found; own data cannot be checked.");
   }
   if (!headline && !notes.length) return null;

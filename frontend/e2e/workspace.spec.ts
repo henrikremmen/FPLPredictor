@@ -431,7 +431,7 @@ test('lock banner: hidden between windows, lock button in the window, missed rou
   const banner = page.locator('.lock-banner');
   await expect(banner.getByText('Lock window open for GW11 – lock now')).toBeVisible();
   await expect(banner.getByText('Never locked: GW9. These rounds cannot count for the model comparison.')).toBeVisible();
-  await expect(banner.getByText('fpl-data: last snapshot 340 h ago. Pull fpl-data or check its Actions runs.')).toBeVisible();
+  await expect(banner.getByText('fpl-data: last snapshot 340 h ago. Run src/fpl_collect.py --data-root fpl-data auto.')).toBeVisible();
   await banner.getByRole('button', { name: 'Lock GW11' }).click();
   await expect(banner.getByText('Locking GW11…')).toBeVisible();
   await expect(banner.getByRole('button', { name: 'Lock GW11' })).toHaveCount(0);

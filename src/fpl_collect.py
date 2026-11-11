@@ -1,7 +1,7 @@
 """Automatic public FPL collection for the fpl-data repository (plan D1).
 
-Runs hourly from GitHub Actions (``auto``). Every decision comes from files
-already on disk, so reruns are idempotent:
+Run locally on demand (``auto``). Every decision comes from files already on
+disk, so reruns are idempotent:
 
 * Light snapshot (bootstrap-static, fixtures, event-status, set-piece notes)
   once a day after 02:30 UTC, when price changes have settled, and in the
@@ -369,7 +369,7 @@ def export(data_root: Path, xp_dirs=()) -> dict:
 
 
 def auto(data_root: Path, xp_dirs=(), observed_at=None, phases=None) -> dict:
-    """Hourly entry point. ``phases`` forces a light snapshot and skips the export."""
+    """Default entry point. ``phases`` forces a light snapshot and skips the export."""
     data_root = Path(data_root)
     observed = pd.Timestamp(observed_at or now())
     snapshots = data_root / "snapshots"
@@ -378,8 +378,7 @@ def auto(data_root: Path, xp_dirs=(), observed_at=None, phases=None) -> dict:
     records = {}
     manifests = snapshot_manifests(snapshots)
     previous = max((pd.Timestamp(m["started_at"]) for m in manifests), default=None)
-    # Hours since the last snapshot. A schedule that silently stops firing cannot
-    # fail a run; the next run reports the hole so the workflow can end red.
+    # Hours since the last snapshot, so a run reports how long collection was off.
     gap = round((observed - previous).total_seconds() / 3600, 1) if previous is not None else None
     result = {"light_snapshot": None, "export": None, "gap_hours": gap,
               "gap_alert": gap is not None and gap > GAP_ALERT_HOURS}

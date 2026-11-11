@@ -28,7 +28,7 @@ describe("lock banner", () => {
     expect(banner?.notes).toEqual([
       "Last lock attempt failed: No capture",
       "Never locked: GW9. These rounds cannot count for the model comparison.",
-      "fpl-data: last snapshot 340 h ago. Pull fpl-data or check its Actions runs.",
+      "fpl-data: last snapshot 340 h ago. Run src/fpl_collect.py --data-root fpl-data auto.",
     ]);
   });
 });

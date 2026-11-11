@@ -410,9 +410,10 @@ not implemented. Individual international minutes and travel are not modelled.
 
 ### Own data repository (fpl-data)
 
-vaastav stopped weekly updates after 2024-25, so current seasons come from the
-private repository `henrikremmen/fpl-data`. Its GitHub Actions workflow runs
-hourly and decides from the files already committed what is due:
+vaastav stopped weekly updates after 2024-25, so current seasons come from our
+own collection in `fpl-data/` (a clone of the private repository
+`henrikremmen/fpl-data`). The collector runs locally, on demand, and decides
+from the files already there what is due:
 
 - a light snapshot (bootstrap, fixtures, event status, set-piece notes) once a
   day after 02:30 UTC and in the T-24h/6h/1h windows before each deadline;
@@ -420,32 +421,35 @@ hourly and decides from the files already committed what is due:
   written as vaastav-compatible CSVs with an extra stable `code` column.
 
 Every payload is validated at the boundary and every export must pass the data
-contract (`src/data_contract.py`) before anything is written; a failure turns
-the run red. Corrections to exported rounds are logged in `corrections.csv`.
+contract (`src/data_contract.py`) before anything is written; a failure exits
+non-zero. Corrections to exported rounds are logged in `corrections.csv`.
 
-GitHub can delay or silently stop scheduled runs (it did from 23 October to
-6 November 2026, with no failed run). Each run therefore reports `gap_hours`
-since the previous snapshot; above 36 hours the workflow commits the data and
-then fails, so GitHub's failed-run e-mail reports the hole. The app's lock
-banner also warns when the local `fpl-data` checkout's latest snapshot is over
-36 hours old. If runs stop, restart the schedule and backfill:
+Run it whenever you use the app, at least once a day after 02:30 UTC, and right
+before `prospective_loop.py auto` locks a round. Deadline checkpoints cannot be
+fetched afterwards; finished rounds can, so a missed day only loses that day's
+snapshot. Each run reports `gap_hours` since the previous snapshot, and the
+app's lock banner warns when the latest snapshot is over 36 hours old.
 
 ```bash
-gh workflow disable collect -R henrikremmen/fpl-data && gh workflow enable collect -R henrikremmen/fpl-data
-gh workflow run collect -R henrikremmen/fpl-data -f mode=auto     # exports every missing data-checked round
+.venv/bin/python src/fpl_collect.py --data-root fpl-data auto      # what is due now
+git -C fpl-data add -A && git -C fpl-data commit -qm "data: local $(date -u +%FT%H:%MZ)" && git -C fpl-data push   # optional backup
 ```
+
+The GitHub Actions workflow in `fpl-data` (hourly from 22 October 2026) was
+removed on 11 November 2026: data collection on GitHub-hosted runners can fall
+outside GitHub's Actions terms. Keep collection local.
+
 The collector source is `src/fpl_collect.py`; `fpl-data/collector/` holds
-copies, and the test suite fails if they drift. Clone and refresh locally:
+copies, and the test suite fails if they drift.
 
 ```bash
 git clone https://github.com/henrikremmen/fpl-data.git fpl-data   # once, ignored by Git
-git -C fpl-data pull
 cp src/fpl_collect.py src/data_contract.py fpl-data/collector/      # after changing either file
 .venv/bin/python src/fpl_collect.py --data-root fpl-data export --xp-snapshots data/raw/live_fpl
 ```
 
-The last command re-exports every data-checked round locally (about ten
-minutes at two requests per second). Normally the workflow does this.
+The last command re-exports every data-checked round (about ten minutes at two
+requests per second); `auto` already exports rounds that are missing.
 
 ## Historical market model
 
@@ -698,4 +702,4 @@ buffer before they are recommended. Further research and priorities are in
 
 Two data checkouts live in the repository root and are ignored by Git:
 `data-source/` (https://github.com/vaastav/Fantasy-Premier-League) and
-`fpl-data/` (https://github.com/henrikremmen/fpl-data, private).
+`fpl-data/` (own collected data, a clone of the private https://github.com/henrikremmen/fpl-data).

@@ -30,7 +30,7 @@ For a phone on the same Wi-Fi, start the backend with `npm run backend:lan`.
 ```bash
 .venv/bin/python src/capture_fpl.py                 # new FPL snapshot + forecasts (what Refresh forecast does)
 .venv/bin/python src/prospective_loop.py auto       # before each deadline and after FPL checks a round (or the app's Lock button)
-git -C fpl-data pull                                 # data collected hourly by the fpl-data repository
+.venv/bin/python src/fpl_collect.py --data-root fpl-data auto   # own data: daily snapshot, deadline checkpoints, finished rounds
 .venv/bin/python src/build_dataset.py               # training table from vaastav + fpl-data seasons
 ```
 
@@ -52,9 +52,9 @@ outcome ranges, and **Upside** weights the ceiling (0.7 × expected + 0.3 × Q90
 
 ## Data and models
 
-- Current-season data come from the private `fpl-data` repository. Its GitHub
-  Actions collector runs hourly, writes vaastav-format CSVs and validates every
-  round against a data contract. Earlier seasons come from vaastav.
+- Current-season data come from `fpl-data/`, filled by running the collector
+  locally. It writes vaastav-format CSVs and validates every round against a
+  data contract. Earlier seasons come from vaastav.
 - The production model is never replaced automatically. Challengers are locked
   before each deadline and scored afterwards on a leaderboard
   (`artifacts/prospective_eval/leaderboard.md`) under a
@@ -76,4 +76,4 @@ npm run typecheck:mobile && npm run test:mobile
 
 Two data checkouts live in the repository root and are ignored by Git:
 `data-source/` ([vaastav/Fantasy-Premier-League](https://github.com/vaastav/Fantasy-Premier-League))
-and `fpl-data/` (github.com/henrikremmen/fpl-data, private).
+and `fpl-data/` (own collected data, a clone of the private github.com/henrikremmen/fpl-data).
