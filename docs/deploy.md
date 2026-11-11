@@ -13,7 +13,6 @@ Configuration is controlled by environment variables.
 | `FPL_API_PORT` | `8000` | Port used by uvicorn. |
 | `FPL_API_CORS_ORIGINS` | localhost and 127.0.0.1 on ports 5173/4173 | Comma-separated permitted browser origins. Native mobile clients are not subject to browser CORS. |
 | `FPL_API_CORS_ORIGIN_REGEX` | Unset | Optional origin regex, for example for preview deployments. |
-| `DATABASE_URL` | Unset; local SQLite | A `postgresql://` URL enables shared session storage. Requires `pip install psycopg2-binary`. |
 | `FPL_SESSIONS_DB_PATH` | `data/local/sessions.db` | SQLite path override; tests may use `:memory:`. |
 | `ANTHROPIC_API_KEY` | Unset | Enables the web app chat (`POST /api/team/{id}/chat`). Read from the root `.env` on every message. Only someone with `FPL_API_TOKEN` can use it once the API listens on the network. |
 
@@ -48,8 +47,8 @@ the macOS firewall requests permission.
 restart, a missing in-memory team is imported again and saved manual corrections
 from `data/local/team_overrides/` are reapplied.
 
-SQLite is the default. Use `DATABASE_URL` with PostgreSQL for shared storage
-across instances; the registry supports both backends.
+Run one API process. The registry is a local SQLite file, and the team cache,
+results, chats and background jobs live in that process's memory.
 
 All sessions read shared frozen forecasts from
 `data/raw/live_fpl/capture_*/forecast.csv`. Refreshing through

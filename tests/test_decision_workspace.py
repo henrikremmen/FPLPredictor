@@ -13,6 +13,7 @@ import pandas as pd
 from fastapi.testclient import TestClient
 os.environ.setdefault("FPL_SESSIONS_DB_PATH", ":memory:")
 os.environ["FPL_API_TOKEN"] = ""  # the tests run without the API token, whatever .env says
+os.environ["FPL_SESSIONS_DB_PATH"] = ":memory:"  # and never write test sessions into data/local/sessions.db
 import api
 from decision_workspace import constrained_team, compare_players, context, player_detail, changes_since_previous
 from fpl_app import AppError, recommend_transfers, transfer_targets, sell_candidates

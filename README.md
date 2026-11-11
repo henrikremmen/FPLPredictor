@@ -67,6 +67,9 @@ outcome ranges, and **Upside** weights the ceiling (0.7 × expected + 0.3 × Q90
 
 ## Tests
 
+`npm run test:all` runs the backend tests, the web, shared and mobile type
+checks and the mobile tests in one go. No CI runs them, so run it before a commit.
+
 ```bash
 .venv/bin/python -m unittest discover -s tests
 npm run build --prefix frontend && npm run test:e2e:workspace --prefix frontend

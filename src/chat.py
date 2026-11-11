@@ -222,15 +222,20 @@ _SNAPSHOT_LOCK = Lock()
 def market_snapshot(team, root: Path) -> str:
     key = forecast_key(team)
     with _SNAPSHOT_LOCK:
-        if key not in _SNAPSHOTS:
-            sections = [market_tables(_wide_weekly(team))]
-            for title, build in [("Model card", data_quality.model_card), ("Data quality", data_quality.report)]:
-                try:
-                    sections.append(f"{title}:\n{_dumps(build(root))}")
-                except Exception as exc:  # the chat still works without them
-                    sections.append(f"{title}: unavailable ({exc})")
+        if key in _SNAPSHOTS:
+            return _SNAPSHOTS[key]
+    # Built outside the lock: it takes seconds, and other chats on the current snapshot should not wait.
+    sections = [market_tables(_wide_weekly(team))]
+    for title, build in [("Model card", data_quality.model_card), ("Data quality", data_quality.report)]:
+        try:
+            sections.append(f"{title}:\n{_dumps(build(root))}")
+        except Exception as exc:  # the chat still works without them
+            sections.append(f"{title}: unavailable ({exc})")
+    snapshot = "<market_snapshot>\n" + "\n\n".join(sections) + "\n</market_snapshot>"
+    with _SNAPSHOT_LOCK:
+        if key not in _SNAPSHOTS:  # the first build wins, so every chat on this forecast caches the same prompt
             _SNAPSHOTS.clear()  # ponytail: one forecast at a time; key by forecast if several are served
-            _SNAPSHOTS[key] = "<market_snapshot>\n" + "\n\n".join(sections) + "\n</market_snapshot>"
+            _SNAPSHOTS[key] = snapshot
         return _SNAPSHOTS[key]
 
 

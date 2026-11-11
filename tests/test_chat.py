@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("FPL_SESSIONS_DB_PATH", ":memory:")
 
 os.environ["FPL_API_TOKEN"] = ""  # the tests run without the API token, whatever .env says
+os.environ["FPL_SESSIONS_DB_PATH"] = ":memory:"  # and never write test sessions into data/local/sessions.db
 import api
 import chat
 from test_api import fake_team

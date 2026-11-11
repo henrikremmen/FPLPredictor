@@ -7,13 +7,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from session_store import SessionRegistry
 
 
-def in_memory_registry() -> SessionRegistry:
-    return SessionRegistry(root=Path("."), db_path=":memory:")
+def in_memory_registry(test: unittest.TestCase) -> SessionRegistry:
+    registry = SessionRegistry(root=Path("."), db_path=":memory:")
+    test.addCleanup(registry.close)
+    return registry
 
 
 class SessionRegistryTests(unittest.TestCase):
     def test_put_then_get_round_trips(self):
-        registry = in_memory_registry()
+        registry = in_memory_registry(self)
 
         registry.put("abc", entry_id=5139814, horizon=3, risk_profile="stable")
         pointer = registry.get("abc")
@@ -24,12 +26,12 @@ class SessionRegistryTests(unittest.TestCase):
         self.assertEqual(pointer.risk_profile, "stable")
 
     def test_get_missing_session_returns_none(self):
-        registry = in_memory_registry()
+        registry = in_memory_registry(self)
 
         self.assertIsNone(registry.get("missing"))
 
     def test_put_upserts_existing_session(self):
-        registry = in_memory_registry()
+        registry = in_memory_registry(self)
 
         registry.put("s1", entry_id=1, horizon=1, risk_profile="balanced")
         registry.put("s1", entry_id=1, horizon=5, risk_profile="upside")

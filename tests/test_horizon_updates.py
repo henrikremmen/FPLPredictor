@@ -11,6 +11,7 @@ from test_multiweek_planner import _team
 from decision_workspace import change_horizon
 from fpl_app import AppError
 os.environ["FPL_API_TOKEN"] = ""  # the tests run without the API token, whatever .env says
+os.environ["FPL_SESSIONS_DB_PATH"] = ":memory:"  # and never write test sessions into data/local/sessions.db
 import api
 
 

@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("FPL_SESSIONS_DB_PATH", ":memory:")
 
 os.environ["FPL_API_TOKEN"] = ""  # the tests run without the API token, whatever .env says
+os.environ["FPL_SESSIONS_DB_PATH"] = ":memory:"  # and never write test sessions into data/local/sessions.db
 import api
 from fpl_app import AppError, ImportedTeam
 from session_store import SessionRegistry
@@ -233,6 +234,7 @@ class ApiTests(unittest.TestCase):
 
     def test_only_the_newest_teams_stay_in_memory(self):
         registry = SessionRegistry(Path("."), db_path=":memory:")
+        self.addCleanup(registry.close)
         store = api.TeamStore(registry, max_teams=2)
         first = store.add(fake_team())
         store.add(fake_team())
@@ -430,6 +432,24 @@ class ResultCacheTests(unittest.TestCase):
         cache.warm([("d", lambda: {"x": 9}), ("e", lambda: 1 / 0)]).join()
         self.assertEqual(cache.get("d")["result"], {"x": 9})
         self.assertIsNone(cache.get("e"))  # failures are left for the page to report
+
+    def test_a_key_being_computed_is_not_computed_again(self):
+        from result_cache import ResultCache
+        cache, calls, started, release = ResultCache(), [], threading.Event(), threading.Event()
+
+        def slow():
+            calls.append(1)
+            started.set()
+            release.wait(5)
+            return {"plan": 1}
+
+        warming = cache.warm([("plan", slow)])
+        started.wait(5)
+        page = threading.Thread(target=lambda: cache.compute("plan", slow))
+        page.start()
+        release.set()
+        warming.join(), page.join()
+        self.assertEqual(len(calls), 1)
 
 
 

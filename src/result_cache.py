@@ -39,6 +39,7 @@ def cache_key(team, endpoint: str, **options) -> str:
 class ResultCache:
     def __init__(self, max_entries: int = MAX_ENTRIES):
         self._items: OrderedDict[str, dict] = OrderedDict()
+        self._gates: dict[str, Lock] = {}  # one per key being computed, so a key is never computed twice at once
         self._lock = Lock()
         self._max = max_entries
 
@@ -54,26 +55,33 @@ class ResultCache:
             self._items[key] = {"result": result, "computed_at": time.time()}
             self._items.move_to_end(key)
             while len(self._items) > self._max:
-                self._items.popitem(last=False)
+                dropped, _ = self._items.popitem(last=False)
+                self._gates.pop(dropped, None)
 
     def compute(self, key: str, work):
-        """Cached result for ``key``, computing it once when missing."""
-        hit = self.get(key)
-        if hit is not None:
-            return hit["result"], True
-        result = work()
-        self.put(key, result)
-        return result, False
+        """Cached result for ``key``, computing it once when missing.
+
+        A page that asks while ``warm`` (or another request) is computing the
+        same key waits for that result instead of running the solver again.
+        """
+        with self._lock:
+            gate = self._gates.setdefault(key, Lock())
+        with gate:
+            hit = self.get(key)
+            if hit is not None:
+                return hit["result"], True
+            result = work()
+            self.put(key, result)
+            return result, False
 
     def warm(self, jobs: list[tuple[str, callable]]) -> Thread:
         """Compute missing keys in the background; failures are left for the page to report."""
         def run():
             for key, work in jobs:
-                if self.get(key) is None:
-                    try:
-                        self.put(key, work())
-                    except Exception:  # the page recomputes and shows the error itself
-                        pass
+                try:
+                    self.compute(key, work)
+                except Exception:  # the page recomputes and shows the error itself
+                    pass
         thread = Thread(target=run, daemon=True)
         thread.start()
         return thread
