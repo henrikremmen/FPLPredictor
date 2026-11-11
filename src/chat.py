@@ -12,6 +12,7 @@ ponytail: conversations live in memory and are lost when the API restarts.
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass, field
 import hashlib
 import json
@@ -31,6 +32,7 @@ MODEL = "claude-opus-5-5"  # supports the mid-conversation system messages below
 EFFORT = "low"  # Opus 5.5 defaults to medium
 MAX_TOKENS = 64000
 MAX_TOOL_ROUNDS = 10
+MAX_CHATS = 16  # conversations kept in memory; the oldest is dropped beyond this
 MIN_XP = 1.0  # players below this many expected points over the whole window are left out of the snapshot
 # One hour, not five minutes: a manager pauses between questions, and a rewrite of ~80k tokens costs more
 # than the 2x write price of the longer cache.
@@ -248,8 +250,9 @@ class Conversation:
 
 
 class ChatStore:
-    def __init__(self) -> None:
-        self._items: dict[str, Conversation] = {}
+    def __init__(self, max_chats: int = MAX_CHATS) -> None:
+        self._items: OrderedDict[str, Conversation] = OrderedDict()
+        self._max = max_chats
         self._lock = Lock()
 
     def get(self, session_id: str, team, root: Path) -> tuple[Conversation, bool]:
@@ -258,8 +261,12 @@ class ChatStore:
         with self._lock:
             current = self._items.get(session_id)
             if current is not None and current.forecast_key == key:
+                self._items.move_to_end(session_id)
                 return current, False
             self._items[session_id] = Conversation(key, build_system(team, root))
+            self._items.move_to_end(session_id)
+            while len(self._items) > self._max:
+                self._items.popitem(last=False)
             return self._items[session_id], bool(current and current.messages)
 
     def peek(self, session_id: str) -> Conversation | None:

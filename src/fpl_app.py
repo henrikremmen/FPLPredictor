@@ -731,6 +731,14 @@ def load_team_override(root: Path, team: ImportedTeam) -> bool:
         raise AppError(f"Saved squad correction is invalid: {exc}") from exc
 
 
+def override_mtime(root: Path, entry_id: int) -> int | None:
+    """When the entry's saved correction last changed (ns), or None when it has none."""
+    try:
+        return _override_path(root, entry_id).stat().st_mtime_ns
+    except FileNotFoundError:
+        return None
+
+
 def clear_team_override(root: Path, entry_id: int) -> None:
     path = _override_path(root, entry_id)
     if path.exists():

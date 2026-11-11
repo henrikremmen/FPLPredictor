@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import hmac
@@ -44,6 +45,7 @@ from fpl_app import (
     import_team,
     load_team_override,
     optimal_lineup,
+    override_mtime,
     recommend_transfers,
     refresh_forecast,
     save_team_override,
@@ -147,30 +149,66 @@ class PlanRequest(ConstraintsRequest):
     requirements: list[PlanRequirement] = Field(default_factory=list, max_length=6)
 
 
+MAX_TEAMS = 32
+
+
 class TeamStore:
     """In-memory team cache backed by a durable session registry.
 
     A session survives an API restart: the registry keeps just enough (entry
     ID, horizon, risk profile) to rebuild the ``ImportedTeam`` on demand by
-    re-running ``import_team`` and reapplying any saved manual override.
+    re-running ``import_team`` and reapplying any saved manual override. The
+    same rebuild serves a team evicted when more than MAX_TEAMS are cached.
+
+    Saved corrections belong to the FPL entry, not the session: when another
+    session (the phone vs the web app) saved or cleared one since this team
+    was built, ``get`` picks it up before anything reads or overwrites it.
+    Stored teams are never changed in place; routes ``set`` a new copy.
     """
 
-    def __init__(self, registry: SessionRegistry) -> None:
-        self._teams: dict[str, ImportedTeam] = {}
+    def __init__(self, registry: SessionRegistry, max_teams: int = MAX_TEAMS) -> None:
+        self._teams: OrderedDict[str, tuple[ImportedTeam, int | None]] = OrderedDict()
         self._registry = registry
+        self._max = max_teams
         self._lock = RLock()
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._teams)
+
+    def _keep(self, session_id: str, team: ImportedTeam) -> None:
+        stamp = override_mtime(ROOT, team.entry_id)
+        with self._lock:
+            self._teams[session_id] = (team, stamp)
+            self._teams.move_to_end(session_id)
+            while len(self._teams) > self._max:
+                self._teams.popitem(last=False)
 
     def add(self, team: ImportedTeam) -> str:
         session_id = uuid4().hex
-        with self._lock:
-            self._teams[session_id] = team
+        self._keep(session_id, team)
         self._registry.put(session_id, team.entry_id, team.horizon, team.risk_profile)
         return session_id
 
     def get(self, session_id: str) -> ImportedTeam:
         with self._lock:
-            team = self._teams.get(session_id)
-        if team is not None:
+            cached = self._teams.get(session_id)
+            if cached is not None:
+                self._teams.move_to_end(session_id)
+        if cached is not None:
+            team, stamp = cached
+            current = override_mtime(ROOT, team.entry_id)
+            if current == stamp:
+                return team
+            try:  # another session saved (or cleared) this entry's correction
+                if current is None:
+                    team = import_team(str(team.entry_id), ROOT, horizon=team.horizon, risk_profile=team.risk_profile)
+                else:
+                    team = replace(team, manual_changes=[])
+                    load_team_override(ROOT, team)
+            except AppError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            self._keep(session_id, team)
             return team
         pointer = self._registry.get(session_id)
         if pointer is None:
@@ -182,13 +220,11 @@ class TeamStore:
             load_team_override(ROOT, team)
         except AppError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
-        with self._lock:
-            self._teams[session_id] = team
+        self._keep(session_id, team)
         return team
 
     def set(self, session_id: str, team: ImportedTeam) -> None:
-        with self._lock:
-            self._teams[session_id] = team
+        self._keep(session_id, team)
         self._registry.put(session_id, team.entry_id, team.horizon, team.risk_profile)
 
 
@@ -325,7 +361,7 @@ def health() -> dict:
     return {
         "status": "ok",
         "uptime_seconds": round(time.time() - _STARTED_AT, 1),
-        "active_sessions": len(STORE._teams),
+        "active_sessions": len(STORE),
     }
 
 
@@ -352,12 +388,12 @@ def get_team(session_id: str) -> dict:
 
 @app.patch("/api/team/{session_id}/settings")
 def update_settings(session_id: str, request: TeamSettingsRequest) -> dict:
-    team = STORE.get(session_id)
-    team.bank = request.bank
-    team.free_transfers = request.free_transfers
-    team.team_value = int(team.squad["selling_price"].sum() + team.bank)
-    team.squad_source = "manual_override"
+    current = STORE.get(session_id)
+    team = replace(current, bank=request.bank, free_transfers=request.free_transfers,
+                   team_value=int(current.squad["selling_price"].sum() + request.bank),
+                   squad_source="manual_override")
     save_team_override(ROOT, team)
+    STORE.set(session_id, team)
     _warm(team)
     return _team_payload(session_id, team)
 
@@ -390,7 +426,8 @@ def squad_options(session_id: str) -> dict:
 
 @app.patch("/api/team/{session_id}/squad")
 def update_squad(session_id: str, request: SquadEditRequest) -> dict:
-    team = STORE.get(session_id)
+    current = STORE.get(session_id)
+    team = replace(current, manual_changes=list(current.manual_changes))  # changed below, stored only once saved
     try:
         result = apply_manual_squad_changes(
             team,
@@ -402,6 +439,7 @@ def update_squad(session_id: str, request: SquadEditRequest) -> dict:
         save_team_override(ROOT, team)
     except AppError as exc:
         raise _as_http_error(exc) from exc
+    STORE.set(session_id, team)
     _warm(team)
     payload = _team_payload(session_id, team)
     payload["squad_update"] = result
@@ -411,14 +449,14 @@ def update_squad(session_id: str, request: SquadEditRequest) -> dict:
 @app.post("/api/team/{session_id}/squad/reset")
 def reset_squad(session_id: str) -> dict:
     current = STORE.get(session_id)
-    clear_team_override(ROOT, current.entry_id)
-    try:
+    try:  # import first: if FPL is down, the correction stays
         team = import_team(
             str(current.entry_id), ROOT, horizon=current.horizon,
             risk_profile=current.risk_profile,
         )
     except AppError as exc:
         raise _as_http_error(exc) from exc
+    clear_team_override(ROOT, current.entry_id)
     STORE.set(session_id, team)
     _warm(team)
     return _team_payload(session_id, team)
@@ -537,12 +575,18 @@ def top_managers_view(
     session_id: str,
     cohort: str = Query(default="top100", pattern="^(top100|legacy|top1pct|youtubers)$"),
 ) -> dict:
-    return _json_safe(top_managers.compare(STORE.get(session_id), cohort, ROOT))
+    try:
+        return _json_safe(top_managers.compare(STORE.get(session_id), cohort, ROOT))
+    except AppError as exc:
+        raise _as_http_error(exc) from exc
 
 
 @app.get("/api/team/{session_id}/copy-check")
 def copy_check_view(session_id: str, league_id: int | None = Query(default=None, gt=0)) -> dict:
-    return _json_safe(copy_check.report(ROOT, STORE.get(session_id).entry_id, league_id))
+    try:
+        return _json_safe(copy_check.report(ROOT, STORE.get(session_id).entry_id, league_id))
+    except AppError as exc:
+        raise _as_http_error(exc) from exc
 
 
 @app.get("/api/team/{session_id}/players/{player_id}")

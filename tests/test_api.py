@@ -15,7 +15,8 @@ os.environ.setdefault("FPL_SESSIONS_DB_PATH", ":memory:")
 
 os.environ["FPL_API_TOKEN"] = ""  # the tests run without the API token, whatever .env says
 import api
-from fpl_app import ImportedTeam
+from fpl_app import AppError, ImportedTeam
+from session_store import SessionRegistry
 
 
 def player(player_id, position, points):
@@ -46,6 +47,18 @@ def fake_team() -> ImportedTeam:
         "2026-09-19T10:00:00Z", Path("forecast.csv"), horizon=1,
         lineup_squad=squad, weekly_market=weekly, chip_status=status,
     )
+
+
+def team_with_spare_mid() -> ImportedTeam:
+    """fake_team() plus an unowned midfielder (99) to swap in for player 12."""
+    team = fake_team()
+    incoming = pd.DataFrame([player(99, "MID", 12)])
+    team.market = pd.concat([team.market, incoming], ignore_index=True)
+    team.weekly_market = pd.concat([team.weekly_market, incoming.assign(forecast_event=5)], ignore_index=True)
+    return team
+
+
+SWAP = {"mode": "synchronize", "changes": [{"out_id": 12, "in_id": 99}], "bank": 7, "free_transfers": 0}
 
 
 class ApiTests(unittest.TestCase):
@@ -83,9 +96,9 @@ class ApiTests(unittest.TestCase):
             updated = self.client.patch(f"/api/team/{session}/settings", json={
                 "bank": 17, "free_transfers": 5,
             }).json()
+            self.assertEqual(self.client.get(f"/api/team/{session}").status_code, 200)
         self.assertEqual(updated["bank"], 17)
         self.assertEqual(updated["free_transfers"], 5)
-        self.assertEqual(self.client.get(f"/api/team/{session}").status_code, 200)
 
     def test_session_survives_in_memory_eviction(self):
         """A session dropped from the in-memory cache (e.g. an API restart)
@@ -165,6 +178,39 @@ class ApiTests(unittest.TestCase):
         lineup_ids = {row["id"] for row in body["lineup"]["starters"] + body["lineup"]["bench"]}
         self.assertIn(99, lineup_ids)
         self.assertNotIn(12, lineup_ids)
+
+    def test_a_correction_from_another_session_is_not_overwritten(self):
+        team = team_with_spare_mid()
+        with tempfile.TemporaryDirectory() as temporary, patch("api.ROOT", Path(temporary)):
+            phone, web = api.STORE.add(team), api.STORE.add(team)
+            self.assertEqual(self.client.patch(f"/api/team/{phone}/squad", json=SWAP).status_code, 200)
+            body = self.client.patch(f"/api/team/{web}/settings", json={"bank": 9, "free_transfers": 1}).json()
+            again = self.client.get(f"/api/team/{phone}").json()
+        for payload in (body, again):
+            self.assertIn(99, {row["id"] for row in payload["squad"]})
+            self.assertEqual(payload["bank"], 9)
+        self.assertNotIn(99, set(team.squad["id"]))  # the stored team itself was never changed
+
+    def test_reset_keeps_the_correction_when_fpl_is_down(self):
+        team = team_with_spare_mid()
+        with tempfile.TemporaryDirectory() as temporary, patch("api.ROOT", Path(temporary)):
+            session = api.STORE.add(team)
+            self.client.patch(f"/api/team/{session}/squad", json=SWAP)
+            with patch("api.import_team", side_effect=AppError("FPL is down")):
+                response = self.client.post(f"/api/team/{session}/squad/reset")
+            self.assertEqual(response.status_code, 400)
+            self.assertIsNotNone(api.override_mtime(Path(temporary), team.entry_id))
+
+    def test_only_the_newest_teams_stay_in_memory(self):
+        registry = SessionRegistry(Path("."), db_path=":memory:")
+        store = api.TeamStore(registry, max_teams=2)
+        first = store.add(fake_team())
+        store.add(fake_team())
+        store.add(fake_team())
+        self.assertEqual(len(store), 2)
+        with patch("api.import_team", return_value=fake_team()) as rebuild:
+            store.get(first)  # evicted, so rebuilt from the registry
+        rebuild.assert_called_once()
 
     def test_analytics_endpoint_passes_event_and_league(self):
         session = api.STORE.add(fake_team())
