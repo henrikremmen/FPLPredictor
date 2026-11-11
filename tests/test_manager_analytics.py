@@ -124,6 +124,21 @@ class ManagerAnalyticsTests(unittest.TestCase):
         self.assertIn("differentials", result["decisions"])
         self.assertIn("captain_matrix", result["decisions"])
 
+    def test_top_eo_comes_from_the_latest_top_manager_snapshot(self):
+        self.assertIsNone(AnalyticsService(FakeClient(self.payloads)).build(self.team)["global_benchmark"])
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "data/local/top_managers/2026-27"
+            folder.mkdir(parents=True)
+            field = {"16": {"ownership": 80.0, "start_rate": 80.0, "captain_rate": 60.0,
+                            "effective_ownership": 140.0, "owners": 1600}}
+            (folder / "gw01.json").write_text(json.dumps({"event": 1, "cohorts": {"top1pct": {
+                "size": 2000, "average_total": 70.0, "field": field}}}))
+            result = AnalyticsService(FakeClient(self.payloads), top_root=Path(tmp)).build(self.team)
+        self.assertEqual(result["global_benchmark"]["sample_size"], 2000)
+        self.assertEqual(result["global_benchmark"]["points_gap"], -10.0)
+        rows = result["decisions"]["differentials"] + result["decisions"]["threats"]
+        self.assertTrue(any(row["id"] == 16 and row["top1pct_effective_ownership"] == 140.0 for row in rows))
+
     def test_cache_avoids_duplicate_public_requests(self):
         client = FakeClient({"bootstrap-static/": {"events": []}})
         service = AnalyticsService(client)

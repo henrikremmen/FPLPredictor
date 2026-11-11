@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Position } from "@fplmodell/shared";
+import type { TopCohort } from "@fplmodell/api-client";
 import { api } from "../lib/api";
 import { useSession } from "../context/session-context";
 import { useWorkspace } from "../context/workspace-context";
@@ -88,6 +89,24 @@ export function useAnalytics(event?: number, leagueId?: number | null) {
   return useQuery({
     queryKey: ["analytics", sessionId, event, leagueId],
     queryFn: () => api.analytics(sessionId as string, event, leagueId),
+    enabled: Boolean(sessionId),
+  });
+}
+
+export function useTopManagers(cohort: TopCohort) {
+  const { sessionId } = useSession();
+  return useQuery({
+    queryKey: ["top-managers", sessionId, cohort],
+    queryFn: () => api.topManagers(sessionId as string, cohort),
+    enabled: Boolean(sessionId),
+  });
+}
+
+export function useCopyCheck(leagueId?: number) {
+  const { sessionId } = useSession();
+  return useQuery({
+    queryKey: ["copy-check", sessionId, leagueId],
+    queryFn: () => api.copyCheck(sessionId as string, leagueId),
     enabled: Boolean(sessionId),
   });
 }

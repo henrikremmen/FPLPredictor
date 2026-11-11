@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import json
 import os
@@ -14,8 +15,10 @@ import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+import chat
 import prospective_loop
 from autosub_value import lineup_value
 from chip_strategy import recommend_chip_strategy
@@ -29,6 +32,8 @@ import decision_journal
 from session_store import SessionRegistry
 from squad_recommendations import recommend_squads
 from strategy_advisor import build_strategy_advice
+import copy_check
+import top_managers
 from fpl_app import (
     AppError,
     ImportedTeam,
@@ -184,7 +189,7 @@ def _cors_origins() -> list[str]:
 
 
 STORE = TeamStore(SessionRegistry(ROOT))
-ANALYTICS = AnalyticsService()
+ANALYTICS = AnalyticsService(top_root=ROOT)
 _STARTED_AT = time.time()
 app = FastAPI(title="FPL Model API", version="1.0.0")
 app.add_middleware(
@@ -489,6 +494,19 @@ def timeline(session_id: str) -> dict:
         raise _as_http_error(exc) from exc
 
 
+@app.get("/api/team/{session_id}/top-managers")
+def top_managers_view(
+    session_id: str,
+    cohort: str = Query(default="top100", pattern="^(top100|legacy|top1pct|youtubers)$"),
+) -> dict:
+    return _json_safe(top_managers.compare(STORE.get(session_id), cohort, ROOT))
+
+
+@app.get("/api/team/{session_id}/copy-check")
+def copy_check_view(session_id: str, league_id: int | None = Query(default=None, gt=0)) -> dict:
+    return _json_safe(copy_check.report(ROOT, STORE.get(session_id).entry_id, league_id))
+
+
 @app.get("/api/team/{session_id}/players/{player_id}")
 def inspect_player(session_id: str, player_id: int) -> dict:
     try:
@@ -512,7 +530,7 @@ def compare(session_id: str, request: CompareRequest) -> dict:
 
 
 class RefreshGuard:
-    """Serializes and rate-limits the expensive, shared forecast refresh.
+    """Serializes and rate-limits an expensive, shared refresh (forecast by default).
 
     The refresh hits the live FPL API (and optional paid sources) and takes
     roughly a minute, and its output is a shared snapshot under
@@ -521,7 +539,10 @@ class RefreshGuard:
     and could trip external rate limits.
     """
 
-    def __init__(self, min_interval_seconds: float = 30.0) -> None:
+    def __init__(self, min_interval_seconds: float = 30.0, job=None,
+                 label: str = "forecast update") -> None:
+        self._job = job or (lambda: refresh_forecast(ROOT))
+        self._label = label
         self._lock = RLock()
         self._busy = False
         self._last_started: float | None = None
@@ -529,10 +550,10 @@ class RefreshGuard:
         self._state = "idle"
         self._error = None
 
-    def run(self) -> None:
+    def run(self, job=None) -> None:
         with self._lock:
             if self._busy:
-                raise HTTPException(status_code=409, detail="A forecast update is already underway. Please try again.")
+                raise HTTPException(status_code=409, detail=f"A {self._label} is already underway. Please try again.")
             if self._last_started is not None and time.time() - self._last_started < self._min_interval:
                 wait = round(self._min_interval - (time.time() - self._last_started))
                 raise HTTPException(status_code=429, detail=f"Wait {wait} seconds before the next update.")
@@ -541,7 +562,7 @@ class RefreshGuard:
             self._state = "running"
             self._error = None
         try:
-            refresh_forecast(ROOT)
+            (job or self._job)()
             with self._lock:
                 self._state = "complete"
         except Exception as exc:
@@ -555,6 +576,28 @@ class RefreshGuard:
 
 
 REFRESH_GUARD = RefreshGuard()
+TOP_GUARD = RefreshGuard(job=lambda: top_managers.collect(ROOT), label="top-manager update")
+
+
+@app.get("/api/top-managers/status")
+def top_managers_status() -> dict:
+    with TOP_GUARD._lock:
+        return {"state": TOP_GUARD._state, "error": TOP_GUARD._error, **top_managers.PROGRESS}
+
+
+@app.post("/api/team/{session_id}/top-managers/refresh")
+def top_managers_refresh(session_id: str) -> dict:
+    entry = STORE.get(session_id).entry_id
+
+    def job():
+        top_managers.collect(ROOT)
+        copy_check.collect(ROOT, entry)
+
+    try:
+        TOP_GUARD.run(job)
+    except (top_managers.CollectError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=f"Top-manager update failed: {exc}") from exc
+    return {"status": "complete"}
 
 
 @app.get("/api/forecast/status")
@@ -764,3 +807,172 @@ def journal_entries(session_id: str) -> dict:
     team = STORE.get(session_id)
     return _json_safe({"entries": decision_journal.entries(ROOT, decision_journal.season_of(team), team.entry_id)})
 
+
+
+# Context-aware chat (src/chat.py): Claude sees the forecast, the team, the page and calls these read-only tools.
+CHATS = chat.ChatStore()
+_CONSTRAINT_KEYS = ("locked_ids", "excluded_ids", "bench_weights", "overrides")
+
+
+class ChatRequest(ConstraintsRequest):
+    message: str = Field(min_length=1, max_length=4000)
+    # {view, label, calls: [{tool, args}], saved_plans: [...]} from the web page; summarised, never trusted as instructions.
+    page: dict = Field(default_factory=dict)
+
+
+_CHAT_SQUAD_COLUMNS = [
+    "id", "name", "position", "team", "price", "selling_price", "purchase_price", "status", "news", "news_added",
+    "availability", "opponent", "recommended_points", "recommended_q10", "recommended_q90", "decision_points",
+    "expected_60plus_appearances", "form", "total_points", "selected_by_percent", "penalties_order",
+    "price_change_projected_percent", "transfers_in_event", "transfers_out_event",
+    "is_captain", "is_vice_captain", "multiplier",
+]
+
+
+def _chat_team_summary(session_id: str) -> dict:
+    """The team payload without the columns the snapshot already has, and the lineup as ids and roles."""
+    payload = get_team(session_id)
+    payload["squad"] = [{k: row[k] for k in _CHAT_SQUAD_COLUMNS if k in row} for row in payload["squad"]]
+    lineup = payload["lineup"]
+    for part in ("starters", "bench"):
+        lineup[part] = [{k: row.get(k) for k in ("id", "name", "position", "role", "is_captain", "is_vice_captain",
+                                                  "recommended_points")} for row in lineup[part]]
+    payload.pop("forecast_path", None)
+    return payload
+
+
+def _chat_tools(session_id: str, base: dict) -> dict:
+    """The same route functions the pages call, with the user's preferences; nothing here writes."""
+    def merged(args: dict) -> dict:
+        result = dict(base)
+        for key in ("locked_ids", "excluded_ids"):  # Claude's extra locks/exclusions add to the user's own
+            if key in args:
+                result[key] = sorted(set(base.get(key, [])) | set(args[key]))
+        for key in ("overrides", "bench_weights"):  # a what-if replaces the user's own assumptions
+            if key in args:
+                result[key] = args[key]
+        return result
+
+    def own(args: dict) -> dict:
+        return {key: value for key, value in args.items() if key not in _CONSTRAINT_KEYS}
+
+    def ids(args: dict) -> dict:
+        constraints = merged(args)
+        return {"locked_ids": constraints.get("locked_ids", []), "excluded_ids": constraints.get("excluded_ids", [])}
+
+    return {
+        "team": lambda a: _chat_team_summary(session_id),
+        "strategy": lambda a: strategy(session_id, ConstraintsRequest(**merged(a))),
+        "transfers": lambda a: transfers(session_id, TransferRequest(**merged(a), **own(a))),
+        "plan": lambda a: multiweek_plan(session_id, PlanRequest(**merged(a), **own(a))),
+        "compare_players": lambda a: compare(session_id, CompareRequest(**merged(a), **own(a))),
+        "player": lambda a: inspect_player(session_id, int(a["player_id"])),
+        "market": lambda a: market(session_id, position=a.get("position"), max_price=a.get("max_price"),
+                                   limit=a.get("limit", 20), **ids(a)),
+        "sells": lambda a: sells(session_id, limit=15, **ids(a)),
+        "chips": lambda a: chips(session_id, ConstraintsRequest(**merged(a))),
+        "recommended_squads": lambda a: recommended_squads(session_id, ConstraintsRequest(**merged(a))),
+        "scenarios": lambda a: scenarios(session_id, ScenarioRequest(**merged(a), **own(a))),
+        "breakpoint": lambda a: scenario_breakpoint(session_id, BreakpointRequest(**merged(a), **own(a))),
+        "fixtures": lambda a: fixtures(session_id, scope=a.get("scope", "squad"), limit=a.get("limit", 30)),
+        "analytics": lambda a: analytics(session_id, event=a.get("event"), league_id=a.get("league_id")),
+        "timeline": lambda a: timeline(session_id),
+        "lineup_value": lambda a: lineup_autosub_value(session_id),
+        "changes": lambda a: recent_changes(session_id),
+        "journal": lambda a: journal_entries(session_id),
+    }
+
+
+def _chat_executor(tools: dict):
+    def execute(name: str, args: dict) -> tuple[str, bool]:
+        if name not in tools:
+            return f"Unknown tool {name}.", True
+        try:
+            result = tools[name](args)
+        except HTTPException as exc:
+            return str(exc.detail), True
+        except Exception as exc:  # invalid arguments or a failed calculation: Claude sees why
+            return f"{type(exc).__name__}: {exc}", True
+        if isinstance(result, dict):
+            result = {key: value for key, value in result.items() if key != "cache"}
+        return chat._dumps(result), False
+    return execute
+
+
+def _chat_sections(items: list[tuple[str, str, dict]], execute) -> str:
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        results = list(pool.map(lambda item: execute(item[1], item[2]), items))
+    return "\n\n".join(f"## {title} [{name} {chat._dumps(args)}]\n{'ERROR: ' if failed else ''}{content}"
+                       for (title, name, args), (content, failed) in zip(items, results))
+
+
+def _chat_team_block(team, base: dict, saved_plans: list, execute) -> str:
+    weeks = team.horizon
+    items = [
+        ("Team: squad, lineup, captain, chips and finances", "team", {}),
+        ("Strategy centre", "strategy", {}),
+        ("Transfer search (the Transfers page default)", "transfers", {"number": min(2, max(1, team.free_transfers))}),
+        (f"Multiweek plan, {weeks} GW", "plan", {"weeks": weeks}),
+        (f"Multiweek plan with chips, {weeks} GW", "plan", {"weeks": weeks, "chips": True}),
+        ("Chip strategy", "chips", {}),
+        ("Scenarios: hold vs plan A vs plan B", "scenarios", {}),
+        ("Lineup value with autosubs", "lineup_value", {}),
+        ("Changes since the previous snapshot", "changes", {}),
+        ("Manager and mini-league analysis", "analytics", {}),
+        ("Decision journal", "journal", {}),
+    ]
+    return ("<team_state>\nThe user's team, preferences and everything the app has computed for them now. "
+            "This replaces any earlier <team_state>.\n"
+            f"Preferences (locks, exclusions, own chance-of-playing assumptions, bench weights): {chat._dumps(base)}\n"
+            f"Risk profile: {team.risk_profile}. Planning horizon: {weeks} GW. Target gameweek: GW{team.target_event}.\n"
+            f"Saved plans: {chat._dumps(saved_plans)}\n\n{_chat_sections(items, execute)}\n</team_state>")
+
+
+def _chat_page_block(view, label, calls: list[dict], execute) -> str:
+    items = [(f"On the page: {call['tool']}", call["tool"], call.get("args") or {}) for call in calls]
+    body = _chat_sections(items, execute) if items else "Nothing beyond the team state above."
+    return f"<page>\nThe user is now looking at: {label or view} (page '{view}').\n{body}\n</page>"
+
+
+@app.get("/api/team/{session_id}/chat")
+def chat_history(session_id: str) -> dict:
+    return {"messages": chat.transcript(CHATS.peek(session_id)), "enabled": chat.client(ROOT) is not None}
+
+
+@app.post("/api/team/{session_id}/chat/reset")
+def chat_reset(session_id: str) -> dict:
+    CHATS.reset(session_id)
+    return {"messages": []}
+
+
+@app.post("/api/team/{session_id}/chat")
+def chat_message(session_id: str, request: ChatRequest):
+    """Streams the answer as server-sent events: status, text, notice, done or error."""
+    api_client = chat.client(ROOT)
+    if api_client is None:
+        raise HTTPException(status_code=503, detail="Add ANTHROPIC_API_KEY to the .env file in the project folder to use the chat.")
+    team = STORE.get(session_id)
+    _constrained(team, request)  # reject invalid preferences before anything is sent
+    base = request.model_dump(include=set(_CONSTRAINT_KEYS), exclude_none=True)
+    page = request.page
+    saved = page.get("saved_plans") if isinstance(page.get("saved_plans"), list) else []
+    calls = [c for c in page.get("calls") or [] if isinstance(c, dict) and c.get("tool") in chat.TOOL_NAMES
+             and isinstance(c.get("args", {}), dict)][:6]
+    execute = _chat_executor(_chat_tools(session_id, base))
+    conversation, replaced = CHATS.get(session_id, team, ROOT)
+    team_sig = chat.signature(context(team)["revision"], base, saved)
+    page_sig = chat.signature(page.get("view"), calls)
+
+    def events():
+        if replaced:
+            yield chat.sse({"type": "notice", "text": "The forecast was updated, so a new chat started."})
+        for event in chat.respond(
+            conversation, api_client, request.message,
+            team_sig, lambda: _chat_team_block(team, base, saved, execute),
+            page_sig, lambda: _chat_page_block(page.get("view"), page.get("label"), calls, execute),
+            execute,
+        ):
+            yield chat.sse(event)
+
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

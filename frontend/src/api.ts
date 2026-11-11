@@ -14,6 +14,7 @@ import type {
   SquadUpdateResponse,
 } from "@fplmodell/api-client";
 import type { Breakpoint, FixtureTicker, JournalEntry, LineupValue, ScenarioComparison, LoopStatus, ModelCard, PlanRequirement, TeamTimeline } from "@fplmodell/api-client";
+import type { CopyCheck, TopCohort, TopManagers, TopManagersStatus } from "@fplmodell/api-client";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   let response: Response;
@@ -34,7 +35,43 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return payload as T;
 }
 
+export interface PageCall { tool: string; args?: Record<string, unknown> }
+export interface ChatLine { role: "user" | "assistant"; text: string }
+export type ChatEvent =
+  | { type: "text" | "status" | "notice"; text: string }
+  | { type: "error"; message: string }
+  | { type: "done"; usage: Record<string, number> };
+
+/** Server-sent events from POST /chat: status, text deltas, a notice, then done or error. */
+async function streamChat(path: string, body: unknown, onEvent: (event: ChatEvent) => void) {
+  let response: Response;
+  try {
+    response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  } catch {
+    throw new Error("Could not contact API. Start the app with .venv/bin/python run_app.py and open http://127.0.0.1:5173.");
+  }
+  if (!response.ok || !response.body) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.detail ?? `HTTP ${response.status}`);
+  }
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buffer += value;
+    const events = buffer.split("\n\n");
+    buffer = events.pop() ?? "";
+    events.filter(event => event.startsWith("data: ")).forEach(event => onEvent(JSON.parse(event.slice(6))));
+  }
+}
+
 export const api = {
+  chatHistory(session: string) { return request<{ messages: ChatLine[]; enabled: boolean }>(`/api/team/${session}/chat`); },
+  resetChat(session: string) { return request<{ messages: ChatLine[] }>(`/api/team/${session}/chat/reset`, { method: "POST" }); },
+  chat(session: string, body: { message: string; page: unknown } & PlayerConstraints, onEvent: (event: ChatEvent) => void) {
+    return streamChat(`/api/team/${session}/chat`, body, onEvent);
+  },
   player(session: string, id: number) {
     return request<PlayerDetail>(`/api/team/${session}/players/${id}`);
   },
@@ -132,6 +169,16 @@ export const api = {
   timeline(session: string) {
     return request<TeamTimeline>(`/api/team/${session}/timeline`);
   },
+  topManagers(session: string, cohort: TopCohort) {
+    return request<TopManagers>(`/api/team/${session}/top-managers?cohort=${cohort}`);
+  },
+  topManagersRefresh(session: string) {
+    return request<{ status: string }>(`/api/team/${session}/top-managers/refresh`, { method: "POST" });
+  },
+  copyCheck(session: string, leagueId?: number) {
+    return request<CopyCheck>(`/api/team/${session}/copy-check${leagueId ? `?league_id=${leagueId}` : ""}`);
+  },
+  topManagersStatus() { return request<TopManagersStatus>("/api/top-managers/status"); },
   analytics(session: string, event?: number, leagueId?: number | null) {
     const params = new URLSearchParams();
     if (event != null) params.set("event", String(event));

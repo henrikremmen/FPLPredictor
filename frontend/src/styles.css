@@ -320,3 +320,32 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
 .tipping-point { margin-top:10px; font-weight:600; color:var(--text-primary); }
 .record-decision { margin-top:8px; }
 .record-decision > summary { cursor:pointer; color:var(--accent); min-height:var(--touch); display:flex; align-items:center; }
+
+/* Chat with Claude: a floating button and a drawer that stays open across pages. */
+.chat-toggle { position: fixed; right: 22px; bottom: 22px; z-index: 30; display: flex; align-items: center; gap: 8px; border: 0; border-radius: var(--radius-pill, 999px); padding: 12px 18px; font-weight: 700; color: var(--on-accent); background: var(--accent); box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }
+.chat-panel { position: fixed; z-index: 29; right: 22px; bottom: 80px; top: 22px; width: min(440px, calc(100vw - 44px)); display: flex; flex-direction: column; background: var(--surface-raised, var(--surface)); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 20px 60px rgba(0, 0, 0, .45); overflow: hidden; }
+.chat-panel header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.chat-panel header div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.chat-panel header small { color: var(--text-secondary); font-size: .72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.chat-actions button { padding: 7px 11px; }
+.chat-log { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.chat-empty p { margin: 0 0 10px; font-size: .86rem; }
+.chat-suggestion { display: block; width: 100%; text-align: left; margin-top: 7px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm, 8px); color: var(--text-primary); background: transparent; }
+.chat-suggestion:hover:not(:disabled) { border-color: var(--accent); }
+.chat-line { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; font-size: .9rem; border-radius: 12px; padding: 10px 12px; max-width: 92%; }
+.chat-user { align-self: flex-end; color: var(--on-accent); background: var(--accent); }
+.chat-assistant { align-self: flex-start; color: var(--text-primary); background: var(--surface); border: 1px solid var(--border); }
+.chat-notice { align-self: center; color: var(--warning); font-size: .78rem; padding: 4px; }
+.chat-status { margin: 0; color: var(--text-muted); font-size: .78rem; }
+.chat-error { margin: 0; padding: 8px 16px; color: var(--danger); font-size: .82rem; }
+.chat-input { display: flex; gap: 8px; align-items: flex-end; padding: 12px 16px; border-top: 1px solid var(--border); }
+.chat-input textarea { resize: none; min-height: 44px; max-height: 160px; }
+@media (max-width: 760px) {
+  .chat-toggle { bottom: 80px; right: 15px; padding: 11px 14px; }
+  .chat-toggle[aria-expanded="true"] { display: none; }
+  .chat-panel { inset: 0 0 66px 0; width: auto; border-radius: 0; border-inline: 0; }
+}
+.top-explainer { margin-bottom:14px; }.top-explainer p { max-width:900px; margin:6px 0 0; font-size:.76rem; }.top-explainer p.negative { font-weight:700; }
+.copy-row { cursor:pointer; }.copy-signal { font-weight:800; }.copy-signal.strong { color:var(--warning); }.copy-signal.some { color:var(--accent); }.copy-signal.normal { color:var(--text-secondary); }.copy-detail td { background:#09140f; }.copy-evidence { display:grid; grid-template-columns:1fr 1fr; gap:22px; padding:8px 4px; }.copy-evidence ul { margin:8px 0; padding-left:18px; font-size:.74rem; }.copy-series { display:flex; align-items:flex-end; gap:6px; height:120px; margin-top:12px; }.copy-series span { position:relative; flex:1; height:100%; display:flex; flex-direction:column; justify-content:flex-end; }.copy-series b { display:block; background:var(--accent); border-radius:4px 4px 0 0; }.copy-series i { position:absolute; left:-2px; right:-2px; height:2px; background:var(--text-primary); }.copy-series small { position:absolute; bottom:-16px; width:100%; text-align:center; color:var(--text-secondary); font-size:.6rem; }.copy-matrix td,.copy-matrix th { text-align:center; }.copy-matrix td:first-child { text-align:left; }
+@media (max-width: 760px) { .copy-evidence { grid-template-columns:1fr; } }

@@ -39,6 +39,13 @@ export default function RootLayout() {
                 }}
               />
               <Stack.Screen
+                name="top-managers"
+                options={{
+                  headerShown: true, title: "Top managers", headerBackTitle: "History",
+                  headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.textPrimary,
+                }}
+              />
+              <Stack.Screen
                 name="scenarios"
                 options={{
                   headerShown: true, title: "Scenarios and journal", headerBackTitle: "Round",

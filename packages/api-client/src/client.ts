@@ -20,6 +20,9 @@ import type {
   StrategyAdvice,
   TeamResponse,
   TeamTimeline,
+  TopCohort,
+  TopManagers,
+  CopyCheck,
   PlayerComparison,
   PlayerConstraints,
   TransferResponse,
@@ -222,6 +225,14 @@ export class ApiClient {
 
   timeline(session: string) {
     return this.request<TeamTimeline>(`/api/team/${session}/timeline`);
+  }
+
+  topManagers(session: string, cohort: TopCohort) {
+    return this.request<TopManagers>(`/api/team/${session}/top-managers?cohort=${cohort}`);
+  }
+
+  copyCheck(session: string, leagueId?: number) {
+    return this.request<CopyCheck>(`/api/team/${session}/copy-check${leagueId ? `?league_id=${leagueId}` : ""}`);
   }
 
   market(session: string, position: "GK" | "DEF" | "MID" | "FWD" | "ALL", maxPrice: number) {

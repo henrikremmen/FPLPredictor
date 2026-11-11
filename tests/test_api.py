@@ -116,6 +116,24 @@ class ApiTests(unittest.TestCase):
                 guard.run()
         self.assertEqual(failure.exception.status_code, 429)
 
+    def test_top_manager_endpoints(self):
+        session = api.STORE.add(fake_team())
+        client = TestClient(api.app)
+        with tempfile.TemporaryDirectory() as temporary, patch("api.ROOT", Path(temporary)):
+            response = client.get(f"/api/team/{session}/top-managers?cohort=legacy")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), {"available": False, "cohort": "legacy"})
+        self.assertEqual(client.get(f"/api/team/{session}/top-managers?cohort=top10").status_code, 422)
+        with tempfile.TemporaryDirectory() as temporary, patch("api.ROOT", Path(temporary)):
+            self.assertEqual(client.get(f"/api/team/{session}/copy-check").json(), {"available": False})
+        guard = api.RefreshGuard(min_interval_seconds=0, label="top-manager update")
+        with patch("api.TOP_GUARD", guard), patch("api.top_managers.collect") as top, \
+                patch("api.copy_check.collect") as copies:
+            self.assertEqual(client.post(f"/api/team/{session}/top-managers/refresh").json(), {"status": "complete"})
+            self.assertEqual(client.get("/api/top-managers/status").json()["state"], "complete")
+        top.assert_called_once()
+        copies.assert_called_once_with(api.ROOT, api.STORE.get(session).entry_id)
+
     def test_manual_squad_endpoint_updates_every_team_view(self):
         team = fake_team()
         incoming = pd.DataFrame([player(99, "MID", 12)])

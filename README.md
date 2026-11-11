@@ -27,9 +27,14 @@ For a phone on the same Wi-Fi, start the backend with `npm run backend:lan`.
 
 ## Everyday commands
 
+When to run what, and what in the app needs it: [Updating](docs/updating.md).
+
 ```bash
+./update.sh                                         # all routine steps below in order (./update.sh retrain also retrains)
 .venv/bin/python src/capture_fpl.py                 # new FPL snapshot + forecasts (what Refresh forecast does)
 .venv/bin/python src/prospective_loop.py auto       # before each deadline and after FPL checks a round (or the app's Lock button)
+.venv/bin/python src/top_managers.py collect        # after a deadline: top 100, legacy, top 1% and YouTuber squads (or History → Top managers → Update)
+.venv/bin/python src/copy_check.py collect --entry <FPL id>   # who in your mini-leagues looks most like a YouTuber or a friend (also part of Update)
 .venv/bin/python src/fpl_collect.py --data-root fpl-data auto   # own data: daily snapshot, deadline checkpoints, finished rounds
 .venv/bin/python src/build_dataset.py               # training table from vaastav + fpl-data seasons
 ```

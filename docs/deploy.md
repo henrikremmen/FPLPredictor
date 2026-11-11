@@ -14,6 +14,7 @@ Configuration is controlled by environment variables.
 | `FPL_API_CORS_ORIGIN_REGEX` | Unset | Optional origin regex, for example for preview deployments. |
 | `DATABASE_URL` | Unset; local SQLite | A `postgresql://` URL enables shared session storage. Requires `pip install psycopg2-binary`. |
 | `FPL_SESSIONS_DB_PATH` | `data/local/sessions.db` | SQLite path override; tests may use `:memory:`. |
+| `ANTHROPIC_API_KEY` | Unset | Enables the web app chat (`POST /api/team/{id}/chat`). Read from the root `.env` on every message. Anyone who can reach the API can spend it, so add authentication and limits before exposing the chat publicly. |
 
 The root `.env`, copied from `.env.example`, configures optional odds and
 football-data.org sources. Those keys stay on the server.

@@ -100,6 +100,37 @@ and limitations.
   chip halves) live in one module, `src/fpl_rules.py`, used by the planner, the
   apps, the shadow season and the backtests.
 
+## Ask Claude (web app chat)
+
+- Set `ANTHROPIC_API_KEY` in the root `.env` (see `.env.example`), load your
+  team and click **Ask Claude** in the bottom right corner. The key is reread
+  on every message, so no restart is needed. The web app only; not the mobile app.
+- Claude (`claude-sonnet-5-5`, medium effort) sees what the app shows you:
+  - the forecast for every player and club over every forecast gameweek (up to 8);
+  - the model card;
+  - your squad, finances, chips, preferences and assumptions;
+  - every computed result: strategy, transfer search, multiweek plans with and
+    without chips, chip windows, Free Hit/Wildcard squads, scenarios, fixtures,
+    news changes, manager and mini-league analysis, journal and saved plans;
+  - the page you have open, with that page's settings.
+- It runs the transfer search, planner, comparisons and what-ifs itself through
+  read-only tools that call the same code as the pages, so its numbers match the
+  app. It cannot change your squad or anything else.
+- How the context is kept:
+  - The forecast goes into a frozen system prompt that is cached.
+  - Team state and the open page follow the question as `role: "system"`
+    messages, only when they change.
+  - A new forecast starts a new chat.
+  - Conversations live in the API process and are lost on restart (`src/chat.py`).
+- Cost, measured on GW11 for a real team:
+  - The context is about 90k tokens. The forecast snapshot, model card and tools
+    are 46k; players under 1 xP over the window are left out and reachable
+    through tools. The team state is 43k: Free Hit/Wildcard squads, fixtures and
+    the sell ranking are tools, not context.
+  - The prompt cache lasts one hour. On Sonnet 5.5 the first question of a chat
+    costs about $0.37, and follow-ups within the hour about $0.02–0.04. Opus 5.5
+    measured $0.70 and $0.03–0.07; `MODEL` in `src/chat.py` switches.
+
 ## Decision workspace
 
 The web app now includes:
@@ -130,6 +161,40 @@ The web app now includes:
   prices and hits, rank and bank. Step with ← and →, the season ribbon or a swipe.
   `GET /api/team/{session_id}/timeline` caches rounds FPL has data-checked in
   `data/local/cache/entry/{id}/gw{N}.json` and never requests them again.
+- **Top managers** (History, mobile screen from History): today's overall top 100,
+  the all-time **Legacy** 100 who still play and the **top 1%**. Each tab shows the
+  points gap and the gap per remaining round, your squad match (multiplier-weighted
+  overlap of your planned XI and captain with their effective ownership), what they
+  bought and sold, captains and chips, their template next to your role, the players
+  they have and you don't, and (top 100 and legacy) every manager with match and
+  shared players. Squads are public only after a deadline, so this is always the
+  last round. Press **Update** after the deadline when you prepare the app for a new
+  round, or run `.venv/bin/python src/top_managers.py collect` (`--force` retakes a
+  finished round, `--rebuild-legacy` rebuilds the legacy list). One run reads about
+  2,650 public FPL pages at most 10 per second (4 workers, backoff on 429) and takes
+  4–5 minutes; results go to `data/local/top_managers/<season>/gwNN.json` (local,
+  gitignored). The top 1% is a random sample of 40 standings pages (2,000 managers,
+  ownership within ±2.2 pp 19 times in 20); its points cutoff is exact. Legacy
+  candidates are the top 300 of Fantasy Football Pundit's all-time table (it links
+  this season's FPL ids); we score them from FPL history as a recency-weighted mean
+  of log10(overall rank) (each older season weighs 0.8 of the next, at least five
+  seasons) and keep the best 100 who played the latest round, once per season.
+  Analysis uses the same top 1% sample for its "top 1% EO".
+  A **YouTubers** tab follows well-known creators (`CREATORS` in
+  `src/top_managers.py`: this season's FPL ids, checked against FPL; add one line per
+  creator). **Copy check** shows, for each member of your mini-leagues, the YouTuber
+  whose squads look most like theirs over every finished round, a signal (Strong:
+  more alike than 95% of 75 random top-1M managers, Some: 80%), the rarest shared
+  buys, shared chip rounds, overlap per round against a typical manager, and the
+  closest friend, plus a friend-vs-friend matrix. Squad overlap weights each shared
+  player by −ln(ownership); same-round buys (net squad changes, so wildcard re-edits
+  count once and a Free Hit return is no buy) by −log10(share of managers who made
+  the buy). Each measure is a percentile against the baseline managers for the same
+  creator, the stronger of the two counts, and the member's best creator is
+  compared with the baseline managers' best. Transfer times are not used. It is similarity, not proof. Update runs it for
+  your mini-leagues after the top managers (`src/copy_check.py collect --entry ID`:
+  about 2.5 minutes the first time, rounds FPL has checked are cached in
+  `data/local/cache/entry/`); results in `data/local/copy_check/<season>/`.
 - **Update status**: source/history/scoring stages and elapsed time during forecast
   refreshes. Previous results stay visible on refresh or calculation failure, and
   results are marked outdated when forecasts, squad, finances or preferences change.
@@ -696,6 +761,11 @@ margin, deadline checks, official price indicators and model-filtered watchlists
 Hit plans are compared against a separate no-hit scenario and need an uncertainty
 buffer before they are recommended. Further research and priorities are in
 [manager strategy research](archive/fpl_manager_strategy_research_2026.md).
+
+Preparing the app for a new round, by hand: **Refresh forecast** (or
+`src/capture_fpl.py`), `src/prospective_loop.py auto` before the deadline, and
+after the deadline **History → Top managers → Update** (or
+`src/top_managers.py collect`) to see what the top 100, legacy and top 1% fielded.
 
 
 Two data checkouts live in the repository root and are ignored by Git:
