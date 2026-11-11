@@ -79,7 +79,11 @@ export function ScenariosView({ team }: { team: TeamResponse }) {
 export function JournalView({ team }: { team: TeamResponse }) {
   const [entries, setEntries] = useState<JournalEntry[] | null>(null);
   const [error, setError] = useState("");
-  useEffect(() => { api.journal(team.session_id).then(r => setEntries(r.entries)).catch(e => setError(errorText(e))); }, [team.session_id]);
+  useEffect(() => {
+    let active = true;
+    api.journal(team.session_id).then(r => { if (active) setEntries(r.entries); }).catch(e => { if (active) setError(errorText(e)); });
+    return () => { active = false; };
+  }, [team.session_id]);
   return <section className="journal" aria-label="Decision journal">
     <header className="page-heading compact"><div className="page-heading-main"><span className="page-icon"><Icon.Star size={22} /></span>
       <div><span className="eyebrow">Frozen before each deadline</span><h1>Decision journal</h1><p>The advice, the alternatives and your choice as they stood, and what happened afterwards.</p></div></div></header>

@@ -38,9 +38,12 @@ export function TopManagers({ team }: { team: TeamResponse }) {
   const [updating, setUpdating] = useState(false);
   const [status, setStatus] = useState<TopManagersStatus | null>(null);
   const load = () => {
+    let active = true; // a slow answer for the previous cohort must not overwrite this one
     setError("");
-    if (cohort === "copy") return;
-    api.topManagers(team.session_id, cohort).then(setData).catch(err => setError(err instanceof Error ? err.message : "Could not load top managers."));
+    if (cohort !== "copy") api.topManagers(team.session_id, cohort)
+      .then(next => { if (active) setData(next); })
+      .catch(err => { if (active) setError(err instanceof Error ? err.message : "Could not load top managers."); });
+    return () => { active = false; };
   };
   useEffect(load, [team.session_id, cohort]);
 

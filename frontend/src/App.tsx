@@ -969,8 +969,8 @@ export default function App() {
     if (!session) return;
     api.team(session).then(restored => {
       setTeam(current => current ?? restored);
-      setBank(restored.bank); setFreeTransfers(restored.free_transfers); setHorizon(restored.horizon);
-    }).catch(() => remember(SESSION_KEY, null));
+      setBank(restored.bank); setFreeTransfers(restored.free_transfers); setHorizon(restored.horizon); setRisk(restored.risk_profile);
+    }).catch(err => { if ((err as { status?: number }).status === 404) remember(SESSION_KEY, null); }); // not when the API is just down
   }, []);
   const changeHorizon = async (value: number) => {
     if (!team) { setHorizon(value); return; }

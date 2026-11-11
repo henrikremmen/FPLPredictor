@@ -20,12 +20,17 @@ export function CopyCheck({ team, revision }: { team: TeamResponse; revision: nu
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState("");
   const [open, setOpen] = useState<number | null>(null);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
+    let active = true;
     setError("");
-    api.copyCheck(team.session_id, league).then(setData).catch(err => setError(err instanceof Error ? err.message : "Could not load the copy check."));
-  }, [team.session_id, league, revision]);
+    api.copyCheck(team.session_id, league)
+      .then(next => { if (active) setData(next); })
+      .catch(err => { if (active) setError(err instanceof Error ? err.message : "Could not load the copy check."); });
+    return () => { active = false; };
+  }, [team.session_id, league, revision, attempt]);
 
-  if (error) return <div className="error-banner" role="alert"><p>{error}</p></div>;
+  if (error) return <div className="error-banner" role="alert"><p>{error}</p><button className="secondary" onClick={() => setAttempt(value => value + 1)}>Try again</button></div>;
   if (!data) return <div className="loading"><span className="spinner" />Loading the copy check…</div>;
   if (!data.available || !data.members || !data.friends) return <section className="panel"><h2>No copy check yet</h2><p>Press Update: after the top managers it compares every finished round of your mini-leagues with the YouTubers and with each other. The first run takes about three minutes, later runs about one. Terminal: <code>.venv/bin/python src/copy_check.py collect --entry {team.entry_id}</code></p></section>;
 

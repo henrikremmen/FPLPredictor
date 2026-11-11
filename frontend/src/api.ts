@@ -30,7 +30,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload.detail ?? `HTTP ${response.status}`);
+    throw Object.assign(new Error(payload.detail ?? `HTTP ${response.status}`), { status: response.status });
   }
   return payload as T;
 }
@@ -43,11 +43,12 @@ export type ChatEvent =
   | { type: "done"; usage: Record<string, number> };
 
 /** Server-sent events from POST /chat: status, text deltas, a notice, then done or error. */
-async function streamChat(path: string, body: unknown, onEvent: (event: ChatEvent) => void) {
+async function streamChat(path: string, body: unknown, onEvent: (event: ChatEvent) => void, signal?: AbortSignal) {
   let response: Response;
   try {
-    response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  } catch {
+    response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
+  } catch (error) {
+    if (signal?.aborted) throw error;
     throw new Error("Could not contact API. Start the app with .venv/bin/python run_app.py and open http://127.0.0.1:5173.");
   }
   if (!response.ok || !response.body) {
@@ -62,15 +63,19 @@ async function streamChat(path: string, body: unknown, onEvent: (event: ChatEven
     buffer += value;
     const events = buffer.split("\n\n");
     buffer = events.pop() ?? "";
-    events.filter(event => event.startsWith("data: ")).forEach(event => onEvent(JSON.parse(event.slice(6))));
+    for (const event of events.filter(line => line.startsWith("data: "))) {
+      let parsed: ChatEvent;
+      try { parsed = JSON.parse(event.slice(6)); } catch { continue; } // one malformed event must not end the answer
+      onEvent(parsed);
+    }
   }
 }
 
 export const api = {
   chatHistory(session: string) { return request<{ messages: ChatLine[]; enabled: boolean }>(`/api/team/${session}/chat`); },
   resetChat(session: string) { return request<{ messages: ChatLine[] }>(`/api/team/${session}/chat/reset`, { method: "POST" }); },
-  chat(session: string, body: { message: string; page: unknown } & PlayerConstraints, onEvent: (event: ChatEvent) => void) {
-    return streamChat(`/api/team/${session}/chat`, body, onEvent);
+  chat(session: string, body: { message: string; page: unknown } & PlayerConstraints, onEvent: (event: ChatEvent) => void, signal?: AbortSignal) {
+    return streamChat(`/api/team/${session}/chat`, body, onEvent, signal);
   },
   player(session: string, id: number) {
     return request<PlayerDetail>(`/api/team/${session}/players/${id}`);

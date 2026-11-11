@@ -25,11 +25,14 @@ export function Chat({ team, view, label }: { team: TeamResponse; view: string; 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const end = useRef<HTMLDivElement>(null);
+  const answering = useRef<AbortController | null>(null);
   useEffect(() => {
     let active = true;
-    api.chatHistory(team.session_id).then(result => { if (active) { setLines(result.messages); setEnabled(result.enabled); } }).catch(() => undefined);
+    api.chatHistory(team.session_id).then(result => { if (active) { setLines(result.messages); setEnabled(result.enabled); } })
+      .catch(err => { if (active) setError(err instanceof Error ? err.message : "Could not load the chat."); });
     return () => { active = false; };
   }, [team.session_id]);
+  useEffect(() => () => answering.current?.abort(), []);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [lines, status, open]);
 
   const priciest = [...team.squad].sort((a, b) => (b.price ?? 0) - (a.price ?? 0))[0]?.name;
@@ -53,18 +56,21 @@ export function Chat({ team, view, label }: { team: TeamResponse; view: string; 
       ...(workspace.inspected != null ? [{ tool: "player", args: { player_id: workspace.inspected } }] : [])];
     const savedPlans = workspace.plans.map(({ name, kind, summary, metrics, created, event, horizon }) => ({ name, kind, summary, metrics, created, event, horizon }));
     let failure = "";
+    const abort = new AbortController();
+    answering.current = abort;
     try {
       await api.chat(team.session_id, { message: question, page: { view, label, calls, saved_plans: savedPlans }, ...constraints }, event => {
         if (event.type === "text") { setStatus(""); append(event.text); }
         else if (event.type === "status") setStatus(event.text);
         else if (event.type === "notice") setLines(current => [{ role: "notice", text: event.text }, ...current.slice(-2)]);
         else if (event.type === "error") failure = event.message;
-      });
-    } catch (err) { failure = err instanceof Error ? err.message : "The chat failed."; }
-    if (failure) { // the server rolled the turn back, so the question goes back in the box
+      }, abort.signal);
+    } catch (err) { if (!abort.signal.aborted) failure = err instanceof Error ? err.message : "The chat failed."; }
+    if (failure || abort.signal.aborted) { // the server rolled the turn back, so the question goes back in the box
       setLines(current => current.slice(0, -2));
       setDraft(question); setError(failure);
     }
+    answering.current = null;
     setBusy(false); setStatus("");
   };
   const reset = () => { setError(""); api.resetChat(team.session_id).then(() => setLines([])).catch(err => setError(err instanceof Error ? err.message : "Could not start a new chat.")); };
@@ -98,7 +104,9 @@ export function Chat({ team, view, label }: { team: TeamResponse; view: string; 
         <textarea aria-label="Message" rows={2} value={draft} maxLength={4000} placeholder="E.g. I want to sell Haaland – what do I lose?"
           onChange={event => setDraft(event.target.value)}
           onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); } }} />
-        <button className="primary" type="submit" disabled={busy || !draft.trim()}>{busy ? "…" : "Send"}</button>
+        {busy
+          ? <button className="secondary" type="button" onClick={() => answering.current?.abort()}>Stop</button>
+          : <button className="primary" type="submit" disabled={!draft.trim()}>Send</button>}
       </form>
     </section>}
   </>;
