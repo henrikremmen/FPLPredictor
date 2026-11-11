@@ -29,26 +29,22 @@ htmlcov/
 
 # Local datasets and generated model artifacts
 data-source/
-data/processed/player_fixture_features.csv
-
 data/raw/
 data/local/
+data/processed/player_fixture_features.csv
+data/processed/cleaned_merged_seasons_team_aggregated_expanded.csv
+data/processed/features_*/
+data/processed/role_history_*.csv
 artifacts/
 
-# React dependencies and generated build output
-frontend/node_modules/
+# React build and test output
 frontend/dist/
-frontend/*.tsbuildinfo
 frontend/playwright-report/
 frontend/test-results/
 
-# Node workspaces (root, packages/*, apps/mobile)
+# Node dependencies and TypeScript/Expo caches (apps/mobile has its own .gitignore)
 node_modules/
 .expo/
-apps/mobile/dist/
-apps/mobile/expo-env.d.ts
-apps/mobile/ios/
-apps/mobile/android/
 *.tsbuildinfo
 
 # Mobile signing credentials and platform service files
@@ -81,6 +77,3 @@ coverage/
 
 # Own FPL data repository checkout (github.com/henrikremmen/fpl-data)
 /fpl-data/
-data/processed/cleaned_merged_seasons_team_aggregated_expanded.csv
-data/processed/features_*/
-data/processed/role_history_*.csv
