@@ -62,13 +62,12 @@ docker build -t fpl-modell-api .
 docker run --rm -p 8000:8000 \
   -v "$(pwd)/data:/app/data" \
   -v "$(pwd)/artifacts:/app/artifacts" \
-  -v "$(pwd)/models:/app/models" \
   --env-file .env \
   fpl-modell-api
 ```
 
 Data, session registries and model artefacts are not baked into the image.
-Mount `data/`, `artifacts/` and `models/` as persistent volumes. The Dockerfile
+Mount `data/` and `artifacts/` as persistent volumes. The Dockerfile
 installs only `requirements.txt`; notebook tooling lives in
 `requirements-dev.txt`.
 

@@ -27,9 +27,6 @@ htmlcov/
 .claude/
 .codex/
 
-# Legacy local Streamlit configuration (React is the primary UI)
-.streamlit/
-
 # Local datasets and generated model artifacts
 data-source/
 data/processed/player_fixture_features.csv
@@ -47,7 +44,7 @@ frontend/test-results/
 
 # Node workspaces (root, packages/*, apps/mobile)
 node_modules/
-apps/mobile/.expo/
+.expo/
 apps/mobile/dist/
 apps/mobile/expo-env.d.ts
 apps/mobile/ios/

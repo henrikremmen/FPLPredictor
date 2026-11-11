@@ -7,8 +7,6 @@ notebooks
 data-source
 data
 artifacts
-models
-fpl.db
 __pycache__
 *.pyc
 .pytest_cache

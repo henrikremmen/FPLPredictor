@@ -10,11 +10,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ ./src/
 
-# data/, artifacts/ and models/ hold forecasts, session state and trained
+# data/ and artifacts/ hold forecasts, session state and trained
 # artifacts. They are not baked into the image: mount a persistent volume
 # over them (see docs/deploy.md) so refreshed forecasts and sessions survive
 # container restarts and redeploys.
-RUN mkdir -p data artifacts models
+RUN mkdir -p data artifacts
 
 ENV FPL_API_HOST=0.0.0.0 \
     FPL_API_PORT=8000 \
