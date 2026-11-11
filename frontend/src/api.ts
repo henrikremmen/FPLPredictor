@@ -202,7 +202,8 @@ export const api = {
   refreshForecast() {
     return request<{ status: string }>("/api/forecast/refresh", { method: "POST" });
   },
+  /** Starts the forecast update and then reloads the team; follow with waitForJob(refreshStatus) and team(). */
   refreshTeam(session: string) {
-    return request<TeamResponse>(`/api/team/${session}/refresh`, { method: "POST" });
+    return request<{ status: string }>(`/api/team/${session}/refresh`, { method: "POST" });
   },
 };

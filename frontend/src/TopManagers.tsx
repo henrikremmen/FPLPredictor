@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { TeamResponse, TopCohort, TopManagers as TopData, TopManagersStatus, TopPlayer } from "@fplmodell/api-client";
+import { waitForJob } from "@fplmodell/api-client";
 import { formatRank, FPL_CHIP_NAMES } from "@fplmodell/shared";
 import { api } from "./api";
 import { CopyCheck } from "./CopyCheck";
@@ -43,13 +44,17 @@ export function TopManagers({ team }: { team: TeamResponse }) {
   };
   useEffect(load, [team.session_id, cohort]);
 
-  const update = async () => {
+  /** The update runs on the server for minutes; follow its status until it ends, then reload. */
+  const follow = async (start?: () => Promise<unknown>) => {
     setUpdating(true); setError("");
-    const timer = window.setInterval(() => { api.topManagersStatus().then(setStatus).catch(() => undefined); }, 1500);
-    try { await api.topManagersRefresh(team.session_id); load(); setRevision(value => value + 1); }
+    try { await start?.(); await waitForJob(api.topManagersStatus, setStatus, 1500); load(); setRevision(value => value + 1); }
     catch (err) { setError(err instanceof Error ? err.message : "The update failed."); }
-    finally { window.clearInterval(timer); setUpdating(false); setStatus(null); }
+    finally { setUpdating(false); setStatus(null); }
   };
+  const update = () => follow(() => api.topManagersRefresh(team.session_id));
+  useEffect(() => { // an update started before a page reload is still running on the server
+    api.topManagersStatus().then(current => { if (current.state === "running") void follow(); }).catch(() => undefined);
+  }, []);
 
   const label = COHORTS.find(item => item.id === cohort) ?? COHORTS[0];
   const meta = data?.meta;

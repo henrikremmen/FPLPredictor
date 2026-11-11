@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Position } from "@fplmodell/shared";
-import type { TopCohort } from "@fplmodell/api-client";
+import { waitForJob, type TopCohort } from "@fplmodell/api-client";
 import { api } from "../lib/api";
 import { useSession } from "../context/session-context";
 import { useWorkspace } from "../context/workspace-context";
@@ -123,7 +123,10 @@ export function useTimeline() {
 export function useRefreshForecast() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api.refreshForecast(),
+    mutationFn: async () => {
+      await api.refreshForecast();
+      return waitForJob(() => api.forecastStatus());
+    },
     onSuccess: () => {
       queryClient.invalidateQueries();
     },

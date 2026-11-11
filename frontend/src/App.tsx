@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { waitForJob } from "@fplmodell/api-client";
 import { api } from "./api";
 import { Icon } from "./icons";
 import { CHIP_LABELS, type Chip, decisionCard, RISK_PROFILE_LABELS, RISK_PROFILE_SCORE, formatDeadline, teamIdFromReference } from "@fplmodell/shared";
@@ -1004,12 +1005,9 @@ export default function App() {
   const refresh = async () => {
     setRefreshing(true); setError("");
     try {
-      const updated = team
-        ? await api.refreshTeam(team.session_id)
-        : await (async () => {
-            await api.refreshForecast();
-            return api.importTeam(reference, horizon, risk);
-          })();
+      await (team ? api.refreshTeam(team.session_id) : api.refreshForecast());
+      await waitForJob(api.refreshStatus);  // the update runs on the server; ForecastStatus shows its progress
+      const updated = team ? await api.team(team.session_id) : await api.importTeam(reference, horizon, risk);
       setTeam(updated); setBank(updated.bank); setFreeTransfers(updated.free_transfers);
     }
     catch (err) { setError(err instanceof Error ? err.message : "Could not update the forecast."); }

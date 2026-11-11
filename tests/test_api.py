@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -56,6 +58,14 @@ def team_with_spare_mid() -> ImportedTeam:
     team.market = pd.concat([team.market, incoming], ignore_index=True)
     team.weekly_market = pd.concat([team.weekly_market, incoming.assign(forecast_event=5)], ignore_index=True)
     return team
+
+
+def settle(job):
+    """Waits for a BackgroundJob's thread to finish."""
+    for _ in range(250):
+        if job.snapshot()["state"] != "running":
+            return
+        time.sleep(.02)
 
 
 SWAP = {"mode": "synchronize", "changes": [{"out_id": 12, "in_id": 99}], "bank": 7, "free_transfers": 0}
@@ -122,13 +132,31 @@ class ApiTests(unittest.TestCase):
             )
             self.assertIn(session, api.STORE._teams)
 
-    def test_refresh_guard_rejects_rapid_repeat_calls(self):
-        guard = api.RefreshGuard(min_interval_seconds=60)
-        with patch("api.refresh_forecast"):
-            guard.run()
-            with self.assertRaises(api.HTTPException) as failure:
-                guard.run()
-        self.assertEqual(failure.exception.status_code, 429)
+    def test_background_job_rejects_overlap_and_rapid_repeats(self):
+        release = threading.Event()
+        job = api.BackgroundJob(lambda: release.wait(5), "forecast update", min_interval=60)
+        job.start()
+        with self.assertRaises(api.HTTPException) as busy:
+            job.start()
+        release.set()
+        settle(job)
+        with self.assertRaises(api.HTTPException) as early:
+            job.start()
+        self.assertEqual((busy.exception.status_code, early.exception.status_code), (409, 429))
+
+    def test_team_refresh_runs_in_background_then_reloads_the_team(self):
+        session = api.STORE.add(fake_team())
+        fresh = fake_team()
+        job = api.BackgroundJob(lambda: None, "forecast update", min_interval=0)
+        with patch("api.REFRESH_JOB", job), patch("api.refresh_forecast") as refresh, \
+                patch("api.import_team", return_value=fresh), patch("api.load_team_override"):
+            response = self.client.post(f"/api/team/{session}/refresh")
+            settle(job)
+            status = self.client.get("/api/forecast/status").json()
+        self.assertEqual((response.status_code, response.json()), (202, {"status": "started"}))
+        self.assertEqual(status["state"], "complete")
+        refresh.assert_called_once()
+        self.assertIs(api.STORE.get(session), fresh)
 
     def test_top_manager_endpoints(self):
         session = api.STORE.add(fake_team())
@@ -140,10 +168,12 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(client.get(f"/api/team/{session}/top-managers?cohort=top10").status_code, 422)
         with tempfile.TemporaryDirectory() as temporary, patch("api.ROOT", Path(temporary)):
             self.assertEqual(client.get(f"/api/team/{session}/copy-check").json(), {"available": False})
-        guard = api.RefreshGuard(min_interval_seconds=0, label="top-manager update")
-        with patch("api.TOP_GUARD", guard), patch("api.top_managers.collect") as top, \
+        job = api.BackgroundJob(lambda: None, "top-manager update", min_interval=0)
+        with patch("api.TOP_JOB", job), patch("api.top_managers.collect") as top, \
                 patch("api.copy_check.collect") as copies:
-            self.assertEqual(client.post(f"/api/team/{session}/top-managers/refresh").json(), {"status": "complete"})
+            response = client.post(f"/api/team/{session}/top-managers/refresh")
+            self.assertEqual((response.status_code, response.json()), (202, {"status": "started"}))
+            settle(job)
             self.assertEqual(client.get("/api/top-managers/status").json()["state"], "complete")
         top.assert_called_once()
         copies.assert_called_once_with(api.ROOT, api.STORE.get(session).entry_id)
@@ -342,7 +372,7 @@ class LoopEndpointTests(unittest.TestCase):
     def test_lock_runs_in_background_and_rejects_locked_or_closed_window(self):
         import threading
         release = threading.Event()
-        job = api.LoopJob(run=lambda: release.wait(5) and {"locked": "loop_gw10_x"})
+        job = api.BackgroundJob(lambda: release.wait(5) and {"locked": "loop_gw10_x"}, "loop run", min_interval=0)
         base = {"event": 10, "window_open": True, "locked": False}
         with patch.object(api, "LOOP_JOB", job), patch.object(api.prospective_loop, "status", return_value=base), \
                 patch.object(api, "fpl_data_freshness", return_value={}):
@@ -365,7 +395,7 @@ class LoopEndpointTests(unittest.TestCase):
     def test_failed_loop_is_reported(self):
         def boom():
             raise ValueError("No capture with frozen GW10 forecasts before the deadline")
-        job = api.LoopJob(run=boom)
+        job = api.BackgroundJob(boom, "loop run", min_interval=0)
         job.start()
         for _ in range(100):
             if job.snapshot()["state"] != "running":

@@ -611,84 +611,78 @@ def compare(session_id: str, request: CompareRequest) -> dict:
         raise _as_http_error(exc) from exc
 
 
-class RefreshGuard:
-    """Serializes and rate-limits an expensive, shared refresh (forecast by default).
+class BackgroundJob:
+    """Runs one slow job at a time in a background thread; clients poll a status route.
 
-    The refresh hits the live FPL API (and optional paid sources) and takes
-    roughly a minute, and its output is a shared snapshot under
-    ``data/raw/live_fpl`` used by every session. Without this guard, several
-    mobile clients tapping refresh at once would run the fetch redundantly
-    and could trip external rate limits.
+    Used for the forecast refresh (live FPL API and optional paid sources, about
+    a minute, shared by every session), the top-manager update (5-7 minutes)
+    and the prospective loop. A start returns at once, so no HTTP request,
+    proxy or phone has to stay open for the whole run. At most one run at a
+    time, and ``min_interval`` seconds between starts so several clients
+    tapping refresh don't hit the external sources over and over.
     """
 
-    def __init__(self, min_interval_seconds: float = 30.0, job=None,
-                 label: str = "forecast update") -> None:
-        self._job = job or (lambda: refresh_forecast(ROOT))
-        self._label = label
+    def __init__(self, job, label: str, min_interval: float = 30.0) -> None:
+        self._job, self._label, self._min_interval = job, label, min_interval
         self._lock = RLock()
-        self._busy = False
-        self._last_started: float | None = None
-        self._min_interval = min_interval_seconds
-        self._state = "idle"
-        self._error = None
+        self.state, self.error, self.result, self.started_at = "idle", None, None, None
 
-    def run(self, job=None) -> None:
+    def start(self, job=None) -> None:
         with self._lock:
-            if self._busy:
+            if self.state == "running":
                 raise HTTPException(status_code=409, detail=f"A {self._label} is already underway. Please try again.")
-            if self._last_started is not None and time.time() - self._last_started < self._min_interval:
-                wait = round(self._min_interval - (time.time() - self._last_started))
-                raise HTTPException(status_code=429, detail=f"Wait {wait} seconds before the next update.")
-            self._busy = True
-            self._last_started = time.time()
-            self._state = "running"
-            self._error = None
+            if self.started_at is not None and time.time() - self.started_at < self._min_interval:
+                wait = round(self._min_interval - (time.time() - self.started_at))
+                raise HTTPException(status_code=429, detail=f"Wait {wait} seconds before the next {self._label}.")
+            self.state, self.error, self.result, self.started_at = "running", None, None, time.time()
+        Thread(target=self._work, args=(job or self._job,), daemon=True).start()
+
+    def _work(self, job) -> None:
         try:
-            (job or self._job)()
+            result = job()
             with self._lock:
-                self._state = "complete"
-        except Exception as exc:
+                self.state, self.result = "complete", json.loads(json.dumps(result, default=str))
+        except Exception as exc:  # reported through the status route
             with self._lock:
-                self._state = "failed"
-                self._error = str(exc)
-            raise
-        finally:
-            with self._lock:
-                self._busy = False
+                self.state, self.error = "failed", str(exc)
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            return {"state": self.state, "error": self.error, "result": self.result, "started_at": self.started_at,
+                    "elapsed_seconds": round(time.time() - self.started_at) if self.started_at else 0}
 
 
-REFRESH_GUARD = RefreshGuard()
-TOP_GUARD = RefreshGuard(job=lambda: top_managers.collect(ROOT), label="top-manager update")
+REFRESH_JOB = BackgroundJob(lambda: refresh_forecast(ROOT), "forecast update")
+TOP_JOB = BackgroundJob(lambda: top_managers.collect(ROOT), "top-manager update")
+# Still manual: nothing schedules it. The loop itself refuses a second lock of the same round (plan O2).
+LOOP_JOB = BackgroundJob(lambda: prospective_loop.auto(ROOT), "prospective loop run", min_interval=0)
 
 
 @app.get("/api/top-managers/status")
 def top_managers_status() -> dict:
-    with TOP_GUARD._lock:
-        return {"state": TOP_GUARD._state, "error": TOP_GUARD._error, **top_managers.PROGRESS}
+    job = TOP_JOB.snapshot()
+    return {"state": job["state"], "error": job["error"], **top_managers.PROGRESS}
 
 
-@app.post("/api/team/{session_id}/top-managers/refresh")
+@app.post("/api/team/{session_id}/top-managers/refresh", status_code=202)
 def top_managers_refresh(session_id: str) -> dict:
+    """Starts the update; progress and failures come from GET /api/top-managers/status."""
     entry = STORE.get(session_id).entry_id
 
     def job():
         top_managers.collect(ROOT)
         copy_check.collect(ROOT, entry)
 
-    try:
-        TOP_GUARD.run(job)
-    except (top_managers.CollectError, ValueError) as exc:
-        raise HTTPException(status_code=502, detail=f"Top-manager update failed: {exc}") from exc
-    return {"status": "complete"}
+    TOP_JOB.start(job)
+    return {"status": "started"}
 
 
 @app.get("/api/forecast/status")
 def forecast_status() -> dict:
-    with REFRESH_GUARD._lock:
-        started = REFRESH_GUARD._last_started
-        result = {"state": REFRESH_GUARD._state, "error": REFRESH_GUARD._error,
-                  "elapsed_seconds": round(time.time() - started) if started else 0,
-                  "stage": "Waiting for update", "captured": 0, "total": None}
+    job = REFRESH_JOB.snapshot()
+    started = job["started_at"]
+    result = {"state": job["state"], "error": job["error"], "elapsed_seconds": job["elapsed_seconds"],
+              "stage": "Waiting for update", "captured": 0, "total": None}
     if result["state"] == "running":
         result["stage"] = "Downloading fixtures and source updates"
         paths = list((ROOT / 'data/raw/live_fpl').glob('capture_*/manifest.json'))
@@ -712,67 +706,27 @@ def forecast_status() -> dict:
     return result
 
 
-@app.post("/api/forecast/refresh")
+@app.post("/api/forecast/refresh", status_code=202)
 def refresh() -> dict:
-    try:
-        REFRESH_GUARD.run()
-    except AppError as exc:
-        raise _as_http_error(exc) from exc
-    return {"status": "complete"}
+    """Starts the forecast update; poll GET /api/forecast/status."""
+    REFRESH_JOB.start()
+    return {"status": "started"}
 
 
-@app.post("/api/team/{session_id}/refresh")
+@app.post("/api/team/{session_id}/refresh", status_code=202)
 def refresh_team(session_id: str) -> dict:
+    """Starts the forecast update and then reloads this team; poll GET /api/forecast/status, then GET the team."""
     current = STORE.get(session_id)
-    try:
-        REFRESH_GUARD.run()
-        team = import_team(
-            str(current.entry_id), ROOT, horizon=current.horizon,
-            risk_profile=current.risk_profile,
-        )
+
+    def job():
+        refresh_forecast(ROOT)
+        team = import_team(str(current.entry_id), ROOT, horizon=current.horizon, risk_profile=current.risk_profile)
         load_team_override(ROOT, team)
-    except AppError as exc:
-        raise _as_http_error(exc) from exc
-    STORE.set(session_id, team)
-    _warm(team)
-    return _team_payload(session_id, team)
+        STORE.set(session_id, team)
+        _warm(team)
 
-
-class LoopJob:
-    """Runs ``prospective_loop.auto`` once in the background (plan O2).
-
-    Still manual: nothing schedules it. The loop itself refuses a second lock
-    of the same round; this guard only stops two runs from overlapping.
-    """
-
-    def __init__(self, run=None) -> None:
-        self._lock = RLock()
-        self._run = run or (lambda: prospective_loop.auto(ROOT))
-        self.state, self.error, self.result, self.started_at = "idle", None, None, None
-
-    def start(self) -> None:
-        with self._lock:
-            if self.state == "running":
-                raise HTTPException(status_code=409, detail="The prospective loop is already running.")
-            self.state, self.error, self.result, self.started_at = "running", None, None, time.time()
-        Thread(target=self._work, daemon=True).start()
-
-    def _work(self) -> None:
-        try:
-            result = self._run()
-            with self._lock:
-                self.state, self.result = "complete", json.loads(json.dumps(result, default=str))
-        except Exception as exc:  # reported through the status endpoint
-            with self._lock:
-                self.state, self.error = "failed", str(exc)
-
-    def snapshot(self) -> dict:
-        with self._lock:
-            return {"state": self.state, "error": self.error, "result": self.result,
-                    "elapsed_seconds": round(time.time() - self.started_at) if self.started_at else 0}
-
-
-LOOP_JOB = LoopJob()
+    REFRESH_JOB.start(job)
+    return {"status": "started"}
 
 
 def _loop_events() -> list[dict]:

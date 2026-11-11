@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { RiskProfile } from "@fplmodell/shared";
-import type { SquadChange } from "@fplmodell/api-client";
+import { waitForJob, type SquadChange } from "@fplmodell/api-client";
 import { api } from "../lib/api";
 import { useSession } from "../context/session-context";
 
@@ -39,7 +39,11 @@ export function useRefreshTeam() {
   const queryClient = useQueryClient();
   const { sessionId } = useSession();
   return useMutation({
-    mutationFn: () => api.refreshTeam(sessionId as string),
+    mutationFn: async () => {  // the update runs on the server; poll it, then read the reloaded team
+      await api.refreshTeam(sessionId as string);
+      await waitForJob(() => api.forecastStatus());
+      return api.getTeam(sessionId as string);
+    },
     onSuccess: (team) => {
       queryClient.setQueryData(teamQueryKey(sessionId), team);
     },

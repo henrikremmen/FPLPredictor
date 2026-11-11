@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -197,10 +198,9 @@ class WorkspaceTests(unittest.TestCase):
                 'player_1': {'status': 200}, 'player_2': {'status': 500}, 'bootstrap': {'status': 200}}}
             path = folder / 'manifest.json'
             path.write_text(json.dumps(manifest))
-            guard = api.RefreshGuard()
-            guard._last_started = path.stat().st_mtime - 1
-            guard._state = 'running'
-            with patch('api.ROOT', root), patch('api.REFRESH_GUARD', guard):
+            job = api.BackgroundJob(lambda: None, 'forecast update')
+            job.state, job.started_at = 'running', path.stat().st_mtime - 1
+            with patch('api.ROOT', root), patch('api.REFRESH_JOB', job):
                 status = api.forecast_status()
                 self.assertEqual(status['captured'], 1)
                 self.assertEqual(status['total'], 3)
@@ -210,13 +210,16 @@ class WorkspaceTests(unittest.TestCase):
                 self.assertEqual(api.forecast_status()['stage'], 'Generating and validating forecasts')
 
     def test_failed_refresh_reports_failure_and_releases_guard(self):
-        guard = api.RefreshGuard(min_interval_seconds=0)
-        with patch('api.REFRESH_GUARD', guard), patch('api.refresh_forecast', side_effect=AppError('Source unavailable')):
-            with self.assertRaises(AppError): guard.run()
+        job = api.BackgroundJob(lambda: api.refresh_forecast(api.ROOT), 'forecast update', min_interval=0)
+        with patch('api.REFRESH_JOB', job), patch('api.refresh_forecast', side_effect=AppError('Source unavailable')):
+            job.start()
+            for _ in range(250):
+                if job.snapshot()['state'] != 'running': break
+                time.sleep(.02)
             status = api.forecast_status()
             self.assertEqual(status['state'], 'failed')
             self.assertIn('Source unavailable', status['error'])
-            self.assertFalse(guard._busy)
+            self.assertNotEqual(job.snapshot()['state'], 'running')  # a failed run does not block the next one
 
 
 if __name__ == '__main__': unittest.main()

@@ -54,13 +54,15 @@ across instances; the registry supports both backends.
 All sessions read shared frozen forecasts from
 `data/raw/live_fpl/capture_*/forecast.csv`. Refreshing through
 `POST /api/forecast/refresh` or `POST /api/team/{id}/refresh` changes the shared
-forecast data. `RefreshGuard` serialises refreshes and enforces at least 30
-seconds between starts, preventing duplicate expensive requests in one process.
+forecast data.
 
-A refresh normally takes around a minute. Set reverse-proxy timeouts to at
-least 120 seconds for `/api/forecast/refresh` and `/api/team/*/refresh`.
-The guard returns `409` if a refresh is in progress and `429` if the previous
-one started too recently.
+A refresh takes around a minute and the top-manager update
+(`POST /api/team/{id}/top-managers/refresh`) 5–7 minutes, so both run as
+background jobs (`BackgroundJob` in `src/api.py`). The POST returns `202` at
+once; clients poll `GET /api/forecast/status` or `GET /api/top-managers/status`
+until `state` is `complete` or `failed`, then reload the team. No request stays
+open, so no proxy timeout needs raising. A start returns `409` while a run is
+in progress and `429` within 30 seconds of the previous start.
 
 ## Docker
 
