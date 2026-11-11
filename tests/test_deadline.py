@@ -9,7 +9,6 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from deadline_audit import sha256, verify_bootstrap, utc
 from deadline_features import build_round, aggregate_predictions
-from deadline_evaluation import decision_report, paired_bootstrap
 
 class DeadlineTests(unittest.TestCase):
     def setUp(self):
@@ -98,20 +97,6 @@ class DeadlineTests(unittest.TestCase):
         manifest['backfill']['wayback_timestamp'] = '20240901100000'
         self.assertFalse(verify_bootstrap(manifest,gzip.compress(raw),self.season,3)['bootstrap_verified'])
 
-    def test_captain_tie_break_and_same_universe(self):
-        rows=[]
-        for method in ['form','hgb','ensemble']:
-            for i in [2,1]:
-                rows.append({'method':method,'season':self.season,'GW':3,'player_id':i,
-                    'position':'MID','planned_fixtures':1,'minutes_avg5':90,
-                    'prediction':2.,'target_points':float(i)})
-        d=pd.DataFrame(rows)
-        _, _, captains=decision_report(d)
-        self.assertTrue(captains.player_id.eq(1).all())
-        self.assertTrue(captains.gain_vs_form.eq(0).all())
-        self.assertTrue(paired_bootstrap(d, draws=10).MSE_gain.eq(0).all())
-        with self.assertRaises(ValueError):
-            paired_bootstrap(d.iloc[:-1], draws=10)
 
 if __name__ == '__main__':
     unittest.main()

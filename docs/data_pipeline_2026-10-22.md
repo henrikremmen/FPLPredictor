@@ -97,8 +97,8 @@ snapshot. Andre kjøring samme time gjorde ingenting.
 
 - **launchd-fallback:** ikke laget. Actions når FPL (første kjøring var grønn).
   Lages hvis FPL senere blokkerer Actions.
-- **Moduler som fortsatt leser bare `data-source/data`:** `elo_features.py`,
-  `understat_*.py` og `freeze_source_challengers.py` ser fortsatt bare
+- **Moduler som fortsatt leser bare `data-source/data`:** `elo_features.py` og
+  `understat_*.py` ser fortsatt bare
   vaastavs 2026-27 (kun GW1-resultater). Dette tas i fase 4 (M1) sammen med
   refit.
 - **`player_fixture_features.csv`:** ikke bygget på nytt. Det hører til en

@@ -516,12 +516,9 @@ is evaluated and refitted separately from points ranking.
 
 ```bash
 .venv/bin/python src/nextgen_models.py
-.venv/bin/python src/model_lab.py
-.venv/bin/python src/component_benchmark.py
 ```
 
-`model_lab.py` compares the incumbent with CatBoost and, when available,
-LightGBM. On macOS, LightGBM requires OpenMP; if needed:
+On macOS, LightGBM requires OpenMP; if needed:
 
 ```bash
 sudo xcodebuild -license accept
@@ -637,7 +634,6 @@ Further evaluation and refitting commands:
 
 ```bash
 .venv/bin/python src/decision_backtest.py
-.venv/bin/python src/uncertainty_models.py
 .venv/bin/python src/risk_profiles.py
 .venv/bin/python src/season_simulator.py --transfer-policy historical --minimum-gain 0
 .venv/bin/python src/season_simulator.py --transfer-policy historical --minimum-gain 1
