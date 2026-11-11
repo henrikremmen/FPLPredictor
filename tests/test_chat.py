@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("FPL_SESSIONS_DB_PATH", ":memory:")
 
+os.environ["FPL_API_TOKEN"] = ""  # the tests run without the API token, whatever .env says
 import api
 import chat
 from test_api import fake_team

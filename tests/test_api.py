@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 os.environ.setdefault("FPL_SESSIONS_DB_PATH", ":memory:")
 
+os.environ["FPL_API_TOKEN"] = ""  # the tests run without the API token, whatever .env says
 import api
 from fpl_app import ImportedTeam
 
@@ -375,3 +376,22 @@ class FixtureTickerTests(unittest.TestCase):
         self.assertEqual(one["weeks"][1]["fixtures"], 2)
         self.assertTrue(all(p["owned"] for p in result["players"]))
         self.assertEqual(fixture_ticker(team, "market")["players"], [])  # everyone in this market is owned
+
+
+class TokenAuthTests(unittest.TestCase):
+    def test_a_set_token_guards_every_route_but_health(self):
+        client = TestClient(api.app)
+        with patch("api.API_TOKEN", "s3cret"):
+            self.assertEqual(client.get("/api/health").status_code, 200)
+            self.assertEqual(client.get("/api/team/missing").status_code, 401)
+            self.assertEqual(client.get("/api/team/missing", headers={"Authorization": "Bearer wrong"}).status_code, 401)
+            self.assertEqual(client.get("/api/team/missing", headers={"Authorization": "Bearer s3cret"}).status_code, 404)
+
+    def test_no_token_leaves_the_local_api_open(self):
+        self.assertEqual(TestClient(api.app).get("/api/team/missing").status_code, 404)
+
+    def test_listening_on_every_network_needs_a_token(self):
+        with self.assertRaises(RuntimeError):
+            api._require_token_when_exposed("0.0.0.0", "")
+        api._require_token_when_exposed("0.0.0.0", "s3cret")
+        api._require_token_when_exposed("127.0.0.1", "")

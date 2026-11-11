@@ -289,6 +289,11 @@ Use separate terminals for the backend and Expo. Press `i` for the iOS simulator
 
 ### Physical iPhone on the same Wi-Fi
 
+First put a long random `FPL_API_TOKEN` in the root `.env` (for example from
+`openssl rand -hex 24`) and the same value as `EXPO_PUBLIC_API_TOKEN` in
+`apps/mobile/.env`. The API refuses to start on `0.0.0.0` without it, and
+every request except `/api/health` must then carry it.
+
 ```bash
 npm run backend:lan
 # Alternatively:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+import hmac
 import json
 import os
 import time
@@ -15,7 +16,8 @@ import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from dotenv import dotenv_values
 from pydantic import BaseModel, Field
 
 import chat
@@ -53,6 +55,18 @@ from fpl_app import (
 from decision_workspace import constrained_team, context, fixture_ticker, player_detail, changes_since_previous, compare_players, change_horizon
 
 ROOT = Path(__file__).resolve().parents[1]
+# One shared secret for every route but the health check, from the environment or the root .env.
+API_TOKEN = (os.environ["FPL_API_TOKEN"] if "FPL_API_TOKEN" in os.environ
+             else dotenv_values(ROOT / ".env").get("FPL_API_TOKEN") or "").strip()
+
+
+def _require_token_when_exposed(host: str | None, token: str) -> None:
+    if host == "0.0.0.0" and not token:
+        raise RuntimeError("FPL_API_HOST=0.0.0.0 opens the API to the whole network. "
+                           "Set FPL_API_TOKEN in .env first (see docs/deploy.md).")
+
+
+_require_token_when_exposed(os.environ.get("FPL_API_HOST"), API_TOKEN)
 
 
 class TeamImportRequest(BaseModel):
@@ -192,13 +206,37 @@ STORE = TeamStore(SessionRegistry(ROOT))
 ANALYTICS = AnalyticsService(top_root=ROOT)
 _STARTED_AT = time.time()
 app = FastAPI(title="FPL Model API", version="1.0.0")
+
+
+class TokenAuth:
+    """Rejects requests without ``Authorization: Bearer <FPL_API_TOKEN>`` when a token is set.
+
+    Plain ASGI rather than ``@app.middleware`` so the chat's event stream passes straight through.
+    Added before CORS, so CORS wraps it and a 401 still carries CORS headers.
+    """
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if (scope["type"] == "http" and API_TOKEN and scope["method"] != "OPTIONS"
+                and scope["path"] != "/api/health"):
+            sent = dict(scope["headers"]).get(b"authorization", b"")
+            if not hmac.compare_digest(sent, f"Bearer {API_TOKEN}".encode()):
+                response = JSONResponse({"detail": "Missing or wrong API token (FPL_API_TOKEN)."}, status_code=401)
+                await response(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(TokenAuth)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins(),
     allow_origin_regex=os.environ.get("FPL_API_CORS_ORIGIN_REGEX"),
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 

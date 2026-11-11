@@ -46,6 +46,8 @@ export interface ApiClientOptions {
   baseUrl: string;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
+  /** FPL_API_TOKEN of the backend, sent as a bearer token when set. */
+  token?: string;
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -60,10 +62,12 @@ export class ApiClient {
   private baseUrl: string;
   private timeoutMs: number;
   private fetchImpl: typeof fetch;
+  private token?: string;
 
   constructor(options: ApiClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.token = options.token || undefined;
     // Browsers reject window.fetch called with another `this` ("Illegal invocation").
     this.fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init));
   }
@@ -77,7 +81,11 @@ export class ApiClient {
     try {
       response = await this.fetchImpl(`${this.baseUrl}${path}`, {
         ...options,
-        headers: { "Content-Type": "application/json", ...options?.headers },
+        headers: {
+          "Content-Type": "application/json",
+          ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+          ...options?.headers,
+        },
         signal: controller.signal,
       });
     } catch (error) {

@@ -8,18 +8,24 @@ Configuration is controlled by environment variables.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `FPL_API_HOST` | `127.0.0.1` | Set to `0.0.0.0` to listen on all interfaces, including LAN connections. |
+| `FPL_API_HOST` | `127.0.0.1` | Set to `0.0.0.0` to listen on all interfaces, including LAN connections. Requires `FPL_API_TOKEN`. |
+| `FPL_API_TOKEN` | Unset | Shared secret. When set, every route except `/api/health` needs `Authorization: Bearer <token>`. The API refuses to start on `0.0.0.0` without it. Read from the environment or the root `.env`. The web dev proxy adds it; the mobile app sends `EXPO_PUBLIC_API_TOKEN`. |
 | `FPL_API_PORT` | `8000` | Port used by uvicorn. |
 | `FPL_API_CORS_ORIGINS` | localhost and 127.0.0.1 on ports 5173/4173 | Comma-separated permitted browser origins. Native mobile clients are not subject to browser CORS. |
 | `FPL_API_CORS_ORIGIN_REGEX` | Unset | Optional origin regex, for example for preview deployments. |
 | `DATABASE_URL` | Unset; local SQLite | A `postgresql://` URL enables shared session storage. Requires `pip install psycopg2-binary`. |
 | `FPL_SESSIONS_DB_PATH` | `data/local/sessions.db` | SQLite path override; tests may use `:memory:`. |
-| `ANTHROPIC_API_KEY` | Unset | Enables the web app chat (`POST /api/team/{id}/chat`). Read from the root `.env` on every message. Anyone who can reach the API can spend it, so add authentication and limits before exposing the chat publicly. |
+| `ANTHROPIC_API_KEY` | Unset | Enables the web app chat (`POST /api/team/{id}/chat`). Read from the root `.env` on every message. Only someone with `FPL_API_TOKEN` can use it once the API listens on the network. |
 
 The root `.env`, copied from `.env.example`, configures optional odds and
 football-data.org sources. Those keys stay on the server.
 
 ## Physical iPhone on the same Wi-Fi
+
+First put a long random `FPL_API_TOKEN` in the root `.env` (for example from
+`openssl rand -hex 24`) and the same value as `EXPO_PUBLIC_API_TOKEN` in
+`apps/mobile/.env`. The API refuses to start on `0.0.0.0` without it, and
+every request except `/api/health` must then carry it.
 
 ```bash
 FPL_API_HOST=0.0.0.0 .venv/bin/python run_app.py
