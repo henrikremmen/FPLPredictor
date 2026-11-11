@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { formatMoney } from "@fplmodell/shared";
@@ -6,6 +7,7 @@ import { Screen } from "../../src/components/Screen";
 import { usePullToRefresh } from "../../src/hooks/useFeatures";
 import { QueryState } from "../../src/components/QueryState";
 import { Button, Card, Section, Stat } from "../../src/components/ui";
+import { useSession } from "../../src/context/session-context";
 import { useWorkspace, type SavedPlan } from "../../src/context/workspace-context";
 import { useTeam } from "../../src/hooks/useTeam";
 import { colors, radii, spacing, typography } from "../../src/theme";
@@ -15,6 +17,13 @@ export default function MyTeam() {
   const pull = usePullToRefresh();
   const team = useTeam();
   const { plans } = useWorkspace();
+  const { resetOnboarding } = useSession();
+  const queryClient = useQueryClient();
+  const switchTeam = async () => {
+    await resetOnboarding();
+    queryClient.clear();
+    router.replace("/onboarding");
+  };
   return (
     <Screen onRefresh={pull.onRefresh} refreshing={pull.refreshing}>
       <Text style={typography.title}>My team</Text>
@@ -35,6 +44,9 @@ export default function MyTeam() {
         {plans.length === 0 ? (
           <Text style={typography.caption}>Save a transfer plan or a player comparison to keep it here.</Text>
         ) : plans.map((plan) => <PlanCard key={plan.id} plan={plan} />)}
+      </Section>
+      <Section title="Another team">
+        <Button label="Switch team" variant="secondary" onPress={() => void switchTeam()} />
       </Section>
     </Screen>
   );

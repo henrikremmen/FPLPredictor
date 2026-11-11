@@ -29,6 +29,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     loadOnboardingState()
       .then(setState)
+      .catch(() => setState(null)) // unreadable storage: start onboarding again rather than hang
       .finally(() => setIsLoading(false));
   }, []);
 
