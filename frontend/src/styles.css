@@ -291,6 +291,9 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
 .week-subhead { margin:6px 0 0; font-size:.8rem; color:var(--text-secondary); }
 .week-list { margin:0; padding-left:18px; display:grid; gap:6px; font-size:.85rem; }
 .week-step .link-button { align-self:flex-start; }
+.paste-news { display:grid; gap:10px; }
+.paste-news textarea { width:100%; box-sizing:border-box; background:var(--surface, #13201a); color:var(--text-primary); border:1px solid #31523f; border-radius:8px; padding:10px; font:inherit; }
+.paste-news > button { justify-self:start; }
 .button-link { text-decoration:none; }
 .nav-more summary { cursor:pointer; color:var(--text-muted); font-size:.75rem; padding:6px 12px; list-style:none; }
 .nav-more summary::-webkit-details-marker { display:none; }

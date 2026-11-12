@@ -4,6 +4,7 @@ import sys
 import tempfile
 import threading
 import time
+import json
 import unittest
 from unittest.mock import patch
 
@@ -390,6 +391,36 @@ class ApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NewsAssumptionTests(unittest.TestCase):
+    """M20: pasted news -> proposals validated at the boundary; nothing applied or stored."""
+
+    def call(self, reply, stop="end_turn"):
+        from types import SimpleNamespace
+        session = api.STORE.add(fake_team())
+        client = SimpleNamespace(messages=SimpleNamespace(create=lambda **kwargs: SimpleNamespace(
+            stop_reason=stop, content=[SimpleNamespace(type="text", text=json.dumps({"players": reply}))], kwargs=kwargs)))
+        with patch("api.chat.client", return_value=client):
+            return TestClient(api.app).post(f"/api/team/{session}/news-assumptions", json={"text": "P3 is out, P4 a doubt."})
+
+    def test_unknown_players_are_dropped_and_chances_clamped(self):
+        response = self.call([{"player_id": 3, "chance": 1.4, "status": "available", "return_gw": None, "quote": "fit"},
+                              {"player_id": 999, "chance": .5, "status": "doubt", "return_gw": None, "quote": "?"},
+                              {"player_id": 4, "chance": -.2, "status": "out", "return_gw": 7, "quote": "out"}])
+        self.assertEqual(response.status_code, 200)
+        proposals = {p["player_id"]: p for p in response.json()["proposals"]}
+        self.assertEqual(sorted(proposals), [3, 4])
+        self.assertEqual((proposals[3]["chance"], proposals[4]["chance"], proposals[4]["name"]), (1.0, 0.0, "P4"))
+
+    def test_refusal_or_missing_key_is_an_error(self):
+        self.assertEqual(self.call([], stop="refusal").status_code, 502)
+        session = api.STORE.add(fake_team())
+        with patch("api.chat.client", return_value=None):
+            missing = TestClient(api.app).post(f"/api/team/{session}/news-assumptions", json={"text": "x"})
+        self.assertEqual(missing.status_code, 503)
+        too_long = TestClient(api.app).post(f"/api/team/{session}/news-assumptions", json={"text": "x" * 5001})
+        self.assertEqual(too_long.status_code, 422)
 
 
 class LoopEndpointTests(unittest.TestCase):

@@ -91,3 +91,57 @@ class RegistryTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExtraChallengerTest(unittest.TestCase):
+    """K1/K2: features_v3 and minutes_v2 inputs, live deadline features, and the retrospective gate."""
+
+    def test_shrunk_rates_pull_small_samples_to_the_round_average(self):
+        from challengers import SHRINK_GAMES, features_v3
+        rows = pd.DataFrame({"GW": [5, 5, 5, 6], "position": ["MID"] * 4,
+                             "minutes_season_before": [0, 900, 90, 900], "xG_season_before": [0, 3.0, 1.0, 9.0],
+                             "xA_season_before": [0, 1.0, 0, 1.0], "xG90_last10": [np.nan, .3, 1.0, .9],
+                             "xA90_last10": [np.nan, .1, 0, .1], "start_rate10": [0, 1, .1, 1]})
+        out = features_v3(rows, np.zeros(4))
+        prior = 4.0 / 11  # GW5 only: (3 + 1) xG over 11 games; GW6 rows never enter it
+        self.assertAlmostEqual(out.xG90_shrunk[0], prior)
+        self.assertAlmostEqual(out.xG90_shrunk[2], (1.0 + SHRINK_GAMES * prior) / (1 + SHRINK_GAMES))
+        self.assertAlmostEqual(out.xG90_shrunk[3], .9)  # alone in GW6: its own rate (9 xG over 10 games) is the prior
+
+    def test_competition_ranks_teammates_per_fixture_on_both_schemas(self):
+        from challengers import minutes_v2
+        training = pd.DataFrame({"season": "2026-27", "fixture": [1, 1, 1, 2], "team": ["A", "A", "A", "B"],
+                                 "position": ["FWD", "FWD", "FWD", "FWD"], "minutes_avg5": [90, 70, 20, 90],
+                                 "start_rate5": 1, "start_rate10": 1, "minutes_last1": 90})
+        out = minutes_v2(training, np.zeros(4))
+        self.assertEqual(out.rank_in_position.tolist(), [1, 2, 3, 1])
+        self.assertEqual(out.regulars_in_position.tolist(), [2, 2, 2, 1])
+        live = training.drop(columns="team").assign(team_name=["A", "A", "A", "B"])
+        self.assertEqual(minutes_v2(live, np.zeros(4)).rank_in_position.tolist(), [1, 2, 3, 1])
+
+    def test_deadline_rows_carry_the_new_windows(self):
+        from deadline_features import player_features
+        history = pd.DataFrame({"minutes": [90] * 12, "starts": [1] * 10 + [0, 0], "total_points": 2, "bps": 10,
+                                "ict_index": 5, "threat": 1, "creativity": 1, "influence": 1, "saves": 0,
+                                "clean_sheets": 0, "expected_goals": .5, "expected_assists": .2,
+                                "goals_scored": 0, "assists": 0, "bonus": 0})
+        out = player_features(history)
+        self.assertAlmostEqual(out["xG90_last10"], .5)
+        self.assertAlmostEqual(out["start_rate10"], .8)
+        self.assertEqual((out["minutes_season_before"], round(out["xG_season_before"], 6)), (1080, 6.0))
+
+    def test_a_correction_that_loses_to_the_base_is_not_registered(self):
+        from unittest.mock import patch
+        import challengers
+        with tempfile.TemporaryDirectory() as tmp:
+            root, features = Path(tmp), Path(tmp) / "features"
+            features.mkdir()
+            keys = {"season": ["2026-27"], "GW": [1], "fixture": [1], "player_id": [1]}
+            pd.DataFrame({**keys, "team": ["A"], "start_rate10": [1.0], "defensive_contribution90_last5": [2.0]}).to_csv(features / "player_fixture_features.csv", index=False)
+            check = {"rows": 10, "base_MAE": 1.0, "adjusted_MAE": 1.1}
+            with patch.object(challengers, "_training_data", return_value=pd.DataFrame(keys)), \
+                    patch.object(challengers, "_residual_fit", return_value=(object(), {"retrospective_check": check})):
+                result = challengers.train_extra(root, features, "base", "minutes_v2", "minutes_v2_test")
+            self.assertFalse(result["registered"])
+            self.assertTrue(Path(result["report"]).exists())
+            self.assertFalse((root / "artifacts/challengers/minutes_v2_test").exists())

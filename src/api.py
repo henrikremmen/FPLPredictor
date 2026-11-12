@@ -1030,6 +1030,59 @@ def chat_reset(session_id: str) -> dict:
     return {"messages": []}
 
 
+class NewsRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=5000)
+
+
+_NEWS_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["players"], "properties": {"players": {
+    "type": "array", "items": {"type": "object", "additionalProperties": False,
+        "required": ["player_id", "chance", "status", "return_gw", "quote"],
+        "properties": {"player_id": {"type": "integer"}, "chance": {"type": "number"},
+                       "status": {"type": "string", "enum": ["out", "doubt", "available", "rested"]},
+                       "return_gw": {"anyOf": [{"type": "integer"}, {"type": "null"}]}, "quote": {"type": "string"}}}}}}
+_NEWS_SYSTEM = (
+    "You turn football team news into chances of playing for Fantasy Premier League players. Use only the "
+    "pasted text, never outside knowledge. Include only players the text is about and who appear in the "
+    "player list; use their id from the list. chance is the probability (0 to 1) that the player appears in "
+    "the next Gameweek. return_gw is the Gameweek the text says they return, or null. quote is the shortest "
+    "phrase from the text that supports the estimate.")
+
+
+@app.post("/api/team/{session_id}/news-assumptions")
+def news_assumptions(session_id: str, request: NewsRequest) -> dict:
+    """M20: pasted team news -> proposed chances of playing. Nothing is applied or stored; the user accepts
+    each proposal into "Your assumptions" (overrides), and nothing is trained on."""
+    api_client = chat.client(ROOT)
+    if api_client is None:
+        raise HTTPException(status_code=503, detail="Add ANTHROPIC_API_KEY to the .env file in the project folder to read team news.")
+    team = STORE.get(session_id)
+    market = team.market.drop_duplicates("id").set_index("id")
+    players = "\n".join(f"{i}|{row['name']}|{row.get('team', '')}|{row['position']}" for i, row in market.iterrows())
+    import anthropic
+    try:
+        response = api_client.messages.create(
+            model=chat.MODEL, max_tokens=4000, system=_NEWS_SYSTEM,
+            output_config={"effort": chat.EFFORT, "format": {"type": "json_schema", "schema": _NEWS_SCHEMA}},
+            messages=[{"role": "user", "content": f"Next Gameweek: {team.target_event}\nPlayers (id|name|team|position):\n"
+                                                  f"{players}\n\nTeam news:\n{request.text}"}])
+    except anthropic.APIError as exc:
+        raise HTTPException(status_code=502, detail=f"Claude could not read the news: {getattr(exc, 'message', exc)}") from exc
+    if response.stop_reason != "end_turn":
+        raise HTTPException(status_code=502, detail=f"Claude did not finish reading the news ({response.stop_reason}).")
+    found = json.loads(next(block.text for block in response.content if block.type == "text"))["players"]
+    proposals = {}
+    for item in found:  # validated at the boundary: known players only, chance clamped, the last mention wins
+        player_id = int(item["player_id"])
+        if player_id not in market.index:
+            continue
+        row = market.loc[player_id]
+        proposals[player_id] = {"player_id": player_id, "name": row["name"], "team": row.get("team", ""),
+                                "chance": round(min(1.0, max(0.0, float(item["chance"]))), 2), "status": item["status"],
+                                "return_gw": item["return_gw"], "quote": str(item["quote"])[:300],
+                                "current_chance": float(row["availability"]) if pd.notna(row.get("availability")) else None}
+    return _json_safe({"proposals": list(proposals.values())})
+
+
 @app.post("/api/team/{session_id}/chat")
 def chat_message(session_id: str, request: ChatRequest):
     """Streams the answer as server-sent events: status, text, notice, done or error."""

@@ -13,7 +13,7 @@ import type {
   SquadChange,
   SquadUpdateResponse,
 } from "@fplmodell/api-client";
-import type { Breakpoint, ThisWeek, FixtureTicker, JournalEntry, LineupValue, ScenarioComparison, LoopStatus, ModelCard, PlanRequirement, TeamTimeline } from "@fplmodell/api-client";
+import type { Breakpoint, NewsProposal, ThisWeek, FixtureTicker, JournalEntry, LineupValue, ScenarioComparison, LoopStatus, ModelCard, PlanRequirement, TeamTimeline } from "@fplmodell/api-client";
 import type { CopyCheck, TopCohort, TopManagers, TopManagersStatus } from "@fplmodell/api-client";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -164,6 +164,9 @@ export const api = {
     return request<RecommendedSquads>(`/api/team/${session}/recommended-squads`, {
       method: "POST", body: JSON.stringify(constraints ?? {}),
     });
+  },
+  newsAssumptions(session: string, text: string) {
+    return request<{ proposals: NewsProposal[] }>(`/api/team/${session}/news-assumptions`, { method: "POST", body: JSON.stringify({ text }) });
   },
   thisWeek(session: string, constraints?: PlayerConstraints) {
     return request<ThisWeek>(`/api/team/${session}/this-week`, { method: "POST", body: JSON.stringify(constraints ?? {}) });

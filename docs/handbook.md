@@ -84,6 +84,16 @@ and limitations.
   Model and data, Saved plans) sit under a folded **More** in each sidebar
   section (U20). Deep links are unchanged.
 
+**Paste team news (M20, web).** Under This week step 5 and on Scenarios, paste
+what a manager said or a team-news post and press **Read with Claude**. Claude
+(`claude-opus-5-5`, low effort, structured output) proposes a chance of playing
+for each player the text names, with the supporting phrase and FPL's current
+figure. Nothing changes until you press **Accept**; accepted proposals join
+**Your assumptions** (the same overrides as P5) and are never stored on the
+server or trained on (`POST /api/team/{id}/news-assumptions`). Unknown players
+are dropped and chances are clamped to 0–1. It needs `ANTHROPIC_API_KEY`; one
+reading of a short text cost about $0.03 on 12 November 2026.
+
 ## Decision-first layout (plan phase F, November 2026)
 
 - **Overview** shows the squad, key numbers and what changed since last time.
@@ -678,6 +688,20 @@ locked rounds with their counts, calibration and known limitations
 On 12 November 2026 `cup_minutes_20261022`, `openfpl_style_20261022` and `refit_20261022` were set
 `active: false` (superseded or research-only data) so fewer challengers share the Holm correction.
 `crowd` and `season_transfer` stay active because the shadow season's policies need them.
+
+Two more corrections were tried on 12 November 2026 and **not registered**,
+because `train_extra` registers only when the retrospective MAE on this season
+beats the base (reports in `artifacts/model_research/*_retrospective.json`):
+
+```bash
+.venv/bin/python src/challengers.py features-v3 --features DIR --base refit_20261031   # M19: season xG/xA per 90, shrunk, last 10
+.venv/bin/python src/challengers.py minutes-v2 --features DIR --base refit_20261031    # M18: competition for the place
+```
+
+On 2026-27 GW1–10 (6,562 rows) both lowered RMSE and bias a little but raised
+MAE (1.168 → 1.180 and 1.186). Deadline rows now also carry `start_rate10`,
+`xG90_last10`, `xA90_last10` and season-so-far sums, so they can be rerun when
+more rounds exist.
 
 Challengers added 6–8 November 2026 (phase D, all `production_eligible: false`, locked from GW11):
 

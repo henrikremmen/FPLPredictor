@@ -424,6 +424,10 @@ export interface FixtureTicker {
     weeks: Array<{ event: number; fixtures: number; opponent: string; xp: number; p60: number | null }> }>;
 }
 
+/** POST /api/team/{session}/news-assumptions — M20: Claude's reading of pasted team news, to accept or ignore. */
+export interface NewsProposal { player_id: number; name: string; team: string; chance: number; status: "out" | "doubt" | "available" | "rested";
+  return_gw: number | null; quote: string; current_chance: number | null }
+
 /** P5: "Your assumptions" — the user's chance of playing (0–1), sent with every optimiser call. */
 export interface ScenarioOverride { player_id: number; chance: number }
 

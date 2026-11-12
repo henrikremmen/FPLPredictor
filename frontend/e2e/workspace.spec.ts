@@ -71,6 +71,8 @@ async function setup(page: Page, beforeLoad?: () => Promise<void>) {
       activeHorizon = body.horizon;
       return json({ ...team, horizon: activeHorizon, forecast_context: { ...context, revision: `horizon-${activeHorizon}` } });
     }
+    if (path.endsWith('/news-assumptions')) return json({ proposals: [
+      { player_id: 8, name: 'Player 8', team: 'T3', chance: 0.25, status: 'doubt', return_gw: null, quote: 'a late fitness test', current_chance: 1 }] });
     if (path.endsWith('/this-week')) {
       const upgrade = { ...players[15], role: 'C' };
       return json({
@@ -419,6 +421,20 @@ test('timeline fits a phone screen', async ({ page }) => {
   await page.getByRole('button', { name: 'Show GW2' }).click();
   await expect(page.locator('.timeline-stepper')).toContainText('GW2');
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  expect(state.errors).toEqual([]);
+});
+
+test('paste team news: Claude proposes a chance of playing and Accept adds it to your assumptions', async ({ page }) => {
+  const state = await setup(page);
+  const week = page.getByRole('region', { name: 'This week', exact: true });
+  await week.getByText('Paste team news').click();
+  await week.getByLabel('Team news').fill('Player 8 faces a late fitness test.');
+  await week.getByRole('button', { name: 'Read with Claude' }).click();
+  await expect(week).toContainText('Player 8: 25% chance of playing (doubt) · FPL now 100% · “a late fitness test”');
+  await week.getByRole('button', { name: 'Accept Player 8 at 25%' }).click();
+  await expect(page.locator('.assumptions-notice')).toContainText('Your assumptions are on (1 player)');
+  expect(state.requests.find(r => r.path.endsWith('/news-assumptions'))?.body).toEqual({ text: 'Player 8 faces a late fitness test.' });
+  await expect.poll(() => state.requests.filter(r => r.path.endsWith('/this-week')).at(-1)?.body.overrides).toEqual([{ player_id: 8, chance: 0.25 }]);
   expect(state.errors).toEqual([]);
 });
 

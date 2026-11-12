@@ -4,7 +4,7 @@ import { CHIP_LABELS, type Chip, formatDeadline, formatMoney, formatPoints, fplC
 import { api } from "./api";
 import { Icon } from "./icons";
 import { PlayerName, useWorkspace } from "./Workspace";
-import { RecordDecision } from "./Scenarios";
+import { PasteNews, RecordDecision } from "./Scenarios";
 
 type Target = "squad" | "strategy" | "scenarios" | "plan";
 const chipName = (chip: string) => CHIP_LABELS[chip as Chip] ?? chip;
@@ -111,8 +111,9 @@ export function ThisWeek({ team, onNavigate }: { team: TeamResponse; onNavigate:
         <ul className="week-list">
           {s.squad_health.flagged_starters.map(p => <li key={p.id}><PlayerName id={p.id}>{p.name}</PlayerName>: {p.news || "flagged by FPL"}</li>)}
           {tips.map(t => <li key={t.player_id}>{t.message}</li>)}
-          <li>Check again after the press conferences, then press Refresh forecast.</li>
+          <li>Check again after the press conferences, then press Refresh forecast, or paste the news below.</li>
         </ul>
+        <PasteNews team={team} />
       </Step>
       {s.plan.weeks.length > 1 && <Step n={6} title="The weeks after">
         <ul className="week-list">{s.plan.weeks.slice(1).map(w => <li key={w.event}>GW{w.event}: {w.transfers_out.length ? `${w.transfers_out.join(", ")} → ${w.transfers_in.join(", ")}` : "roll"}{w.chip ? ` · ${chipName(w.chip)}` : ""}</li>)}</ul>
