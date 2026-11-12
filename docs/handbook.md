@@ -520,8 +520,10 @@ Every payload is validated at the boundary and every export must pass the data
 contract (`src/data_contract.py`) before anything is written; a failure exits
 non-zero. Corrections to exported rounds are logged in `corrections.csv`.
 
-Run it whenever you use the app, at least once a day after 02:30 UTC, and right
-before `prospective_loop.py auto` locks a round. Deadline checkpoints cannot be
+`run_app.py` runs it at start and then every hour while the app is open (plan
+D2, 12 November 2026); a failure is printed and never stops the app. Docker and
+a bare `uvicorn` do not. Otherwise run it by hand, at least once a day after
+02:30 UTC, and right before `prospective_loop.py auto` locks a round. Deadline checkpoints cannot be
 fetched afterwards; finished rounds can, so a missed day only loses that day's
 snapshot. Each run reports `gap_hours` since the previous snapshot, and the
 app's lock banner warns when the latest snapshot is over 36 hours old.

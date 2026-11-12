@@ -59,8 +59,8 @@ outcome ranges, and **Upside** weights the ceiling (0.7 × expected + 0.3 × Q90
 
 ## Data and models
 
-- Current-season data come from `fpl-data/`, filled by running the collector
-  locally. It writes vaastav-format CSVs and validates every round against a
+- Current-season data come from `fpl-data/`, filled by the collector. It runs
+  by itself every hour while `run_app.py` is running, and can be run by hand. It writes vaastav-format CSVs and validates every round against a
   data contract. Earlier seasons come from vaastav.
 - The production model is never replaced automatically. Challengers are locked
   before each deadline and scored afterwards on a leaderboard

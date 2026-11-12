@@ -8,6 +8,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
@@ -24,6 +25,28 @@ HOST = os.environ.get("FPL_API_HOST", "127.0.0.1")
 BACKEND_PORT = int(os.environ.get("FPL_API_PORT", "8000"))
 FRONTEND_PORT = int(os.environ.get("FPL_FRONTEND_PORT", "5173"))
 CHECK_HOST = "127.0.0.1" if HOST == "0.0.0.0" else HOST
+# D2: fpl_collect decides itself what is due, so a run with nothing due is one bootstrap request.
+COLLECT_EVERY = 3600
+
+
+def collect_once(root: Path = ROOT, run=subprocess.run) -> bool:
+    """Collect own data into fpl-data/ while the app runs (no launchd, cron or Actions). Never stops the app."""
+    if not (root / "fpl-data").is_dir():
+        return False
+    try:
+        result = run([sys.executable, str(root / "src/fpl_collect.py"), "--data-root", str(root / "fpl-data"), "auto"],
+                     cwd=root, capture_output=True, text=True, timeout=1800)
+        print("fpl-data: collected" if result.returncode == 0
+              else f"fpl-data: collection failed: {(result.stderr or result.stdout).strip()[-300:]}")
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"fpl-data: collection skipped: {exc}")
+    return True
+
+
+def collect_while_running(stop: threading.Event) -> None:
+    while not stop.is_set():
+        collect_once()
+        stop.wait(COLLECT_EVERY)
 
 
 def lan_ip() -> str | None:
@@ -117,13 +140,15 @@ def main() -> int:
                 f"From an iPhone on the same Wi-Fi, set apps/mobile/.env to "
                 f"EXPO_PUBLIC_API_URL=http://{ip}:{BACKEND_PORT}"
             )
-        print("The phone also needs EXPO_PUBLIC_API_TOKEN set to the FPL_API_TOKEN from .env.")
         else:
             print("Local IP not found automatically; run `ipconfig getifaddr en0` to find it.")
+        print("The phone also needs EXPO_PUBLIC_API_TOKEN set to the FPL_API_TOKEN from .env.")
     processes: list[subprocess.Popen] = []
+    stop_collecting = threading.Event()
     try:
         processes.append(subprocess.Popen(backend, cwd=ROOT))
         processes.append(subprocess.Popen(frontend, cwd=ROOT))
+        threading.Thread(target=collect_while_running, args=(stop_collecting,), daemon=True).start()
         while all(process.poll() is None for process in processes):
             time.sleep(.25)
         failed = next((process.returncode for process in processes if process.returncode), 0)
@@ -131,6 +156,7 @@ def main() -> int:
     except KeyboardInterrupt:
         return 0
     finally:
+        stop_collecting.set()
         stop(processes)
 
 

@@ -25,7 +25,8 @@ numbers. The app can stay running while the script runs.
 
 The steps run in this order, and each prints `== <name>` in the terminal:
 
-1. **Own data (fpl-data):** `fpl_collect.py auto` takes the daily snapshot,
+1. **Own data (fpl-data):** `fpl_collect.py auto` (also run every hour while
+   `run_app.py` is open) takes the daily snapshot,
    the deadline checkpoints and finished rounds. If anything changed, it is
    saved with a local commit in `fpl-data`. Nothing is pushed.
 2. **Training table and features, Retrain (only with `retrain`):**
