@@ -140,6 +140,7 @@ export function Preferences({ team }: { team: TeamResponse }) {
       <button className="secondary" aria-pressed={constraints.excluded_ids.includes(p.id)} onClick={() => toggle(p.id, 'excluded_ids')}>{constraints.excluded_ids.includes(p.id) ? 'Include again' : 'Exclude'}</button></div>)}</div>
     <button className="secondary" onClick={() => setConstraints(empty)}>Clear preferences</button>
     <BenchWeights />
+    <AutopilotPolicy />
   </section>;
 }
 
@@ -366,6 +367,24 @@ export function LockBanner() {
 }
 
 /** Plan P1: the bench's share of each player's forecast in decisions, shown and adjustable. */
+/** L3: how cautious the strategy (and This week) is about moving and about hits. Kept with the other preferences. */
+function AutopilotPolicy() {
+  const { constraints, setConstraints } = useWorkspace();
+  const margin = constraints.roll_margin ?? 2;
+  const hit = constraints.max_hit;
+  return <fieldset className="bench-weights"><legend>Autopilot policy</legend>
+    <p>A move must beat rolling by this many planning points per free transfer it spends, and a hit must beat a plan without it by the same amount per paid transfer. Lower moves more often. The app still never makes transfers.</p>
+    <div>
+      <label>Margin per transfer<input type="number" min="0" max="10" step="0.5" value={margin}
+        onChange={e => setConstraints({ ...constraints, roll_margin: Math.min(10, Math.max(0, Number(e.target.value))) })} /></label>
+      <label>Largest hit<select value={hit == null ? "any" : String(hit)}
+        onChange={e => { const { max_hit: _, ...rest } = constraints; setConstraints(e.target.value === "any" ? rest : { ...rest, max_hit: Number(e.target.value) }); }}>
+        <option value="any">Any</option><option value="0">No hits</option><option value="4">−4</option><option value="8">−8</option></select></label>
+    </div>
+    {(constraints.roll_margin != null || constraints.max_hit != null) && <button className="secondary" onClick={() => { const { roll_margin: _a, max_hit: _b, ...rest } = constraints; setConstraints(rest); }}>Default policy (2.0, any hit)</button>}
+  </fieldset>;
+}
+
 function BenchWeights() {
   const { constraints, setConstraints } = useWorkspace();
   const weights = constraints.bench_weights ?? [...BENCH_WEIGHTS];

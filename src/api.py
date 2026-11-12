@@ -34,7 +34,7 @@ from scenarios import apply_overrides, breakpoint, compare_plans, robustness
 import decision_journal
 from session_store import SessionRegistry
 from squad_recommendations import recommend_squads
-from strategy_advisor import build_strategy_advice
+from strategy_advisor import build_strategy_advice, lineup_after
 import copy_check
 import top_managers
 from fpl_app import (
@@ -105,6 +105,9 @@ class ConstraintsRequest(BaseModel):
     bench_weights: list[float] | None = Field(default=None, min_length=4, max_length=4)
     # P5 "Your assumptions": chance of playing (0–1) per player; request-only, never stored or trained on.
     overrides: list[dict] = Field(default_factory=list, max_length=15)
+    # L3 autopilot policy for the strategy; omitted = today's defaults (2.0 per transfer, any hit).
+    roll_margin: float | None = Field(default=None, ge=0, le=10)
+    max_hit: int | None = Field(default=None, ge=0, le=20)
 
 
 class CompareRequest(ConstraintsRequest):
@@ -121,6 +124,9 @@ def _constrained(team, request):
     except AppError as exc:
         raise _as_http_error(exc) from exc
     team = replace(team, bench_weights=tuple(weights)) if weights is not None else team
+    if request.roll_margin is not None or request.max_hit is not None:
+        team = replace(team, roll_margin=team.roll_margin if request.roll_margin is None else request.roll_margin,
+                       max_hit=request.max_hit)
     try:
         return apply_overrides(team, request.overrides)
     except (AppError, KeyError, TypeError, ValueError) as exc:
@@ -290,9 +296,7 @@ def _json_safe(payload: dict) -> dict:
     return json.loads(json.dumps(payload, default=convert))
 
 
-def _lineup_payload(team: ImportedTeam) -> dict:
-    source = team.lineup_squad if team.lineup_squad is not None else team.squad
-    lineup = optimal_lineup(source)
+def _lineup_payload(lineup: dict) -> dict:
     return {
         "formation": lineup["formation"],
         "projected_total": round(float(lineup["projected_total"]), 4),
@@ -325,7 +329,7 @@ def _team_payload(session_id: str, team: ImportedTeam) -> dict:
         "forecast_context": context(team),
         "chip_status": team.chip_status,
         "squad": _records(team.squad),
-        "lineup": _lineup_payload(team),
+        "lineup": _lineup_payload(optimal_lineup(team.lineup_squad if team.lineup_squad is not None else team.squad)),
     }
 
 
@@ -353,6 +357,9 @@ def _warm(team) -> None:
          lambda: _transfers_payload(team, min(2, max(1, team.free_transfers)), [])),
         (cache_key(team, "plan", weeks=team.horizon, discount=.9, chips=False, requirements=requirements),
          lambda: _json_safe(plan_with_context(team, weeks=team.horizon, discount=.9))),
+        # W2: This week also shows chips and robustness.
+        (cache_key(team, "chips"), lambda: _json_safe(recommend_chip_strategy(team))),
+        (cache_key(team, "scenarios", scenarios=SCENARIOS), _scenarios_work(team, SCENARIOS)),
     ])
 
 
@@ -525,7 +532,7 @@ def sells(session_id: str, limit: int = Query(default=15, ge=1, le=15),
 def chips(session_id: str, request: ConstraintsRequest = Body(default=ConstraintsRequest())) -> dict:
     team = _constrained(STORE.get(session_id), request)
     try:
-        return _json_safe(recommend_chip_strategy(team))
+        return _cached(team, "chips", lambda: _json_safe(recommend_chip_strategy(team)))
     except AppError as exc:
         raise _as_http_error(exc) from exc
 
@@ -568,6 +575,29 @@ def timeline(session_id: str) -> dict:
         return _json_safe(ANALYTICS.timeline(team.entry_id, ROOT / "data" / "local" / "cache"))
     except AppError as exc:
         raise _as_http_error(exc) from exc
+
+
+@app.get("/api/team/{session_id}/shadow-summary")
+def shadow_summary(session_id: str) -> dict:
+    """L2: the model's shadow season for this team against what you actually scored, once rounds are scored."""
+    team = STORE.get(session_id)
+    states = sorted(ROOT.glob(f"artifacts/shadow_season/*_{team.entry_id}/state_gw*.json"),
+                    key=lambda path: (path.parent.name, int(path.stem.split("gw")[1])))
+    if not states:
+        return {"available": False}
+    state = json.loads(states[-1].read_text())
+    first, through = int(state["first_event"]), int(state["next_event"]) - 1
+    if through < first:
+        return {"available": True, "first_event": first, "rounds": 0}
+    endpoint = f"entry/{team.entry_id}/history/"
+    try:
+        history = ANALYTICS.many([endpoint])[endpoint]
+    except AppError as exc:
+        raise _as_http_error(exc) from exc
+    yours = sum(int(row["points"]) - int(row.get("event_transfers_cost") or 0)
+                for row in history.get("current", []) if first <= int(row["event"]) <= through)
+    return {"available": True, "first_event": first, "through_event": through, "rounds": through - first + 1,
+            "you": yours, "policies": {name: round(float(p["points"]), 1) for name, p in state["policies"].items()}}
 
 
 @app.get("/api/team/{session_id}/top-managers")
@@ -652,7 +682,13 @@ class BackgroundJob:
                     "elapsed_seconds": round(time.time() - self.started_at) if self.started_at else 0}
 
 
-REFRESH_JOB = BackgroundJob(lambda: refresh_forecast(ROOT), "forecast update")
+def _refresh_and_lock():
+    result = refresh_forecast(ROOT)
+    _lock_if_due()
+    return result
+
+
+REFRESH_JOB = BackgroundJob(_refresh_and_lock, "forecast update")
 TOP_JOB = BackgroundJob(lambda: top_managers.collect(ROOT), "top-manager update")
 # Still manual: nothing schedules it. The loop itself refuses a second lock of the same round (plan O2).
 LOOP_JOB = BackgroundJob(lambda: prospective_loop.auto(ROOT), "prospective loop run", min_interval=0)
@@ -724,6 +760,7 @@ def refresh_team(session_id: str) -> dict:
         load_team_override(ROOT, team)
         STORE.set(session_id, team)
         _warm(team)
+        _lock_if_due()
 
     REFRESH_JOB.start(job)
     return {"status": "started"}
@@ -739,6 +776,16 @@ def _loop_events() -> list[dict]:
 def _loop_status() -> dict:
     return {**prospective_loop.status(ROOT, _loop_events()), "job": LOOP_JOB.snapshot(),
             "command": ".venv/bin/python src/prospective_loop.py auto", "fpl_data": fpl_data_freshness(ROOT)}
+
+
+def _lock_if_due() -> None:
+    """M16: a refresh inside the lock window also locks the round; the loop refuses a second lock."""
+    try:
+        current = _loop_status()
+        if current["window_open"] and not current["locked"] and current["job"]["state"] != "running":
+            LOOP_JOB.start()
+    except Exception as exc:  # the forecast is saved either way; the lock banner still offers the lock
+        print(f"Automatic lock skipped: {exc}")
 
 
 @app.get("/api/loop/status")
@@ -787,8 +834,11 @@ def fixtures(session_id: str, scope: str = Query(default="squad", pattern="^(squ
         raise _as_http_error(exc) from exc
 
 
+SCENARIOS = 50
+
+
 class ScenarioRequest(ConstraintsRequest):
-    scenarios: int = Field(default=50, ge=20, le=100)
+    scenarios: int = Field(default=SCENARIOS, ge=20, le=100)
 
 
 class BreakpointRequest(ConstraintsRequest):
@@ -799,14 +849,42 @@ class BreakpointRequest(ConstraintsRequest):
 def scenarios(session_id: str, request: ScenarioRequest) -> dict:
     """P5: hold vs plan A vs plan B on the same inputs, and how often each wins across sampled scenarios."""
     team = _constrained(STORE.get(session_id), request)
-    def work():
-        plans = compare_plans(team)
-        return _json_safe({"plans": plans, "robustness": robustness(team, plans, request.scenarios),
-                           "assumptions": team.scenario_overrides})
     try:
-        return _cached(team, "scenarios", work, scenarios=request.scenarios)
+        return _cached(team, "scenarios", _scenarios_work(team, request.scenarios), scenarios=request.scenarios)
     except AppError as exc:
         raise _as_http_error(exc) from exc
+
+
+def _scenarios_work(team, count: int):
+    def work():
+        plans = compare_plans(team)
+        return _json_safe({"plans": plans, "robustness": robustness(team, plans, count),
+                           "assumptions": team.scenario_overrides})
+    return work
+
+
+@app.post("/api/team/{session_id}/this-week")
+def this_week(session_id: str, request: ConstraintsRequest = Body(default=ConstraintsRequest())) -> dict:
+    """W1: the week's steps on one page, from the same cached results as Strategy, Chips and Scenarios."""
+    team = _constrained(STORE.get(session_id), request)
+    try:
+        strategy = _cached(team, "strategy", lambda: _json_safe(build_strategy_advice(team)))
+        lineup = lineup_after(team, strategy["plan"]["weeks"][0])
+        chips = _cached(team, "chips", lambda: _json_safe(recommend_chip_strategy(team)))
+    except AppError as exc:
+        raise _as_http_error(exc) from exc
+    try:
+        robust = _cached(team, "scenarios", _scenarios_work(team, SCENARIOS), scenarios=SCENARIOS)["robustness"]
+    except AppError:  # the week's plan still stands without the robustness share
+        robust = None
+    week = strategy["plan"]["weeks"][0]
+    owned, market = team.squad.set_index("id"), team.market.drop_duplicates("id").set_index("id")
+    sell = [{"id": i, "name": owned.at[i, "name"], "price": int(owned.at[i, "selling_price"])}
+            for i in week.get("transfers_out_ids", [])]
+    buy = [{"id": i, "name": market.at[i, "name"], "price": int(market.at[i, "price"])}
+           for i in week.get("transfers_in_ids", [])]
+    return _json_safe({"strategy": strategy, "lineup": _lineup_payload(lineup), "lineup_value": lineup_value(lineup),
+                       "chips": chips, "robustness": robust, "sell": sell, "buy": buy})
 
 
 @app.post("/api/team/{session_id}/scenarios/breakpoint")
@@ -847,7 +925,7 @@ def journal_entries(session_id: str) -> dict:
 
 # Context-aware chat (src/chat.py): Claude sees the forecast, the team, the page and calls these read-only tools.
 CHATS = chat.ChatStore()
-_CONSTRAINT_KEYS = ("locked_ids", "excluded_ids", "bench_weights", "overrides")
+_CONSTRAINT_KEYS = ("locked_ids", "excluded_ids", "bench_weights", "overrides", "roll_margin", "max_hit")
 
 
 class ChatRequest(ConstraintsRequest):
@@ -979,6 +1057,59 @@ def chat_history(session_id: str) -> dict:
 def chat_reset(session_id: str) -> dict:
     CHATS.reset(session_id)
     return {"messages": []}
+
+
+class NewsRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=5000)
+
+
+_NEWS_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["players"], "properties": {"players": {
+    "type": "array", "items": {"type": "object", "additionalProperties": False,
+        "required": ["player_id", "chance", "status", "return_gw", "quote"],
+        "properties": {"player_id": {"type": "integer"}, "chance": {"type": "number"},
+                       "status": {"type": "string", "enum": ["out", "doubt", "available", "rested"]},
+                       "return_gw": {"anyOf": [{"type": "integer"}, {"type": "null"}]}, "quote": {"type": "string"}}}}}}
+_NEWS_SYSTEM = (
+    "You turn football team news into chances of playing for Fantasy Premier League players. Use only the "
+    "pasted text, never outside knowledge. Include only players the text is about and who appear in the "
+    "player list; use their id from the list. chance is the probability (0 to 1) that the player appears in "
+    "the next Gameweek. return_gw is the Gameweek the text says they return, or null. quote is the shortest "
+    "phrase from the text that supports the estimate.")
+
+
+@app.post("/api/team/{session_id}/news-assumptions")
+def news_assumptions(session_id: str, request: NewsRequest) -> dict:
+    """M20: pasted team news -> proposed chances of playing. Nothing is applied or stored; the user accepts
+    each proposal into "Your assumptions" (overrides), and nothing is trained on."""
+    api_client = chat.client(ROOT)
+    if api_client is None:
+        raise HTTPException(status_code=503, detail="Add ANTHROPIC_API_KEY to the .env file in the project folder to read team news.")
+    team = STORE.get(session_id)
+    market = team.market.drop_duplicates("id").set_index("id")
+    players = "\n".join(f"{i}|{row['name']}|{row.get('team', '')}|{row['position']}" for i, row in market.iterrows())
+    import anthropic
+    try:
+        response = api_client.messages.create(
+            model=chat.MODEL, max_tokens=4000, system=_NEWS_SYSTEM,
+            output_config={"effort": chat.EFFORT, "format": {"type": "json_schema", "schema": _NEWS_SCHEMA}},
+            messages=[{"role": "user", "content": f"Next Gameweek: {team.target_event}\nPlayers (id|name|team|position):\n"
+                                                  f"{players}\n\nTeam news:\n{request.text}"}])
+    except anthropic.APIError as exc:
+        raise HTTPException(status_code=502, detail=f"Claude could not read the news: {getattr(exc, 'message', exc)}") from exc
+    if response.stop_reason != "end_turn":
+        raise HTTPException(status_code=502, detail=f"Claude did not finish reading the news ({response.stop_reason}).")
+    found = json.loads(next(block.text for block in response.content if block.type == "text"))["players"]
+    proposals = {}
+    for item in found:  # validated at the boundary: known players only, chance clamped, the last mention wins
+        player_id = int(item["player_id"])
+        if player_id not in market.index:
+            continue
+        row = market.loc[player_id]
+        proposals[player_id] = {"player_id": player_id, "name": row["name"], "team": row.get("team", ""),
+                                "chance": round(min(1.0, max(0.0, float(item["chance"]))), 2), "status": item["status"],
+                                "return_gw": item["return_gw"], "quote": str(item["quote"])[:300],
+                                "current_chance": float(row["availability"]) if pd.notna(row.get("availability")) else None}
+    return _json_safe({"proposals": list(proposals.values())})
 
 
 @app.post("/api/team/{session_id}/chat")

@@ -25,7 +25,8 @@ numbers. The app can stay running while the script runs.
 
 The steps run in this order, and each prints `== <name>` in the terminal:
 
-1. **Own data (fpl-data):** `fpl_collect.py auto` takes the daily snapshot,
+1. **Own data (fpl-data):** `fpl_collect.py auto` (also run every hour while
+   `run_app.py` is open) takes the daily snapshot,
    the deadline checkpoints and finished rounds. If anything changed, it is
    saved with a local commit in `fpl-data`. Nothing is pushed.
 2. **Training table and features, Retrain (only with `retrain`):**
@@ -36,7 +37,8 @@ The steps run in this order, and each prints `== <name>` in the terminal:
    makes a new forecast. The same as **Refresh forecast** in the app.
 4. **Prospective loop:** `prospective_loop.py auto` locks the round when the
    deadline is less than 30 hours away and evaluates rounds FPL has checked. It
-   reuses the forecast from step 3.
+   reuses the forecast from step 3. **Refresh forecast** in the app starts this lock by
+   itself when the window is open and the round is not locked yet.
 5. **Top managers:** `top_managers.py collect` fetches what the top 100,
    legacy, top 1% and YouTuber managers fielded in the latest round.
 

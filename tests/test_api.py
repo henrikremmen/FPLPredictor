@@ -4,6 +4,8 @@ import sys
 import tempfile
 import threading
 import time
+import json
+from dataclasses import replace
 import unittest
 from unittest.mock import patch
 
@@ -362,9 +364,93 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json()["headline"], "Roll the free transfer")
         self.assertEqual(response.json()["target_event"], 5)
 
+    def test_shadow_summary_compares_scored_rounds_with_your_net_points(self):
+        session = api.STORE.add(fake_team())
+        with tempfile.TemporaryDirectory() as tmp, patch("api.ROOT", Path(tmp)):
+            self.assertEqual(self.client.get(f"/api/team/{session}/shadow-summary").json(), {"available": False})
+            base = Path(tmp) / "artifacts/shadow_season/2026-27_1"
+            base.mkdir(parents=True)
+            (base / "state_gw10.json").write_text(json.dumps({"first_event": 10, "next_event": 10, "policies": {"incumbent": {"points": 0}}}))
+            self.assertEqual(self.client.get(f"/api/team/{session}/shadow-summary").json()["rounds"], 0)
+            (base / "state_gw12.json").write_text(json.dumps({"first_event": 10, "next_event": 12,
+                "policies": {"incumbent": {"points": 101.0}, "hold": {"points": 90.0}}}))
+            history = {"entry/1/history/": {"current": [{"event": 9, "points": 70, "event_transfers_cost": 0},
+                {"event": 10, "points": 50, "event_transfers_cost": 4}, {"event": 11, "points": 48, "event_transfers_cost": 0},
+                {"event": 12, "points": 99, "event_transfers_cost": 0}]}}
+            with patch.object(api.ANALYTICS, "many", return_value=history):
+                summary = self.client.get(f"/api/team/{session}/shadow-summary").json()
+        self.assertEqual((summary["rounds"], summary["you"], summary["policies"]), (2, 94, {"incumbent": 101.0, "hold": 90.0}))
+
+    def test_autopilot_policy_reaches_the_strategy_and_its_cache_key(self):
+        from result_cache import cache_key
+        session = api.STORE.add(fake_team())
+        seen = []
+        with patch("api.build_strategy_advice", side_effect=lambda team: seen.append((team.roll_margin, team.max_hit)) or {"headline": "x"}):
+            self.client.post(f"/api/team/{session}/strategy")
+            self.client.post(f"/api/team/{session}/strategy", json={"roll_margin": 1.0, "max_hit": 0})
+            self.assertEqual(self.client.post(f"/api/team/{session}/strategy", json={"max_hit": 30}).status_code, 422)
+        self.assertEqual(seen, [(2.0, None), (1.0, 0)])
+        team = fake_team()
+        self.assertNotEqual(cache_key(team, "strategy"), cache_key(replace(team, max_hit=4), "strategy"))
+
+    def test_this_week_shows_the_xi_after_the_transfer_and_reuses_the_cache(self):
+        team = team_with_spare_mid()
+        for frame in (team.market, team.weekly_market):
+            frame.loc[frame.id.eq(99), ["recommended_points", "decision_points"]] = 30.0
+        session = api.STORE.add(team)
+        after = [i for i in range(1, 16) if i != 12] + [99]
+        advice = {"headline": "Player 12 → Player 99", "plan": {"weeks": [
+            {"transfers_in_ids": [99], "transfers_out_ids": [12], "squad_ids": after}]}}
+        robust = {"robustness": {"scenarios": 50, "chosen_share": {"Plan A": .8}}}
+        with patch("api.build_strategy_advice", return_value=advice) as strategy, \
+                patch("api.recommend_chip_strategy", return_value={"recommendation": "Hold"}), \
+                patch("api._scenarios_work", return_value=lambda: robust):
+            first = self.client.post(f"/api/team/{session}/this-week").json()
+            second = self.client.post(f"/api/team/{session}/this-week").json()
+        starters = {row["id"]: row["role"] for row in first["lineup"]["starters"]}
+        self.assertEqual(starters.get(99), "C")
+        self.assertNotIn(12, starters)
+        self.assertEqual(first["robustness"]["chosen_share"], {"Plan A": .8})
+        self.assertEqual(first["chips"]["recommendation"], "Hold")
+        self.assertEqual((first["sell"], first["buy"]), ([{"id": 12, "name": "P12", "price": 50}],
+                                                         [{"id": 99, "name": "P99", "price": 50}]))
+        self.assertIn("expected_with_autosubs", first["lineup_value"])
+        self.assertTrue(second["strategy"]["cache"]["hit"])
+        strategy.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NewsAssumptionTests(unittest.TestCase):
+    """M20: pasted news -> proposals validated at the boundary; nothing applied or stored."""
+
+    def call(self, reply, stop="end_turn"):
+        from types import SimpleNamespace
+        session = api.STORE.add(fake_team())
+        client = SimpleNamespace(messages=SimpleNamespace(create=lambda **kwargs: SimpleNamespace(
+            stop_reason=stop, content=[SimpleNamespace(type="text", text=json.dumps({"players": reply}))], kwargs=kwargs)))
+        with patch("api.chat.client", return_value=client):
+            return TestClient(api.app).post(f"/api/team/{session}/news-assumptions", json={"text": "P3 is out, P4 a doubt."})
+
+    def test_unknown_players_are_dropped_and_chances_clamped(self):
+        response = self.call([{"player_id": 3, "chance": 1.4, "status": "available", "return_gw": None, "quote": "fit"},
+                              {"player_id": 999, "chance": .5, "status": "doubt", "return_gw": None, "quote": "?"},
+                              {"player_id": 4, "chance": -.2, "status": "out", "return_gw": 7, "quote": "out"}])
+        self.assertEqual(response.status_code, 200)
+        proposals = {p["player_id"]: p for p in response.json()["proposals"]}
+        self.assertEqual(sorted(proposals), [3, 4])
+        self.assertEqual((proposals[3]["chance"], proposals[4]["chance"], proposals[4]["name"]), (1.0, 0.0, "P4"))
+
+    def test_refusal_or_missing_key_is_an_error(self):
+        self.assertEqual(self.call([], stop="refusal").status_code, 502)
+        session = api.STORE.add(fake_team())
+        with patch("api.chat.client", return_value=None):
+            missing = TestClient(api.app).post(f"/api/team/{session}/news-assumptions", json={"text": "x"})
+        self.assertEqual(missing.status_code, 503)
+        too_long = TestClient(api.app).post(f"/api/team/{session}/news-assumptions", json={"text": "x" * 5001})
+        self.assertEqual(too_long.status_code, 422)
 
 
 class LoopEndpointTests(unittest.TestCase):
@@ -405,6 +491,43 @@ class LoopEndpointTests(unittest.TestCase):
             __import__("time").sleep(.02)
         self.assertEqual(job.snapshot()["state"], "failed")
         self.assertIn("No capture", job.snapshot()["error"])
+
+
+class AutoLockTests(unittest.TestCase):
+    """M16: a refresh inside the lock window also locks the round, and never fails the refresh."""
+
+    def run_lock(self, status, job_state="idle"):
+        job = api.BackgroundJob(lambda: {"locked": "loop_gw11_x"}, "loop run", min_interval=0)
+        job.state = job_state
+        with patch.object(api, "LOOP_JOB", job), patch.object(api.prospective_loop, "status", return_value=status), \
+                patch.object(api, "fpl_data_freshness", return_value={}), patch.object(api, "_loop_events", return_value=[]):
+            api._lock_if_due()
+            if job_state != "running":
+                settle(job)
+        return job.snapshot()
+
+    def test_locks_only_an_open_unlocked_window(self):
+        base = {"event": 11, "window_open": True, "locked": False}
+        self.assertEqual(self.run_lock(base)["result"], {"locked": "loop_gw11_x"})
+        self.assertIsNone(self.run_lock({**base, "locked": True})["started_at"])
+        self.assertIsNone(self.run_lock({**base, "window_open": False})["started_at"])
+        self.assertIsNone(self.run_lock(base, job_state="running")["started_at"])  # busy: no second start
+
+    def test_a_failing_status_never_fails_the_refresh(self):
+        with patch.object(api, "_loop_status", side_effect=OSError("no capture")):
+            api._lock_if_due()
+
+    def test_both_refresh_routes_try_to_lock(self):
+        with patch("api.refresh_forecast", return_value={"ok": True}), patch("api._lock_if_due") as lock:
+            self.assertEqual(api._refresh_and_lock(), {"ok": True})
+            lock.assert_called_once()
+        session = api.STORE.add(fake_team())
+        job = api.BackgroundJob(lambda: None, "forecast update", min_interval=0)
+        with patch("api.REFRESH_JOB", job), patch("api.refresh_forecast"), patch("api.import_team", return_value=fake_team()), \
+                patch("api.load_team_override"), patch("api._lock_if_due") as lock:
+            TestClient(api.app).post(f"/api/team/{session}/refresh")
+            settle(job)
+        lock.assert_called_once()
 
 
 class ResultCacheTests(unittest.TestCase):

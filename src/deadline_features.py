@@ -68,6 +68,13 @@ def player_features(h):
     out['games_played_season_before'] = h.minutes.gt(0).sum() if len(h) else 0
     out['games_60plus_last3'] = h.tail(3).minutes.ge(60).sum() if len(h) else np.nan
     out['start_rate5'] = h.tail(5).starts.mean()
+    # M18/M19 (features_v3, minutes_v2): ten-match windows and season-so-far sums, as in build_features.
+    out['start_rate10'] = h.tail(10).starts.mean()
+    out['minutes_season_before'] = h.minutes.sum() if len(h) else 0
+    for raw, prefix in [('expected_goals', 'xG'), ('expected_assists', 'xA')]:
+        minutes10 = h.tail(10).minutes.sum(min_count=1)
+        out[f'{prefix}90_last10'] = 90 * h.tail(10)[raw].sum(min_count=1) / minutes10 if minutes10 > 0 else np.nan
+        out[f'{prefix}_season_before'] = h[raw].sum() if len(h) else 0
     out['clean_sheet_rate5'] = h.tail(5).clean_sheets.mean()
     for raw, prefix in [('expected_goals', 'xG'), ('expected_assists', 'xA'),
                         ('goals_scored', 'goals'), ('assists', 'assists')]:

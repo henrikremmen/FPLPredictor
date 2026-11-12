@@ -59,11 +59,59 @@ separate from forward-looking forecasts. See
 [manager analytics research](archive/manager_analytics_research_2026.md) for methods
 and limitations.
 
+## This week (W1, 12 November 2026)
+
+- **This week** is the start page (first in **This round**; mobile: top of the
+  Round tab). It lists the round's steps in the order you do them in FPL:
+  1. transfers: what to sell and buy with prices, bank afterwards, hit, the gain
+     over rolling and how often each plan won across the sampled scenarios, plus
+     a warning when a player you buy is close to a price rise;
+  2. the XI and bench order **after** the transfer, with the expectation
+     including autosubs and the vice-captain;
+  3. captain and vice-captain; 4. chip.
+  Then what would change the plan (flagged starters and the tipping point for
+  the player you buy and the captain) and the weeks after.
+- **Copy to FPL** (mobile: **Share as text**) gives the same checklist on both
+  (`fplChecklist` in `packages/shared`). Steps you tick stay in the browser or
+  on the phone for that team and Gameweek. Nothing is sent to FPL.
+- `POST /api/team/{id}/this-week` builds it from the same cached results as
+  Strategy, Chips and Scenarios, so the numbers match those pages. Import and
+  refresh precompute chips and scenarios as well.
+- Strategy now takes captain, vice-captain and squad health from the squad
+  **after** the plan's first transfers (`lineup_after` in
+  `src/strategy_advisor.py`, finding F31).
+- Advanced pages (Scenarios, FH/WC squads, Compare players, Player preferences,
+  Model and data, Saved plans) sit under a folded **More** in each sidebar
+  section (U20). Deep links are unchanged.
+- **Plan changed since you last looked** (L1): the browser (or phone) keeps a
+  summary of the advice it last showed for that team and Gameweek: transfers,
+  captain, vice-captain, chip. When any of them differs on the next visit, a line
+  says what changed (`adviceSummary`/`adviceDiff` in `packages/shared`).
+- **Following the model** (L2): when a shadow season exists for your team and
+  has scored rounds, This week shows its points next to yours over the same
+  rounds, and the hold policy's (`GET /api/team/{id}/shadow-summary`; your
+  points are net of hits, from FPL's public history).
+- **Autopilot policy** (L3, Player preferences): *Margin per transfer* is how
+  many planning points a move must beat rolling by per free transfer it spends,
+  and a hit must beat the no-hit plan by per paid transfer (default 2.0, as
+  before). *Largest hit* caps the hit the strategy may recommend (default any).
+  Both travel with every request like the other preferences and are part of
+  the cache key. No notifications are sent; the app still never makes transfers.
+
+**Paste team news (M20, web).** Under This week step 5 and on Scenarios, paste
+what a manager said or a team-news post and press **Read with Claude**. Claude
+(`claude-opus-5-5`, low effort, structured output) proposes a chance of playing
+for each player the text names, with the supporting phrase and FPL's current
+figure. Nothing changes until you press **Accept**; accepted proposals join
+**Your assumptions** (the same overrides as P5) and are never stored on the
+server or trained on (`POST /api/team/{id}/news-assumptions`). Unknown players
+are dropped and chances are clamped to 0–1. It needs `ANTHROPIC_API_KEY`; one
+reading of a short text cost about $0.03 on 12 November 2026.
+
 ## Decision-first layout (plan phase F, November 2026)
 
-- **Overview** opens with this week's decision: roll or move and why, captain
-  and the next best, the news that matters and chip availability. A note says
-  which public picks the squad comes from, with a link to correct it.
+- **Overview** shows the squad, key numbers and what changed since last time.
+  (Until 12 November it opened with a decision card; **This week** replaced it.)
 - **Strategy, transfers and the multiweek plan** calculate as soon as you open
   them. The API also precomputes the default answers after an import or
   refresh. Results are cached under a key that covers the forecast, squad,
@@ -254,7 +302,7 @@ run in the shared backend. The app stores the FPL ID, horizon, risk profile and
 market preferences locally with `AsyncStorage`; this version has no user accounts.
 
 Web and mobile share one structure and one palette. The five sections are
-**This round** (overview, lineup), **Transfers & plan** (strategy, transfers,
+**This round** (this week, overview, lineup), **Transfers & plan** (strategy, transfers,
 multiweek plan, chips, FH/WC squads), **Players** (market, compare, player
 preferences), **History** (analysis, timeline) and **My team** (edit squad,
 saved plans). The web app shows them as sidebar groups and, below 760 px, as a
@@ -496,8 +544,10 @@ Every payload is validated at the boundary and every export must pass the data
 contract (`src/data_contract.py`) before anything is written; a failure exits
 non-zero. Corrections to exported rounds are logged in `corrections.csv`.
 
-Run it whenever you use the app, at least once a day after 02:30 UTC, and right
-before `prospective_loop.py auto` locks a round. Deadline checkpoints cannot be
+`run_app.py` runs it at start and then every hour while the app is open (plan
+D2, 12 November 2026); a failure is printed and never stops the app. Docker and
+a bare `uvicorn` do not. Otherwise run it by hand, at least once a day after
+02:30 UTC, and right before `prospective_loop.py auto` locks a round. Deadline checkpoints cannot be
 fetched afterwards; finished rounds can, so a missed day only loses that day's
 snapshot. Each run reports `gap_hours` since the previous snapshot, and the
 app's lock banner warns when the latest snapshot is over 36 hours old.
@@ -649,6 +699,24 @@ and data quality). It shows data quality and what it means for decisions,
 locked rounds with their counts, calibration and known limitations
 (`GET /api/model-card`).
 
+On 12 November 2026 `cup_minutes_20261022`, `openfpl_style_20261022` and `refit_20261022` were set
+`active: false` (superseded or research-only data) so fewer challengers share the Holm correction.
+`crowd` and `season_transfer` stay active because the shadow season's policies need them.
+
+Two more corrections were tried on 12 November 2026 and **not registered**,
+because `train_extra` registers only when the retrospective MAE on this season
+beats the base (reports in `artifacts/model_research/*_retrospective.json`):
+
+```bash
+.venv/bin/python src/challengers.py features-v3 --features DIR --base refit_20261031   # M19: season xG/xA per 90, shrunk, last 10
+.venv/bin/python src/challengers.py minutes-v2 --features DIR --base refit_20261031    # M18: competition for the place
+```
+
+On 2026-27 GW1–10 (6,562 rows) both lowered RMSE and bias a little but raised
+MAE (1.168 → 1.180 and 1.186). Deadline rows now also carry `start_rate10`,
+`xG90_last10`, `xA90_last10` and season-so-far sums, so they can be rerun when
+more rounds exist.
+
 Challengers added 6–8 November 2026 (phase D, all `production_eligible: false`, locked from GW11):
 
 ```bash
@@ -686,8 +754,10 @@ The app shows a banner while the lock window is open (30 hours before the
 deadline) and the round is not locked: **Lock window open for GW N – lock now**.
 Its button runs the same `prospective_loop.py auto` as a background job on the
 machine running the API (`POST /api/loop/lock`; progress in
-`GET /api/loop/status`). Nothing is scheduled; a second lock of a locked round
-is refused. The banner also lists rounds that were never locked and a stale
+`GET /api/loop/status`). **Refresh forecast** inside the window also starts the
+lock once the new forecast is saved (plan M16, 12 November 2026); if the lock
+check fails, the forecast is kept and the banner still offers the button.
+Nothing is scheduled; a second lock of a locked round is refused. The banner also lists rounds that were never locked and a stale
 `fpl-data` checkout. A challenger becomes eligible
 for a *manual* promotion review only under the pre-registered criterion in
 [docs/prospective_criterion_2026-10-22.md](prospective_criterion_2026-10-22.md).

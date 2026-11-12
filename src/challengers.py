@@ -423,6 +423,101 @@ def train_features_v2(root: Path, features_dir: Path, base_challenger: str, role
         caveat="Roles exist only from 2026-09-08 (archived bootstraps); earlier rows have unknown roles.", **info)
 
 
+def _column(rows: pd.DataFrame, name: str) -> pd.Series:
+    return pd.to_numeric(rows[name], errors="coerce") if name in rows else pd.Series(np.nan, index=rows.index)
+
+
+SHRINK_GAMES = 5  # ponytail: fixed prior strength in 90-minute games; fit it if features_v3 earns a place
+
+
+def features_v3(rows: pd.DataFrame, base: np.ndarray) -> pd.DataFrame:
+    """M19: stable per-90 rates (season so far, shrunk toward the position average at that round) and last-10 windows.
+
+    The base sees xG and xA over five matches only. The prior is the position's
+    rate among the rows of the same round, so it uses nothing a deadline would not know.
+    """
+    minutes = _column(rows, "minutes_season_before")
+    games = (minutes / 90).where(minutes.gt(0))
+    out = {"base": base, "position": rows.position.map(POSITION_CODES).to_numpy(float),
+           "season_minutes": minutes.to_numpy(float), "start_rate10": _column(rows, "start_rate10").to_numpy(float)}
+    keys = [rows["GW"], rows["position"]]
+    for stat in ("xG", "xA"):
+        total = _column(rows, f"{stat}_season_before").where(games.notna())
+        prior = total.groupby(keys).transform("sum") / games.groupby(keys).transform("sum")
+        out[f"{stat}90_shrunk"] = ((total.fillna(0) + SHRINK_GAMES * prior) / (games.fillna(0) + SHRINK_GAMES)).to_numpy(float)
+        out[f"{stat}90_last10"] = _column(rows, f"{stat}90_last10").to_numpy(float)
+    return pd.DataFrame(out)
+
+
+def minutes_v2(rows: pd.DataFrame, base: np.ndarray) -> pd.DataFrame:
+    """M18: competition for the place, which the base cannot see: the player's rank by recent minutes among
+    teammates in the same position for the same fixture, how many of them are regulars, and starts over ten."""
+    recent = _column(rows, "minutes_avg5")
+    team = rows["team_name"] if "team_name" in rows else rows["team"]
+    group = [rows["season"].astype(str), rows["fixture"], team.astype(str), rows["position"]]
+    return pd.DataFrame({
+        "base": base, "position": rows.position.map(POSITION_CODES).to_numpy(float),
+        "rank_in_position": recent.groupby(group, dropna=False).rank(ascending=False, method="min").to_numpy(float),
+        "regulars_in_position": recent.ge(60).astype(float).groupby(group, dropna=False).transform("sum").to_numpy(float),
+        "start_rate5": _column(rows, "start_rate5").to_numpy(float), "start_rate10": _column(rows, "start_rate10").to_numpy(float),
+        "minutes_last1": _column(rows, "minutes_last1").to_numpy(float), "minutes_avg5": recent.to_numpy(float)})
+
+
+class FeaturesV3Model(_Corrected):
+    """M19: base plus a correction from season-long shrunk xG/xA rates and last-10 windows."""
+
+    def __init__(self, base, residual):
+        self.base, self.residual = base, residual
+
+    def _features(self, rows, base):
+        return features_v3(rows, base)
+
+
+class MinutesV2Model(_Corrected):
+    """M18: base plus a correction from competition for the place."""
+
+    def __init__(self, base, residual):
+        self.base, self.residual = base, residual
+
+    def _features(self, rows, base):
+        return minutes_v2(rows, base)
+
+
+EXTRA_CHALLENGERS = {
+    # name: (featurize, model class name, extra feature columns, plan item, description)
+    "features_v3": (features_v3, "FeaturesV3Model",
+                    ["xG90_last10", "xA90_last10", "xG_season_before", "xA_season_before", "minutes_season_before", "start_rate10"],
+                    "M19", "season-long xG/xA per 90 shrunk toward the position average, and last-10 windows"),
+    "minutes_v2": (minutes_v2, "MinutesV2Model", ["team", "start_rate10"],
+                   "M18", "competition for the place: rank by recent minutes among teammates in the same position"),
+}
+
+
+def train_extra(root: Path, features_dir: Path, base_challenger: str, kind: str, name: str | None = None) -> Path | dict:
+    """K1/K2. Registered only when the retrospective check on this season beats the base;
+    otherwise the check is written to artifacts/model_research and nothing is locked."""
+    import challengers  # pickle classes by module path, also when run as a script
+    featurize, model_class, extra, item, what = EXTRA_CHALLENGERS[kind]
+    extra = [*extra, "defensive_contribution90_last5"]  # for the DC-band check
+    root = Path(root)
+    data = _training_data(root, features_dir)
+    keys = ["season", "GW", "fixture", "player_id"]
+    table = pd.read_csv(Path(features_dir) / "player_fixture_features.csv", low_memory=False, usecols=keys + extra)
+    data = data.drop(columns=[c for c in extra if c in data]).merge(table, on=keys, how="left", validate="one_to_one")
+    residual, info = _residual_fit(data, featurize, groups={"position": lambda rows: rows.position, "dc_band": _dc_band})
+    name = name or f"{kind}_{datetime.now(timezone.utc):%Y%m%d}"
+    check = info["retrospective_check"]
+    if check["adjusted_MAE"] >= check["base_MAE"]:
+        report = Path(root) / "artifacts/model_research" / f"{name}_retrospective.json"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text(json.dumps({"name": name, "plan_item": item, "registered": False,
+            "reason": "retrospective MAE on this season did not beat the base", **info}, indent=2))
+        return {"registered": False, "report": str(report), **check}
+    return _save(root, name, getattr(challengers, model_class)(_base(root, base_challenger), residual),
+        f"{base_challenger}+{kind}_residual", plan_item=item, base_challenger=base_challenger,
+        features_dir=str(features_dir), description=f"{base_challenger} plus a correction from {what}.", **info)
+
+
 class MonotoneShift:
     """M12 residual: calibrated(base) − base, with an isotonic or a linear map of the base forecast."""
 
@@ -589,6 +684,11 @@ def main(argv=None) -> int:
     implied.add_argument("--base", required=True)
     implied.add_argument("--results", type=Path, required=True, help="football-data.co.uk current-season CSV")
     implied.add_argument("--name")
+    for kind, spec in EXTRA_CHALLENGERS.items():
+        extra = sub.add_parser(kind.replace("_", "-"), help=f"{spec[3]} challenger, registered only if it beats the base")
+        extra.add_argument("--features", type=Path, required=True)
+        extra.add_argument("--base", required=True)
+        extra.add_argument("--name")
     openfpl = sub.add_parser("openfpl-style", help="M6 position-specific ensemble")
     openfpl.add_argument("--features", type=Path, required=True)
     openfpl.add_argument("--name")
@@ -604,6 +704,9 @@ def main(argv=None) -> int:
         return 0
     if args.command == "implied-market":
         print(train_implied_market(ROOT, args.base, args.results, args.name))
+        return 0
+    if args.command.replace("-", "_") in EXTRA_CHALLENGERS:
+        print(train_extra(ROOT, args.features, args.base, args.command.replace("-", "_"), args.name))
         return 0
     if args.command == "openfpl-style":
         print(train_openfpl_style(ROOT, args.features, args.name))

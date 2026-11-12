@@ -424,6 +424,13 @@ export interface FixtureTicker {
     weeks: Array<{ event: number; fixtures: number; opponent: string; xp: number; p60: number | null }> }>;
 }
 
+/** GET /api/team/{session}/shadow-summary — L2: the model's shadow season against your actual points. */
+export interface ShadowSummary { available: boolean; first_event?: number; through_event?: number; rounds?: number; you?: number; policies?: Record<string, number> }
+
+/** POST /api/team/{session}/news-assumptions — M20: Claude's reading of pasted team news, to accept or ignore. */
+export interface NewsProposal { player_id: number; name: string; team: string; chance: number; status: "out" | "doubt" | "available" | "rested";
+  return_gw: number | null; quote: string; current_chance: number | null }
+
 /** P5: "Your assumptions" — the user's chance of playing (0–1), sent with every optimiser call. */
 export interface ScenarioOverride { player_id: number; chance: number }
 
@@ -448,6 +455,18 @@ export interface JournalEntry {
 
 /** P3: XI forecast versus the expectation with autosubs and vice-captain. */
 export interface LineupValue { xi_expected: number; expected_with_autosubs: number; bench_and_vice_value: number; draws: number; note: string }
+
+/** POST /api/team/{session}/this-week — W1: the week's steps, from the same cached results as the other pages. */
+export interface ThisWeek {
+  strategy: StrategyAdvice;
+  /** XI, C/VC and bench order after the plan's first-week transfers. */
+  lineup: Lineup;
+  lineup_value: LineupValue;
+  chips: ChipStrategy;
+  robustness: ScenarioComparison["robustness"] | null;
+  sell: Array<{ id: number; name: string; price: number }>;
+  buy: Array<{ id: number; name: string; price: number }>;
+}
 
 /** P4: a hard plan requirement. */
 export interface PlanRequirement { kind: "own_by" | "sell_in" | "max_club" | "max_position"; player_id?: number; event?: number; team_id?: number; position?: string; limit?: number }
@@ -640,7 +659,9 @@ export interface ForecastContext {
   model_family: string | null;
   source_url: string;
 }
-export interface PlayerConstraints { locked_ids: number[]; excluded_ids: number[]; bench_weights?: number[]; overrides?: ScenarioOverride[] }
+export interface PlayerConstraints { locked_ids: number[]; excluded_ids: number[]; bench_weights?: number[]; overrides?: ScenarioOverride[];
+  /** L3 autopilot policy for the strategy; omitted = 2.0 per transfer and any hit. */
+  roll_margin?: number; max_hit?: number | null }
 export interface PlayerDetail {
   injury_scenarios?: Array<{ GW: number; fixture: number; kickoff_time: string;
     reported_return: string; conservative_points: number; reported_return_points: number }>;

@@ -32,7 +32,7 @@ When to run what, and what in the app needs it: [Updating](docs/updating.md).
 ```bash
 ./update.sh                                         # all routine steps below in order (./update.sh retrain also retrains)
 .venv/bin/python src/capture_fpl.py                 # new FPL snapshot + forecasts (what Refresh forecast does)
-.venv/bin/python src/prospective_loop.py auto       # before each deadline and after FPL checks a round (or the app's Lock button)
+.venv/bin/python src/prospective_loop.py auto       # before each deadline and after FPL checks a round (or the app's Lock button; Refresh forecast in the last 30 h also locks)
 .venv/bin/python src/top_managers.py collect        # after a deadline: top 100, legacy, top 1% and YouTuber squads (or History → Top managers → Update)
 .venv/bin/python src/copy_check.py collect --entry <FPL id>   # who in your mini-leagues looks most like a YouTuber or a friend (also part of Update)
 .venv/bin/python src/fpl_collect.py --data-root fpl-data auto   # own data: daily snapshot, deadline checkpoints, finished rounds
@@ -41,9 +41,13 @@ When to run what, and what in the app needs it: [Updating](docs/updating.md).
 
 ## What it does
 
+- **This week** (the start page): the round's steps in the order you do them in
+  FPL: transfers with prices, the XI and bench after the transfer, captain and
+  vice-captain, chip, what would change the plan, and a checklist to copy. It
+  says what changed since you last looked, and your own autopilot policy
+  (margin per transfer, largest hit) sits under Player preferences. The app
+  never makes the transfers for you.
 - **This round:** overview, recommended XI, captain and bench.
-- **This round** opens with this week's decision: move or roll, captain,
-  important news and chips.
 - **Transfers & plan:** strategy centre (roll or move), exact transfer search,
   a multiweek plan with chips, bench weights and requirements, plan A/B and
   scenarios with your own assumptions, chips, Free Hit and Wildcard squads.
@@ -57,8 +61,8 @@ outcome ranges, and **Upside** weights the ceiling (0.7 × expected + 0.3 × Q90
 
 ## Data and models
 
-- Current-season data come from `fpl-data/`, filled by running the collector
-  locally. It writes vaastav-format CSVs and validates every round against a
+- Current-season data come from `fpl-data/`, filled by the collector. It runs
+  by itself every hour while `run_app.py` is running, and can be run by hand. It writes vaastav-format CSVs and validates every round against a
   data contract. Earlier seasons come from vaastav.
 - The production model is never replaced automatically. Challengers are locked
   before each deadline and scored afterwards on a leaderboard

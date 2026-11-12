@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Breakpoint, JournalEntry, ScenarioComparison, TeamResponse } from "@fplmodell/api-client";
+import type { Breakpoint, JournalEntry, NewsProposal, ScenarioComparison, TeamResponse } from "@fplmodell/api-client";
 import { api } from "./api";
 import { Icon } from "./icons";
 import { useWorkspace } from "./Workspace";
@@ -27,6 +27,36 @@ export function Assumptions({ team }: { team: TeamResponse }) {
       <button className="secondary" onClick={() => set(overrides.filter(x => x.player_id !== o.player_id))} aria-label={`Remove assumption for ${names.get(o.player_id)}`}>Remove</button></li>)}</ul>}
     {!!overrides.length && <button className="secondary" onClick={() => set([])}>Reset all assumptions</button>}
   </section>;
+}
+
+/** M20: paste team news; Claude proposes a chance of playing per player, and each one you accept joins Your assumptions. */
+export function PasteNews({ team }: { team: TeamResponse }) {
+  const { constraints, setConstraints } = useWorkspace();
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [proposals, setProposals] = useState<NewsProposal[] | null>(null);
+  const read = async () => {
+    setBusy(true); setError("");
+    try { setProposals((await api.newsAssumptions(team.session_id, text)).proposals); }
+    catch (e) { setError(errorText(e)); }
+    finally { setBusy(false); }
+  };
+  const accept = (p: NewsProposal) => {
+    const { overrides = [], ...rest } = constraints;
+    setConstraints({ ...rest, overrides: [...overrides.filter(o => o.player_id !== p.player_id), { player_id: p.player_id, chance: p.chance }] });
+    setProposals(list => (list ?? []).filter(x => x.player_id !== p.player_id));
+  };
+  return <details className="paste-news"><summary>Paste team news</summary>
+    <p className="section-copy">Paste what a manager said or a team-news post. Claude suggests a chance of playing for each player it names; nothing changes until you accept one. The text is sent to Anthropic.</p>
+    <textarea aria-label="Team news" maxLength={5000} rows={5} value={text} onChange={e => setText(e.target.value)} />
+    <button className="secondary" disabled={!text.trim() || busy} onClick={() => void read()}>{busy ? "Reading…" : "Read with Claude"}</button>
+    {error && <p role="alert">{error}</p>}
+    {!!proposals?.length && <ul className="requirement-list">{proposals.map(p => <li key={p.player_id}>
+      {p.name}: {Math.round(p.chance * 100)}% chance of playing ({p.status}{p.return_gw ? `, back GW${p.return_gw}` : ""}){p.current_chance != null ? ` · FPL now ${Math.round(p.current_chance * 100)}%` : ""} · “{p.quote}”
+      <button className="secondary" onClick={() => accept(p)} aria-label={`Accept ${p.name} at ${Math.round(p.chance * 100)}%`}>Accept</button></li>)}</ul>}
+    {proposals?.length === 0 && <p className="section-copy">No player to change in that text.</p>}
+  </details>;
 }
 
 /** P5: hold vs plan A vs plan B on the same inputs, robustness across seeded scenarios, and the tipping point. */
@@ -65,6 +95,7 @@ export function ScenariosView({ team }: { team: TeamResponse }) {
       </tr>)}</tbody></table></div>
       <p className="model-note">{data.robustness.note} {data.robustness.scenarios} scenarios, seed {data.robustness.seed}.</p></div>}
     <Assumptions team={team} />
+    <PasteNews team={team} />
     <section className="panel" aria-label="Tipping point"><h2>What would change the plan?</h2>
       <div className="requirement-editor">
         <label>Player<select value={player} onChange={e => setPlayer(Number(e.target.value))}><option value={0}>Choose…</option>{[...workspace.options].filter(p => team.squad.some(s => s.id === p.id) || p.recommended_points > 3).sort((a, b) => a.name.localeCompare(b.name)).map(p => <option key={p.id} value={p.id}>{p.name} ({p.team})</option>)}</select></label>

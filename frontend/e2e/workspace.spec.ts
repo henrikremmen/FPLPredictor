@@ -61,12 +61,38 @@ async function setup(page: Page, beforeLoad?: () => Promise<void>) {
     requests.push({ path, body });
     const json = (data: unknown, status = 200) => route.fulfill({ status, json: data });
     if (path.endsWith('/import')) return json(body?.risk_profile === 'upside' ? upsideTeam : team);
-    if (request.method() === 'GET' && path === '/api/team/test') return restorable ? json(team) : json({ detail: 'Session expired' }, 404);
+    if (request.method() === 'GET' && path === '/api/team/test') {
+      if (refreshed) return json({ ...team, forecast_context: { ...context, revision: 'version-2', forecast_at: '2026-10-10T09:00:00Z' } });
+      return restorable ? json(team) : json({ detail: 'Session expired' }, 404);
+    }
     if (path.endsWith('/timeline')) return json(timeline);
     if (path.endsWith('/horizon')) {
       if (horizonFails) return json({ detail: 'Saved forecast is missing this horizon' }, 400);
       activeHorizon = body.horizon;
       return json({ ...team, horizon: activeHorizon, forecast_context: { ...context, revision: `horizon-${activeHorizon}` } });
+    }
+    if (path.endsWith('/shadow-summary')) return json({ available: true, first_event: 5, through_event: 5, rounds: 1, you: 48, policies: { incumbent: 52, hold: 45 } });
+    if (path.endsWith('/news-assumptions')) return json({ proposals: [
+      { player_id: 8, name: 'Player 8', team: 'T3', chance: 0.25, status: 'doubt', return_gw: null, quote: 'a late fitness test', current_chance: 1 }] });
+    if (path.endsWith('/this-week')) {
+      const upgrade = { ...players[15], role: 'C' };
+      return json({
+        strategy: { target_event: 6, headline: 'Player 8 → Upgrade',
+          transfer: { decision: 'TRANSFER', title: 'Player 8 → Upgrade', reason: 'Multiweek optimization prefers one transfer now.', transfers_out: ['Player 8'], transfers_in: ['Upgrade'],
+            hit: 0, free_transfers_before: 1, bank_after: 0.5, horizon: activeHorizon, global_optimum: true, confidence: 'high', warnings: [],
+            roll_comparison: { evaluated: true, preferred_roll: false, gain_over_roll: 3.4, minimum_gain: 2, next_gw_lineup_gain: 6, incoming_starts_now: ['Upgrade'], incoming_bench_now: [], displaced_starters: ['Player 8'], candidate_out: ['Player 8'], candidate_in: ['Upgrade'] } },
+          captain: { captain: { id: 16, name: 'Upgrade' }, vice_captain: { id: 1, name: 'Player 1' }, alternatives: [], margin: 2.1, confidence: 'strong', reason: 'Clear model margin.' },
+          squad_health: { flagged_starters: [], flagged_players: [] },
+          price_alerts: { available: true, owned_at_risk: [], targets_rising: [{ id: 16, name: 'Upgrade', price_change_projected_percent: 97 }], caveat: '' },
+          plan: { weeks: [{ event: 6, transfers_out: ['Player 8'], transfers_in: ['Upgrade'] }, { event: 7, transfers_out: [], transfers_in: [], chip: null }] } },
+        lineup: { formation: '3-4-3', projected_total: 50, expected_total: 50, captain_margin: 2.1,
+          starters: players.slice(0, 11).map(p => p.id === 8 ? upgrade : p.id === 1 ? { ...p, role: 'VC' } : p),
+          bench: players.slice(11, 15).map((p, i) => ({ ...p, bench_order: ['GK', '1', '2', '3'][i] })) },
+        lineup_value: { xi_expected: 50, expected_with_autosubs: 52.5, bench_and_vice_value: 2.5, draws: 300, note: '' },
+        chips: { recommendation: 'Save chips for now', best_by_chip: [] },
+        robustness: { scenarios: 50, seed: 20261108, chosen_share: { 'Plan A': 0.8, Hold: 0.2 }, mean_points: {}, note: '' },
+        sell: [{ id: 8, name: 'Player 8', price: 50 }], buy: [{ id: 16, name: 'Upgrade', price: 55 }],
+      });
     }
     if (path.endsWith('/strategy')) return json({
       target_event: 6, headline: 'Roll the free transfer',
@@ -121,12 +147,14 @@ async function setup(page: Page, beforeLoad?: () => Promise<void>) {
       loop = { ...loop, job: { ...loop.job, state: 'running' } };
       return json(loop);
     }
-    if (path.endsWith('/status')) return json({ state: 'running', stage: 'Downloading player histories', elapsed_seconds: 1, captured: 100, total: 667, error: null });
+    if (path.endsWith('/status')) return json(refreshed  // the refresh runs as a 202 job; the app polls this, then reloads the team
+      ? { state: 'complete', stage: 'Forecast saved; reloading team', elapsed_seconds: 2, captured: 667, total: 667, error: null }
+      : { state: 'running', stage: 'Downloading player histories', elapsed_seconds: 1, captured: 100, total: 667, error: null });
     if (path.endsWith('/refresh')) {
       await new Promise(r => setTimeout(r, 900));
       if (refreshFails) return json({ detail: 'Update failed: network unavailable' }, 400);
       refreshed = true;
-      return json({ ...team, forecast_context: { ...context, revision: 'version-2', forecast_at: '2026-10-10T09:00:00Z' } });
+      return json({ status: 'started' }, 202);
     }
     return json({ detail: `Unexpected route: ${path}` }, 404);
   });
@@ -134,7 +162,7 @@ async function setup(page: Page, beforeLoad?: () => Promise<void>) {
   await beforeLoad?.();
   await page.getByLabel('FPL team ID').fill('5139814');
   await page.getByRole('button', { name: 'Load team', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Workspace team' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'This week', exact: true })).toBeVisible();
   return { requests, errors, setLoop: (next: Record<string, any>) => { loop = next; }, allowRestore: () => { restorable = true; }, failRefresh: () => { refreshFails = true; }, failHorizon: () => { horizonFails = true; }, failTransfer: () => { transferFails = true; slowTransfer = true; }, refreshed: () => refreshed };
 }
 test('team ID field extracts the ID from a pasted link, ignores the Gameweek and remembers it', async ({ page }) => {
@@ -144,14 +172,45 @@ test('team ID field extracts the ID from a pasted link, ignores the Gameweek and
     await field.fill('https://fantasy.premierleague.com/en/entry/42/event/4');
     await expect(field).toHaveValue('42');
     await page.getByRole('button', { name: 'Load team', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Workspace team' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'This week', exact: true })).toBeVisible();
     await page.reload();
     await expect(field).toHaveValue('42');
   });
   expect(state.requests.filter(r => r.path.endsWith('/import')).map(r => r.body.reference)).toEqual(['42', '5139814']);
   expect(state.errors).toEqual([]);
 });
-const nav = (page: Page, name: string) => page.locator('.sidebar nav').getByRole('button', { name, exact: true }).click();
+const nav = async (page: Page, name: string) => {  // U20: a page under "More" needs the fold opened first
+  const sidebar = page.locator('.sidebar nav');
+  if (!(await sidebar.getByRole('button', { name, exact: true }).isVisible()))
+    await sidebar.locator('details.nav-more', { has: page.locator(`button:text-is("${name}")`) }).locator('summary').click();
+  await sidebar.getByRole('button', { name, exact: true }).click();
+};
+
+test('this week: the steps in order, the XI after the transfer, and a checklist to copy', async ({ page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  const state = await setup(page);
+  const week = page.getByRole('region', { name: 'This week', exact: true });
+  await expect(week.getByRole('heading', { name: 'Player 8 → Upgrade' })).toBeVisible();
+  await expect(week).toContainText('Player 8 (£5.0m)');
+  await expect(week).toContainText('Plan A 80%');
+  await expect(week).toContainText('Upgrade is close to a price rise (97%)');
+  await expect(week.getByRole('heading', { name: 'Captain Upgrade' })).toBeVisible();
+  await expect(week).toContainText('Including autosubs and the vice-captain: 52.5');
+  await expect(week).toContainText('falls below 44%');  // the tipping point loads after the page
+  await week.getByRole('checkbox').first().check();
+  await week.getByRole('button', { name: 'Copy to FPL' }).click();
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied.split('\n')).toEqual(['Sell: Player 8 (£5.0m)', 'Buy: Upgrade (£5.5m)', expect.stringMatching(/^Starting XI \(3-4-3\): .*Upgrade/),
+    'Captain: Upgrade · Vice-captain: Player 1', expect.stringMatching(/^Bench: 1\. /), 'Chip: none']);
+  await expect(week).toContainText('Following the model (shadow season) since GW5: 52 points against your 48 over 1 round. Without transfers: 45.');
+  await expect(week.getByText('Plan changed since you last looked')).toHaveCount(0);  // first look
+  await page.evaluate(() => localStorage.setItem('fpl-this-week-seen-v1-1-6', JSON.stringify({ transfers: 'roll', captain: 'Player 1', vice: 'Player 2', chip: 'none' })));
+  state.allowRestore();
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'This week', exact: true }).getByRole('checkbox').first()).toBeChecked();
+  await expect(page.getByRole('region', { name: 'This week', exact: true })).toContainText('Plan changed since you last looked: Transfers: roll → Player 8 → Upgrade · Captain: Player 1 → Upgrade · Vice-captain: Player 2 → Player 1');
+  expect(state.errors).toEqual([]);
+});
 
 test('horizon changes keep the current strategy page, preferences and session, and recalculate advice', async ({ page }) => {
   const state = await setup(page);
@@ -179,6 +238,7 @@ test('horizon changes keep the current strategy page, preferences and session, a
 
 test('news, keyboard-accessible player detail, comparison after hits and persistent A/B drafts', async ({ page }) => {
   const state = await setup(page);
+  await page.goto('/#/overview');
   await expect(page.getByRole('heading', { name: 'Since last time' })).toBeVisible();
   await expect(page.locator('.since-last')).toContainText('75% → 100%');
   await page.locator('.squad-groups').first().getByRole('button', { name: 'Player 8', exact: true }).click();
@@ -262,6 +322,7 @@ test('failed refresh and recalculation keep the previous results visible', async
 test('mobile comparison and player panel fit viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const state = await setup(page);
+  await page.goto('/#/overview');
   await page.locator('.squad-groups').first().getByRole('button', { name: 'Player 8', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Playing time');
   const size = await page.getByRole('dialog').boundingBox();
@@ -368,6 +429,35 @@ test('timeline fits a phone screen', async ({ page }) => {
   expect(state.errors).toEqual([]);
 });
 
+test('paste team news: Claude proposes a chance of playing and Accept adds it to your assumptions', async ({ page }) => {
+  const state = await setup(page);
+  const week = page.getByRole('region', { name: 'This week', exact: true });
+  await week.getByText('Paste team news').click();
+  await week.getByLabel('Team news').fill('Player 8 faces a late fitness test.');
+  await week.getByRole('button', { name: 'Read with Claude' }).click();
+  await expect(week).toContainText('Player 8: 25% chance of playing (doubt) · FPL now 100% · “a late fitness test”');
+  await week.getByRole('button', { name: 'Accept Player 8 at 25%' }).click();
+  await expect(page.locator('.assumptions-notice')).toContainText('Your assumptions are on (1 player)');
+  expect(state.requests.find(r => r.path.endsWith('/news-assumptions'))?.body).toEqual({ text: 'Player 8 faces a late fitness test.' });
+  await expect.poll(() => state.requests.filter(r => r.path.endsWith('/this-week')).at(-1)?.body.overrides).toEqual([{ player_id: 8, chance: 0.25 }]);
+  expect(state.errors).toEqual([]);
+});
+
+test('autopilot policy: margin and largest hit travel with the strategy and This week', async ({ page }) => {
+  const state = await setup(page);
+  await nav(page, 'Player preferences');
+  await page.getByLabel('Margin per transfer').fill('1');
+  await page.getByLabel('Largest hit').selectOption('0');
+  await nav(page, 'This week');
+  await expect.poll(() => state.requests.filter(r => r.path.endsWith('/this-week')).at(-1)?.body).toMatchObject({ roll_margin: 1, max_hit: 0 });
+  await nav(page, 'Player preferences');
+  await page.getByRole('button', { name: 'Default policy (2.0, any hit)' }).click();
+  await nav(page, 'Strategy centre');
+  await page.getByRole('button', { name: /Refresh advice|Create plan/ }).first().click().catch(() => undefined);
+  await expect.poll(() => { const body = state.requests.filter(r => r.path.endsWith('/strategy')).at(-1)?.body; return body && ('max_hit' in body || 'roll_margin' in body); }).toBe(false);
+  expect(state.errors).toEqual([]);
+});
+
 test('every page has a deep link; back and refresh keep the page without a new import', async ({ page }) => {
   const state = await setup(page);
   await nav(page, 'Timeline');
@@ -386,12 +476,12 @@ test('every page has a deep link; back and refresh keep the page without a new i
 
 test('every page: buttons have accessible names and the menu works from the keyboard', async ({ page }) => {
   const state = await setup(page);
-  for (const id of ['overview', 'lineup', 'strategy', 'transfers', 'plan', 'chips', 'squads', 'market', 'comparison',
+  for (const id of ['week', 'overview', 'lineup', 'strategy', 'transfers', 'plan', 'chips', 'squads', 'market', 'comparison',
     'preferences', 'analysis', 'timeline', 'model', 'scenarios', 'journal', 'squad', 'saved']) {
     await page.evaluate(hash => { window.location.hash = `/${hash}`; }, id);
     await page.waitForTimeout(100);
     const unnamed = await page.evaluate(() => [...document.querySelectorAll('button')]
-      .filter(b => b.offsetParent !== null && !(b.innerText.trim() || b.getAttribute('aria-label') || b.getAttribute('title')))
+      .filter(b => b.offsetParent !== null && !b.closest('details:not([open])') && !(b.innerText.trim() || b.getAttribute('aria-label') || b.getAttribute('title')))
       .map(b => b.outerHTML.slice(0, 80)));
     expect(unnamed, id).toEqual([]);
   }
@@ -480,7 +570,7 @@ test('planner: bench weights travel with every plan, chips and requirements are 
 test('phone: every visible control on every page is at least 44 px high and the section sheet closes with Escape', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await setup(page);
-  for (const id of ['overview', 'lineup', 'strategy', 'transfers', 'plan', 'chips', 'squads', 'market', 'fixtures', 'comparison',
+  for (const id of ['week', 'overview', 'lineup', 'strategy', 'transfers', 'plan', 'chips', 'squads', 'market', 'fixtures', 'comparison',
     'preferences', 'analysis', 'timeline', 'model', 'scenarios', 'journal', 'squad', 'saved']) {
     await page.evaluate(hash => { window.location.hash = `/${hash}`; }, id);
     await page.waitForTimeout(150);
@@ -514,7 +604,7 @@ test('scenarios: plan A/B against holding, your assumptions with reset, tipping 
   await expect(page.locator('.tipping-point')).toContainText('falls below 44%');
   await page.locator('.assumptions-notice').getByRole('button', { name: 'Reset' }).click();
   await expect(page.locator('.assumptions-notice')).toHaveCount(0);
-  await page.goto('/#/overview');
+  await page.goto('/#/week');
   await page.getByText('Record my decision').click();
   await page.getByLabel('My decision').selectOption('follow');
   await page.getByLabel('Note').fill('trust the model');
@@ -533,7 +623,7 @@ for (const [size, viewport] of [['390x844', { width: 390, height: 844 }], ['1440
     test.skip(!shotDir, 'Set SCREENSHOT_DIR to capture screenshots');
     await page.setViewportSize(viewport);
     await setup(page, () => page.screenshot({ path: `${shotDir}/${size}/00-load.png`, fullPage: true }));
-    const pages = ['overview', 'lineup', 'strategy', 'transfers', 'plan', 'chips', 'squads', 'market', 'comparison',
+    const pages = ['week', 'overview', 'lineup', 'strategy', 'transfers', 'plan', 'chips', 'squads', 'market', 'comparison',
       'preferences', 'analysis', 'timeline', 'model', 'squad', 'saved', 'fixtures', 'scenarios', 'journal'];
     for (const [index, id] of pages.entries()) {
       await page.evaluate(hash => { window.location.hash = `/${hash}`; }, id);
