@@ -83,6 +83,20 @@ and limitations.
 - Advanced pages (Scenarios, FH/WC squads, Compare players, Player preferences,
   Model and data, Saved plans) sit under a folded **More** in each sidebar
   section (U20). Deep links are unchanged.
+- **Plan changed since you last looked** (L1): the browser (or phone) keeps a
+  summary of the advice it last showed for that team and Gameweek: transfers,
+  captain, vice-captain, chip. When any of them differs on the next visit, a line
+  says what changed (`adviceSummary`/`adviceDiff` in `packages/shared`).
+- **Following the model** (L2): when a shadow season exists for your team and
+  has scored rounds, This week shows its points next to yours over the same
+  rounds, and the hold policy's (`GET /api/team/{id}/shadow-summary`; your
+  points are net of hits, from FPL's public history).
+- **Autopilot policy** (L3, Player preferences): *Margin per transfer* is how
+  many planning points a move must beat rolling by per free transfer it spends,
+  and a hit must beat the no-hit plan by per paid transfer (default 2.0, as
+  before). *Largest hit* caps the hit the strategy may recommend (default any).
+  Both travel with every request like the other preferences and are part of
+  the cache key. No notifications are sent; the app still never makes transfers.
 
 **Paste team news (M20, web).** Under This week step 5 and on Scenarios, paste
 what a manager said or a team-news post and press **Read with Claude**. Claude

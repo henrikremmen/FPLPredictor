@@ -34,7 +34,7 @@ describe("lock banner", () => {
   });
 });
 
-import { fplChecklist } from "@fplmodell/shared";
+import { adviceDiff, adviceSummary, fplChecklist } from "@fplmodell/shared";
 
 describe("FPL checklist (W1)", () => {
   const week = {
@@ -57,5 +57,21 @@ describe("FPL checklist (W1)", () => {
     const lines = fplChecklist({ ...week, strategy: { target_event: 16, transfer: { hit: 4 } }, sell: [], buy: [] });
     expect(lines.slice(0, 2)).toEqual(["Transfers: none", "Points hit: −4"]);
     expect(lines.at(-1)).toBe("Chip: Bench Boost");
+  });
+});
+
+describe("plan changed since you looked (L1)", () => {
+  const week = {
+    strategy: { target_event: 12, transfer: { hit: 0 } },
+    sell: [{ name: "Saka", price: 98 }], buy: [{ name: "Palmer", price: 105 }],
+    lineup: { formation: "3-4-3", starters: [{ name: "Haaland", role: "C" }, { name: "Palmer", role: "VC" }], bench: [] },
+    chips: { best_by_chip: [] },
+  };
+  it("says nothing on a first look and names each part that changed", () => {
+    const now = adviceSummary(week);
+    expect(now).toEqual({ transfers: "Saka → Palmer", captain: "Haaland", vice: "Palmer", chip: "none" });
+    expect(adviceDiff(null, now)).toEqual([]);
+    expect(adviceDiff(now, now)).toEqual([]);
+    expect(adviceDiff({ ...now, transfers: "roll", captain: "Salah" }, now)).toEqual(["Transfers: roll → Saka → Palmer", "Captain: Salah → Haaland"]);
   });
 });

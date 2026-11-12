@@ -71,6 +71,7 @@ async function setup(page: Page, beforeLoad?: () => Promise<void>) {
       activeHorizon = body.horizon;
       return json({ ...team, horizon: activeHorizon, forecast_context: { ...context, revision: `horizon-${activeHorizon}` } });
     }
+    if (path.endsWith('/shadow-summary')) return json({ available: true, first_event: 5, through_event: 5, rounds: 1, you: 48, policies: { incumbent: 52, hold: 45 } });
     if (path.endsWith('/news-assumptions')) return json({ proposals: [
       { player_id: 8, name: 'Player 8', team: 'T3', chance: 0.25, status: 'doubt', return_gw: null, quote: 'a late fitness test', current_chance: 1 }] });
     if (path.endsWith('/this-week')) {
@@ -201,9 +202,13 @@ test('this week: the steps in order, the XI after the transfer, and a checklist 
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   expect(copied.split('\n')).toEqual(['Sell: Player 8 (£5.0m)', 'Buy: Upgrade (£5.5m)', expect.stringMatching(/^Starting XI \(3-4-3\): .*Upgrade/),
     'Captain: Upgrade · Vice-captain: Player 1', expect.stringMatching(/^Bench: 1\. /), 'Chip: none']);
+  await expect(week).toContainText('Following the model (shadow season) since GW5: 52 points against your 48 over 1 round. Without transfers: 45.');
+  await expect(week.getByText('Plan changed since you last looked')).toHaveCount(0);  // first look
+  await page.evaluate(() => localStorage.setItem('fpl-this-week-seen-v1-1-6', JSON.stringify({ transfers: 'roll', captain: 'Player 1', vice: 'Player 2', chip: 'none' })));
   state.allowRestore();
   await page.reload();
   await expect(page.getByRole('region', { name: 'This week', exact: true }).getByRole('checkbox').first()).toBeChecked();
+  await expect(page.getByRole('region', { name: 'This week', exact: true })).toContainText('Plan changed since you last looked: Transfers: roll → Player 8 → Upgrade · Captain: Player 1 → Upgrade · Vice-captain: Player 2 → Player 1');
   expect(state.errors).toEqual([]);
 });
 
@@ -435,6 +440,21 @@ test('paste team news: Claude proposes a chance of playing and Accept adds it to
   await expect(page.locator('.assumptions-notice')).toContainText('Your assumptions are on (1 player)');
   expect(state.requests.find(r => r.path.endsWith('/news-assumptions'))?.body).toEqual({ text: 'Player 8 faces a late fitness test.' });
   await expect.poll(() => state.requests.filter(r => r.path.endsWith('/this-week')).at(-1)?.body.overrides).toEqual([{ player_id: 8, chance: 0.25 }]);
+  expect(state.errors).toEqual([]);
+});
+
+test('autopilot policy: margin and largest hit travel with the strategy and This week', async ({ page }) => {
+  const state = await setup(page);
+  await nav(page, 'Player preferences');
+  await page.getByLabel('Margin per transfer').fill('1');
+  await page.getByLabel('Largest hit').selectOption('0');
+  await nav(page, 'This week');
+  await expect.poll(() => state.requests.filter(r => r.path.endsWith('/this-week')).at(-1)?.body).toMatchObject({ roll_margin: 1, max_hit: 0 });
+  await nav(page, 'Player preferences');
+  await page.getByRole('button', { name: 'Default policy (2.0, any hit)' }).click();
+  await nav(page, 'Strategy centre');
+  await page.getByRole('button', { name: /Refresh advice|Create plan/ }).first().click().catch(() => undefined);
+  await expect.poll(() => { const body = state.requests.filter(r => r.path.endsWith('/strategy')).at(-1)?.body; return body && ('max_hit' in body || 'roll_margin' in body); }).toBe(false);
   expect(state.errors).toEqual([]);
 });
 

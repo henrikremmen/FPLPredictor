@@ -5,6 +5,7 @@ import tempfile
 import threading
 import time
 import json
+from dataclasses import replace
 import unittest
 from unittest.mock import patch
 
@@ -362,6 +363,35 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["headline"], "Roll the free transfer")
         self.assertEqual(response.json()["target_event"], 5)
+
+    def test_shadow_summary_compares_scored_rounds_with_your_net_points(self):
+        session = api.STORE.add(fake_team())
+        with tempfile.TemporaryDirectory() as tmp, patch("api.ROOT", Path(tmp)):
+            self.assertEqual(self.client.get(f"/api/team/{session}/shadow-summary").json(), {"available": False})
+            base = Path(tmp) / "artifacts/shadow_season/2026-27_1"
+            base.mkdir(parents=True)
+            (base / "state_gw10.json").write_text(json.dumps({"first_event": 10, "next_event": 10, "policies": {"incumbent": {"points": 0}}}))
+            self.assertEqual(self.client.get(f"/api/team/{session}/shadow-summary").json()["rounds"], 0)
+            (base / "state_gw12.json").write_text(json.dumps({"first_event": 10, "next_event": 12,
+                "policies": {"incumbent": {"points": 101.0}, "hold": {"points": 90.0}}}))
+            history = {"entry/1/history/": {"current": [{"event": 9, "points": 70, "event_transfers_cost": 0},
+                {"event": 10, "points": 50, "event_transfers_cost": 4}, {"event": 11, "points": 48, "event_transfers_cost": 0},
+                {"event": 12, "points": 99, "event_transfers_cost": 0}]}}
+            with patch.object(api.ANALYTICS, "many", return_value=history):
+                summary = self.client.get(f"/api/team/{session}/shadow-summary").json()
+        self.assertEqual((summary["rounds"], summary["you"], summary["policies"]), (2, 94, {"incumbent": 101.0, "hold": 90.0}))
+
+    def test_autopilot_policy_reaches_the_strategy_and_its_cache_key(self):
+        from result_cache import cache_key
+        session = api.STORE.add(fake_team())
+        seen = []
+        with patch("api.build_strategy_advice", side_effect=lambda team: seen.append((team.roll_margin, team.max_hit)) or {"headline": "x"}):
+            self.client.post(f"/api/team/{session}/strategy")
+            self.client.post(f"/api/team/{session}/strategy", json={"roll_margin": 1.0, "max_hit": 0})
+            self.assertEqual(self.client.post(f"/api/team/{session}/strategy", json={"max_hit": 30}).status_code, 422)
+        self.assertEqual(seen, [(2.0, None), (1.0, 0)])
+        team = fake_team()
+        self.assertNotEqual(cache_key(team, "strategy"), cache_key(replace(team, max_hit=4), "strategy"))
 
     def test_this_week_shows_the_xi_after_the_transfer_and_reuses_the_cache(self):
         team = team_with_spare_mid()

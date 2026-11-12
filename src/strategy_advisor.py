@@ -301,20 +301,22 @@ def build_strategy_advice(
         no_hit_value = float(no_hit_plan.get("discounted_objective_points", -np.inf))
         gain = unrestricted_value - no_hit_value
         paid_transfers = max(1, unrestricted_hit // 4)
-        required_buffer = 2.0 * paid_transfers
-        avoid = not np.isfinite(gain) or gain < required_buffer
+        required_buffer = team.roll_margin * paid_transfers
+        too_big = team.max_hit is not None and unrestricted_hit > team.max_hit  # L3: the user's largest hit
+        avoid = too_big or not np.isfinite(gain) or gain < required_buffer
         if avoid and no_hit_plan.get("weeks"):
             plan = no_hit_plan
         hit_guard = {
             "evaluated": True,
             "avoided": bool(avoid),
+            "over_limit": bool(too_big),
             "model_gain_after_hit": round(gain, 2) if np.isfinite(gain) else None,
             "required_uncertainty_buffer": required_buffer,
         }
     # Compare acting now with waiting one deadline, not with doing nothing
     # for the entire horizon. Both branches may make later transfers.
     roll_comparison = {"evaluated": False, "preferred_roll": False,
-                       "gain_over_roll": None, "minimum_gain": 2.0,
+                       "gain_over_roll": None, "minimum_gain": team.roll_margin,
                        "next_gw_lineup_gain": None, "incoming_starts_now": [],
                        "incoming_bench_now": [], "displaced_starters": [],
                        "candidate_out": [], "candidate_in": []}
@@ -336,7 +338,7 @@ def build_strategy_advice(
         # transfer does not sacrifice a bankable option.
         bankable_spent = max(0, min(team.free_transfers, transfers_now)
                              - max(0, team.free_transfers - 4))
-        required = 2.0 * bankable_spent
+        required = team.roll_margin * bankable_spent
         starts = set(candidate.get("starters", []))
         incoming = candidate.get("transfers_in", [])
         next_gain = (float(candidate["projected_points"]) - float(roll_first["projected_points"])
@@ -377,7 +379,9 @@ def build_strategy_advice(
             if decision == "HOLD" else
             f"The best validated {weeks}-GW plan makes no change now and retains flexibility."
         )
-    if hit_guard["avoided"]:
+    if hit_guard.get("over_limit"):
+        reason += f" A plan with a −{unrestricted_hit} hit scored higher, but your largest allowed hit is {team.max_hit}."
+    elif hit_guard["avoided"]:
         measured = hit_guard["model_gain_after_hit"]
         reason += (
             " A more aggressive plan included a hit, but "

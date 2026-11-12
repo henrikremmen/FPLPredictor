@@ -165,6 +165,10 @@ class ImportedTeam:
     player_data_at: str | None = None
     bench_weights: tuple[float, float, float, float] = BENCH_WEIGHTS
     scenario_overrides: dict[str, float] = field(default_factory=dict)  # P5: user's chance of playing
+    # L3 autopilot policy: planning points a move must beat per free transfer spent or per paid transfer,
+    # and the largest hit the strategy may take (None = any).
+    roll_margin: float = 2.0
+    max_hit: int | None = None
 
 
 def latest_forecast(root: Path, target_event: int) -> Path:

@@ -22,7 +22,8 @@ const week = {
 describe("This week (W1)", () => {
   it("shows the steps after the transfer and ticks one off", () => {
     const toggled: string[] = [];
-    render(<ThisWeekView team={team} week={week} done={["captain"]} onToggle={step => toggled.push(step)} />);
+    render(<ThisWeekView team={team} week={week} done={["captain"]} onToggle={step => toggled.push(step)} changed={["Captain: Salah → Haaland"]} />);
+    expect(screen.getByText("Plan changed since you last looked: Captain: Salah → Haaland")).toBeTruthy();
     expect(screen.getByText("1. Saka → Palmer")).toBeTruthy();
     expect(screen.getByText("Sell Saka (£9.8m). Buy Palmer (£10.5m).")).toBeTruthy();
     expect(screen.getByText("✓. Captain Haaland")).toBeTruthy();

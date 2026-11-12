@@ -3,7 +3,7 @@ import { Linking, Share, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { TeamResponse, ThisWeek } from "@fplmodell/api-client";
-import { CHIP_LABELS, type Chip, formatMoney, formatPoints, fplChecklist } from "@fplmodell/shared";
+import { CHIP_LABELS, type Chip, adviceDiff, adviceSummary, formatMoney, formatPoints, fplChecklist } from "@fplmodell/shared";
 import { Button, Card } from "../components/ui";
 import { useThisWeek } from "../hooks/useFeatures";
 import { colors, spacing, typography } from "../theme";
@@ -19,6 +19,15 @@ export function ThisWeekPanel({ team }: { team: TeamResponse }) {
   useEffect(() => {
     AsyncStorage.getItem(key).then(value => setDone(value ? JSON.parse(value) : [])).catch(() => setDone([]));
   }, [key]);
+  const [changed, setChanged] = useState<string[]>([]);
+  useEffect(() => {  // L1: compare with what this phone showed last time for this team and Gameweek
+    if (!week.data) return;
+    const seen = `fpl-this-week-seen-v1-${team.entry_id}-${team.target_event}`;
+    const now = adviceSummary(week.data);
+    AsyncStorage.getItem(seen)
+      .then(value => { setChanged(adviceDiff(value ? JSON.parse(value) : null, now)); return AsyncStorage.setItem(seen, JSON.stringify(now)); })
+      .catch(() => undefined);
+  }, [week.data, team.entry_id, team.target_event]);
   const toggle = (step: string) => {
     const next = done.includes(step) ? done.filter(s => s !== step) : [...done, step];
     setDone(next);
@@ -26,10 +35,10 @@ export function ThisWeekPanel({ team }: { team: TeamResponse }) {
   };
   if (week.isError) return <Card><Text style={styles.error}>Could not work out this week's plan.</Text></Card>;
   if (!week.data) return <Card><Text style={styles.caption}>Working out this week's plan…</Text></Card>;
-  return <ThisWeekView team={team} week={week.data} done={done} onToggle={toggle} />;
+  return <ThisWeekView team={team} week={week.data} done={done} onToggle={toggle} changed={changed} />;
 }
 
-export function ThisWeekView({ team, week, done, onToggle }: { team: TeamResponse; week: ThisWeek; done: string[]; onToggle: (step: string) => void }) {
+export function ThisWeekView({ team, week, done, onToggle, changed = [] }: { team: TeamResponse; week: ThisWeek; done: string[]; onToggle: (step: string) => void; changed?: string[] }) {
   const { strategy: s, lineup } = week;
   const captain = lineup.starters.find(p => p.role === "C")?.name ?? s.captain.captain.name;
   const vice = lineup.starters.find(p => p.role === "VC")?.name ?? s.captain.vice_captain.name;
@@ -45,6 +54,7 @@ export function ThisWeekView({ team, week, done, onToggle }: { team: TeamRespons
   return (
     <Card>
       <Text style={typography.eyebrow}>This week · GW{team.target_event}</Text>
+      {changed.length > 0 ? <Text style={styles.warning}>Plan changed since you last looked: {changed.join(" · ")}</Text> : null}
       {STEPS.map((step, index) => (
         <View key={step} style={[styles.step, done.includes(step) && styles.done]}>
           <Text style={typography.heading}>{done.includes(step) ? "✓" : index + 1}. {lines[step][0]}</Text>
@@ -66,4 +76,5 @@ const styles = StyleSheet.create({
   done: { opacity: 0.6 },
   caption: { ...typography.caption },
   error: { ...typography.caption, color: colors.danger },
+  warning: { ...typography.caption, color: colors.warning },
 });

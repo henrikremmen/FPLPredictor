@@ -81,6 +81,29 @@ class StrategyAdvisorTests(unittest.TestCase):
         self.assertEqual(advice['captain']['captain']['id'], 16)
         self.assertNotIn(8, [p['id'] for p in advice['captain']['alternatives']])
 
+    def test_autopilot_policy_sets_the_roll_margin_and_the_largest_hit(self):
+        from dataclasses import replace
+        team = self.decision_team()
+        def small_gain(_team, **kwargs):
+            roll = kwargs.get('force_roll_now', False)
+            return {'weeks': [{'transfers_out': [] if roll else ['Player 8'], 'transfers_in': [] if roll else ['Upgrade'],
+                               'starters': [], 'projected_points': 50, 'hit': 0}],
+                    'discounted_objective_points': 100 if roll else 101, 'global_optimum': True}
+        self.assertEqual(build_strategy_advice(team, planner=small_gain)['transfer']['decision'], 'ROLL')
+        self.assertEqual(build_strategy_advice(replace(team, roll_margin=.5), planner=small_gain)['transfer']['decision'], 'TRANSFER')
+        def hit_plan(_team, **kwargs):
+            if kwargs.get('force_roll_now'):
+                return {'weeks': [{'transfers_out': [], 'transfers_in': [], 'starters': [], 'hit': 0}],
+                        'discounted_objective_points': 90, 'global_optimum': True}
+            hit = 0 if kwargs.get('allow_hits') is False else 4
+            return {'weeks': [{'transfers_out': ['Player 8', 'Player 9'][:1 + bool(hit)], 'transfers_in': ['Upgrade', 'Player 16'][:1 + bool(hit)],
+                               'starters': [], 'hit': hit, 'projected_points': 60}],
+                    'discounted_objective_points': 120 if hit else 105, 'global_optimum': True}
+        self.assertEqual(build_strategy_advice(team, planner=hit_plan)['transfer']['decision'], 'HIT')
+        capped = build_strategy_advice(replace(team, max_hit=0), planner=hit_plan)['transfer']
+        self.assertEqual((capped['decision'], capped['hit']), ('TRANSFER', 0))
+        self.assertIn('largest allowed hit is 0', capped['reason'])
+
     def test_large_apparent_gain_without_solver_proof_is_cautious(self):
         team = self.decision_team()
         def planner(_team, **kwargs):

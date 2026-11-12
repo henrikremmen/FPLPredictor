@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import type { Breakpoint, Player, TeamResponse, ThisWeek as Week } from "@fplmodell/api-client";
-import { CHIP_LABELS, type Chip, formatDeadline, formatMoney, formatPoints, fplChecklist } from "@fplmodell/shared";
+import type { Breakpoint, Player, ShadowSummary, TeamResponse, ThisWeek as Week } from "@fplmodell/api-client";
+import { CHIP_LABELS, type AdviceSummary, type Chip, adviceDiff, adviceSummary, formatDeadline, formatMoney, formatPoints, fplChecklist } from "@fplmodell/shared";
 import { api } from "./api";
 import { Icon } from "./icons";
 import { PlayerName, useWorkspace } from "./Workspace";
@@ -43,6 +43,9 @@ export function ThisWeek({ team, onNavigate }: { team: TeamResponse; onNavigate:
   const [error, setError] = useState("");
   const [tips, setTips] = useState<Breakpoint[]>([]);
   const [copied, setCopied] = useState("");
+  const [changed, setChanged] = useState<string[]>([]);
+  const [shadow, setShadow] = useState<ShadowSummary | null>(null);
+  useEffect(() => { api.shadowSummary(team.session_id).then(setShadow).catch(() => setShadow(null)); }, [team.session_id]);
   const [done, toggle] = useDone(`fpl-this-week-v1-${team.entry_id}-${team.target_event}`);
   useEffect(() => {
     let active = true;
@@ -50,6 +53,12 @@ export function ThisWeek({ team, onNavigate }: { team: TeamResponse; onNavigate:
     api.thisWeek(team.session_id, workspace.constraints).then(result => {
       if (!active) return;
       setWeek(result);
+      // L1: compare with what this browser showed last time for this team and Gameweek.
+      const seen = `fpl-this-week-seen-v1-${team.entry_id}-${team.target_event}`;
+      const now = adviceSummary(result);
+      let before: AdviceSummary | null = null;
+      try { before = JSON.parse(localStorage.getItem(seen) ?? "null"); localStorage.setItem(seen, JSON.stringify(now)); } catch { /* not persisted */ }
+      setChanged(adviceDiff(before, now));
       // Tipping points for the player bought and the captain, loaded after the page shows (each is cached).
       const captain = result.lineup.starters.find(p => p.role === "C")?.id;
       const ids = [...new Set([result.buy[0]?.id, captain].filter((id): id is number => id != null))];
@@ -78,6 +87,7 @@ export function ThisWeek({ team, onNavigate }: { team: TeamResponse; onNavigate:
       : `Squad from your public FPL picks for GW${team.event}; transfers you made since that deadline are missing.`}
       {" "}<button className="link-button" onClick={() => onNavigate("squad")}>Correct squad, bank or free transfers</button></p>
     {error && <p className="workspace-warning" role="alert">{error}</p>}
+    {changed.length > 0 && <p className="workspace-warning" role="status">Plan changed since you last looked: {changed.join(" · ")}</p>}
     {!week && !error && <p className="section-copy">Working out this week's plan…</p>}
     {week && s && <>
       <Step n={1} title={s.transfer.title} done={done.includes("transfers")} onToggle={() => toggle("transfers")}>
@@ -126,6 +136,7 @@ export function ThisWeek({ team, onNavigate }: { team: TeamResponse; onNavigate:
         <button className="secondary" onClick={() => onNavigate("strategy")}>Compare the options</button>
       </div>
       {copied && <p role="status" className="section-copy">{copied}</p>}
+      {!!shadow?.rounds && shadow.policies?.incumbent != null && <p className="model-note">Following the model (shadow season) since GW{shadow.first_event}: {formatPoints(shadow.policies.incumbent, 0)} points against your {shadow.you} over {shadow.rounds} round{shadow.rounds === 1 ? "" : "s"}. Without transfers: {formatPoints(shadow.policies.hold ?? null, 0)}.</p>}
       <RecordDecision team={team} />
     </>}
   </section>;

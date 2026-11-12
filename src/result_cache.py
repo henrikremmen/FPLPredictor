@@ -32,6 +32,7 @@ def cache_key(team, endpoint: str, **options) -> str:
         "locked": sorted(int(i) for i in team.locked_ids), "excluded": sorted(int(i) for i in team.excluded_ids),
         "bench_weights": list(getattr(team, "bench_weights", ()) or ()),
         "scenarios": getattr(team, "scenario_overrides", None) or {}, "options": options,
+        "policy": [getattr(team, "roll_margin", 2.0), getattr(team, "max_hit", None)],
     }
     return hashlib.sha256(json.dumps(inputs, sort_keys=True, default=str).encode()).hexdigest()[:24]
 

@@ -424,6 +424,9 @@ export interface FixtureTicker {
     weeks: Array<{ event: number; fixtures: number; opponent: string; xp: number; p60: number | null }> }>;
 }
 
+/** GET /api/team/{session}/shadow-summary — L2: the model's shadow season against your actual points. */
+export interface ShadowSummary { available: boolean; first_event?: number; through_event?: number; rounds?: number; you?: number; policies?: Record<string, number> }
+
 /** POST /api/team/{session}/news-assumptions — M20: Claude's reading of pasted team news, to accept or ignore. */
 export interface NewsProposal { player_id: number; name: string; team: string; chance: number; status: "out" | "doubt" | "available" | "rested";
   return_gw: number | null; quote: string; current_chance: number | null }
@@ -656,7 +659,9 @@ export interface ForecastContext {
   model_family: string | null;
   source_url: string;
 }
-export interface PlayerConstraints { locked_ids: number[]; excluded_ids: number[]; bench_weights?: number[]; overrides?: ScenarioOverride[] }
+export interface PlayerConstraints { locked_ids: number[]; excluded_ids: number[]; bench_weights?: number[]; overrides?: ScenarioOverride[];
+  /** L3 autopilot policy for the strategy; omitted = 2.0 per transfer and any hit. */
+  roll_margin?: number; max_hit?: number | null }
 export interface PlayerDetail {
   injury_scenarios?: Array<{ GW: number; fixture: number; kickoff_time: string;
     reported_return: string; conservative_points: number; reported_return_points: number }>;

@@ -105,6 +105,9 @@ class ConstraintsRequest(BaseModel):
     bench_weights: list[float] | None = Field(default=None, min_length=4, max_length=4)
     # P5 "Your assumptions": chance of playing (0–1) per player; request-only, never stored or trained on.
     overrides: list[dict] = Field(default_factory=list, max_length=15)
+    # L3 autopilot policy for the strategy; omitted = today's defaults (2.0 per transfer, any hit).
+    roll_margin: float | None = Field(default=None, ge=0, le=10)
+    max_hit: int | None = Field(default=None, ge=0, le=20)
 
 
 class CompareRequest(ConstraintsRequest):
@@ -121,6 +124,9 @@ def _constrained(team, request):
     except AppError as exc:
         raise _as_http_error(exc) from exc
     team = replace(team, bench_weights=tuple(weights)) if weights is not None else team
+    if request.roll_margin is not None or request.max_hit is not None:
+        team = replace(team, roll_margin=team.roll_margin if request.roll_margin is None else request.roll_margin,
+                       max_hit=request.max_hit)
     try:
         return apply_overrides(team, request.overrides)
     except (AppError, KeyError, TypeError, ValueError) as exc:
@@ -571,6 +577,29 @@ def timeline(session_id: str) -> dict:
         raise _as_http_error(exc) from exc
 
 
+@app.get("/api/team/{session_id}/shadow-summary")
+def shadow_summary(session_id: str) -> dict:
+    """L2: the model's shadow season for this team against what you actually scored, once rounds are scored."""
+    team = STORE.get(session_id)
+    states = sorted(ROOT.glob(f"artifacts/shadow_season/*_{team.entry_id}/state_gw*.json"),
+                    key=lambda path: (path.parent.name, int(path.stem.split("gw")[1])))
+    if not states:
+        return {"available": False}
+    state = json.loads(states[-1].read_text())
+    first, through = int(state["first_event"]), int(state["next_event"]) - 1
+    if through < first:
+        return {"available": True, "first_event": first, "rounds": 0}
+    endpoint = f"entry/{team.entry_id}/history/"
+    try:
+        history = ANALYTICS.many([endpoint])[endpoint]
+    except AppError as exc:
+        raise _as_http_error(exc) from exc
+    yours = sum(int(row["points"]) - int(row.get("event_transfers_cost") or 0)
+                for row in history.get("current", []) if first <= int(row["event"]) <= through)
+    return {"available": True, "first_event": first, "through_event": through, "rounds": through - first + 1,
+            "you": yours, "policies": {name: round(float(p["points"]), 1) for name, p in state["policies"].items()}}
+
+
 @app.get("/api/team/{session_id}/top-managers")
 def top_managers_view(
     session_id: str,
@@ -896,7 +925,7 @@ def journal_entries(session_id: str) -> dict:
 
 # Context-aware chat (src/chat.py): Claude sees the forecast, the team, the page and calls these read-only tools.
 CHATS = chat.ChatStore()
-_CONSTRAINT_KEYS = ("locked_ids", "excluded_ids", "bench_weights", "overrides")
+_CONSTRAINT_KEYS = ("locked_ids", "excluded_ids", "bench_weights", "overrides", "roll_margin", "max_hit")
 
 
 class ChatRequest(ConstraintsRequest):
