@@ -61,7 +61,10 @@ async function setup(page: Page, beforeLoad?: () => Promise<void>) {
     requests.push({ path, body });
     const json = (data: unknown, status = 200) => route.fulfill({ status, json: data });
     if (path.endsWith('/import')) return json(body?.risk_profile === 'upside' ? upsideTeam : team);
-    if (request.method() === 'GET' && path === '/api/team/test') return restorable ? json(team) : json({ detail: 'Session expired' }, 404);
+    if (request.method() === 'GET' && path === '/api/team/test') {
+      if (refreshed) return json({ ...team, forecast_context: { ...context, revision: 'version-2', forecast_at: '2026-10-10T09:00:00Z' } });
+      return restorable ? json(team) : json({ detail: 'Session expired' }, 404);
+    }
     if (path.endsWith('/timeline')) return json(timeline);
     if (path.endsWith('/horizon')) {
       if (horizonFails) return json({ detail: 'Saved forecast is missing this horizon' }, 400);
@@ -121,12 +124,14 @@ async function setup(page: Page, beforeLoad?: () => Promise<void>) {
       loop = { ...loop, job: { ...loop.job, state: 'running' } };
       return json(loop);
     }
-    if (path.endsWith('/status')) return json({ state: 'running', stage: 'Downloading player histories', elapsed_seconds: 1, captured: 100, total: 667, error: null });
+    if (path.endsWith('/status')) return json(refreshed  // the refresh runs as a 202 job; the app polls this, then reloads the team
+      ? { state: 'complete', stage: 'Forecast saved; reloading team', elapsed_seconds: 2, captured: 667, total: 667, error: null }
+      : { state: 'running', stage: 'Downloading player histories', elapsed_seconds: 1, captured: 100, total: 667, error: null });
     if (path.endsWith('/refresh')) {
       await new Promise(r => setTimeout(r, 900));
       if (refreshFails) return json({ detail: 'Update failed: network unavailable' }, 400);
       refreshed = true;
-      return json({ ...team, forecast_context: { ...context, revision: 'version-2', forecast_at: '2026-10-10T09:00:00Z' } });
+      return json({ status: 'started' }, 202);
     }
     return json({ detail: `Unexpected route: ${path}` }, 404);
   });

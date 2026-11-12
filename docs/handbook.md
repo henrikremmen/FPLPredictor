@@ -649,6 +649,10 @@ and data quality). It shows data quality and what it means for decisions,
 locked rounds with their counts, calibration and known limitations
 (`GET /api/model-card`).
 
+On 12 November 2026 `cup_minutes_20261022`, `openfpl_style_20261022` and `refit_20261022` were set
+`active: false` (superseded or research-only data) so fewer challengers share the Holm correction.
+`crowd` and `season_transfer` stay active because the shadow season's policies need them.
+
 Challengers added 6–8 November 2026 (phase D, all `production_eligible: false`, locked from GW11):
 
 ```bash
@@ -686,8 +690,10 @@ The app shows a banner while the lock window is open (30 hours before the
 deadline) and the round is not locked: **Lock window open for GW N – lock now**.
 Its button runs the same `prospective_loop.py auto` as a background job on the
 machine running the API (`POST /api/loop/lock`; progress in
-`GET /api/loop/status`). Nothing is scheduled; a second lock of a locked round
-is refused. The banner also lists rounds that were never locked and a stale
+`GET /api/loop/status`). **Refresh forecast** inside the window also starts the
+lock once the new forecast is saved (plan M16, 12 November 2026); if the lock
+check fails, the forecast is kept and the banner still offers the button.
+Nothing is scheduled; a second lock of a locked round is refused. The banner also lists rounds that were never locked and a stale
 `fpl-data` checkout. A challenger becomes eligible
 for a *manual* promotion review only under the pre-registered criterion in
 [docs/prospective_criterion_2026-10-22.md](prospective_criterion_2026-10-22.md).

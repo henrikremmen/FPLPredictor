@@ -66,6 +66,21 @@ class StrategyAdvisorTests(unittest.TestCase):
         self.assertEqual(advice['transfer']['decision'], 'TRANSFER')
         self.assertEqual(advice['transfer']['roll_comparison']['displaced_starters'], ['Player 8'])
 
+    def test_captain_and_health_use_the_squad_after_the_transfer(self):
+        team = self.decision_team()
+        after = [i for i in range(1, 16) if i != 8] + [16]
+        def planner(_team, **kwargs):
+            roll = kwargs.get('force_roll_now', False)
+            week = {'transfers_out': [] if roll else ['Player 8'], 'transfers_in': [] if roll else ['Upgrade'],
+                    'transfers_out_ids': [] if roll else [8], 'transfers_in_ids': [] if roll else [16],
+                    'squad_ids': list(range(1, 16)) if roll else after,
+                    'starters': ['Player 8'] if roll else ['Upgrade'], 'projected_points': 50 if roll else 56, 'hit': 0}
+            return {'weeks': [week], 'discounted_objective_points': 100 if roll else 110, 'global_optimum': True}
+        advice = build_strategy_advice(team, planner=planner)
+        self.assertEqual(advice['transfer']['decision'], 'TRANSFER')
+        self.assertEqual(advice['captain']['captain']['id'], 16)
+        self.assertNotIn(8, [p['id'] for p in advice['captain']['alternatives']])
+
     def test_large_apparent_gain_without_solver_proof_is_cautious(self):
         team = self.decision_team()
         def planner(_team, **kwargs):

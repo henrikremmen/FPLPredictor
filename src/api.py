@@ -652,7 +652,13 @@ class BackgroundJob:
                     "elapsed_seconds": round(time.time() - self.started_at) if self.started_at else 0}
 
 
-REFRESH_JOB = BackgroundJob(lambda: refresh_forecast(ROOT), "forecast update")
+def _refresh_and_lock():
+    result = refresh_forecast(ROOT)
+    _lock_if_due()
+    return result
+
+
+REFRESH_JOB = BackgroundJob(_refresh_and_lock, "forecast update")
 TOP_JOB = BackgroundJob(lambda: top_managers.collect(ROOT), "top-manager update")
 # Still manual: nothing schedules it. The loop itself refuses a second lock of the same round (plan O2).
 LOOP_JOB = BackgroundJob(lambda: prospective_loop.auto(ROOT), "prospective loop run", min_interval=0)
@@ -724,6 +730,7 @@ def refresh_team(session_id: str) -> dict:
         load_team_override(ROOT, team)
         STORE.set(session_id, team)
         _warm(team)
+        _lock_if_due()
 
     REFRESH_JOB.start(job)
     return {"status": "started"}
@@ -739,6 +746,16 @@ def _loop_events() -> list[dict]:
 def _loop_status() -> dict:
     return {**prospective_loop.status(ROOT, _loop_events()), "job": LOOP_JOB.snapshot(),
             "command": ".venv/bin/python src/prospective_loop.py auto", "fpl_data": fpl_data_freshness(ROOT)}
+
+
+def _lock_if_due() -> None:
+    """M16: a refresh inside the lock window also locks the round; the loop refuses a second lock."""
+    try:
+        current = _loop_status()
+        if current["window_open"] and not current["locked"] and current["job"]["state"] != "running":
+            LOOP_JOB.start()
+    except Exception as exc:  # the forecast is saved either way; the lock banner still offers the lock
+        print(f"Automatic lock skipped: {exc}")
 
 
 @app.get("/api/loop/status")

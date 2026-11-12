@@ -407,6 +407,43 @@ class LoopEndpointTests(unittest.TestCase):
         self.assertIn("No capture", job.snapshot()["error"])
 
 
+class AutoLockTests(unittest.TestCase):
+    """M16: a refresh inside the lock window also locks the round, and never fails the refresh."""
+
+    def run_lock(self, status, job_state="idle"):
+        job = api.BackgroundJob(lambda: {"locked": "loop_gw11_x"}, "loop run", min_interval=0)
+        job.state = job_state
+        with patch.object(api, "LOOP_JOB", job), patch.object(api.prospective_loop, "status", return_value=status), \
+                patch.object(api, "fpl_data_freshness", return_value={}), patch.object(api, "_loop_events", return_value=[]):
+            api._lock_if_due()
+            if job_state != "running":
+                settle(job)
+        return job.snapshot()
+
+    def test_locks_only_an_open_unlocked_window(self):
+        base = {"event": 11, "window_open": True, "locked": False}
+        self.assertEqual(self.run_lock(base)["result"], {"locked": "loop_gw11_x"})
+        self.assertIsNone(self.run_lock({**base, "locked": True})["started_at"])
+        self.assertIsNone(self.run_lock({**base, "window_open": False})["started_at"])
+        self.assertIsNone(self.run_lock(base, job_state="running")["started_at"])  # busy: no second start
+
+    def test_a_failing_status_never_fails_the_refresh(self):
+        with patch.object(api, "_loop_status", side_effect=OSError("no capture")):
+            api._lock_if_due()
+
+    def test_both_refresh_routes_try_to_lock(self):
+        with patch("api.refresh_forecast", return_value={"ok": True}), patch("api._lock_if_due") as lock:
+            self.assertEqual(api._refresh_and_lock(), {"ok": True})
+            lock.assert_called_once()
+        session = api.STORE.add(fake_team())
+        job = api.BackgroundJob(lambda: None, "forecast update", min_interval=0)
+        with patch("api.REFRESH_JOB", job), patch("api.refresh_forecast"), patch("api.import_team", return_value=fake_team()), \
+                patch("api.load_team_override"), patch("api._lock_if_due") as lock:
+            TestClient(api.app).post(f"/api/team/{session}/refresh")
+            settle(job)
+        lock.assert_called_once()
+
+
 class ResultCacheTests(unittest.TestCase):
     """T3: a cached answer only under an identical key; any input change is a new key."""
 

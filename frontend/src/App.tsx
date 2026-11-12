@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { waitForJob } from "@fplmodell/api-client";
 import { api } from "./api";
 import { Icon } from "./icons";
-import { CHIP_LABELS, type Chip, decisionCard, RISK_PROFILE_LABELS, RISK_PROFILE_SCORE, formatDeadline, teamIdFromReference } from "@fplmodell/shared";
+import { CHIP_LABELS, type Chip, decisionCard, RISK_PROFILE_LABELS, RISK_PROFILE_SCORE, formatDeadline, formatHoursRemaining, teamIdFromReference } from "@fplmodell/shared";
 import { Timeline } from "./Timeline";
 import { TopManagers } from "./TopManagers";
 import { ModelCardView } from "./ModelCard";
@@ -609,7 +609,7 @@ function StrategyCenter({ team, onNavigate }: { team: TeamResponse; onNavigate: 
     : advice.deadline.hours_remaining <= 0
       ? "Passed"
       : advice.deadline.hours_remaining < 24
-        ? `${advice.deadline.hours_remaining.toFixed(1)} t`
+        ? formatHoursRemaining(advice.deadline.hours_remaining)
         : `${Math.floor(advice.deadline.hours_remaining / 24)} d`;
   return (
     <>

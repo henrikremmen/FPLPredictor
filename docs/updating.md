@@ -36,7 +36,8 @@ The steps run in this order, and each prints `== <name>` in the terminal:
    makes a new forecast. The same as **Refresh forecast** in the app.
 4. **Prospective loop:** `prospective_loop.py auto` locks the round when the
    deadline is less than 30 hours away and evaluates rounds FPL has checked. It
-   reuses the forecast from step 3.
+   reuses the forecast from step 3. **Refresh forecast** in the app starts this lock by
+   itself when the window is open and the round is not locked yet.
 5. **Top managers:** `top_managers.py collect` fetches what the top 100,
    legacy, top 1% and YouTuber managers fielded in the latest round.
 

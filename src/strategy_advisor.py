@@ -15,7 +15,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from fpl_app import AppError, ImportedTeam, optimal_lineup
+from fpl_app import AppError, ImportedTeam, _frame_for_holdings, optimal_lineup
 from multiweek_planner import plan_multiweek
 
 
@@ -99,6 +99,14 @@ def _next_market(team: ImportedTeam) -> pd.DataFrame:
         if set(team.market["id"]) == set(team.lineup_squad["id"]):
             return team.lineup_squad.drop_duplicates("id").copy()
     return team.market.drop_duplicates("id").copy()
+
+
+def lineup_after(team: ImportedTeam, week: dict) -> dict:
+    """XI, captain and bench for the squad after a plan week's transfers (F31)."""
+    source = team.lineup_squad if team.lineup_squad is not None else team.squad
+    if week.get("transfers_in_ids") and week.get("squad_ids"):
+        source = _frame_for_holdings(source, _next_market(team), [{"id": i} for i in week["squad_ids"]])
+    return optimal_lineup(source)
 
 
 def _price_alerts(team: ImportedTeam, next_market: pd.DataFrame) -> dict:
@@ -271,8 +279,6 @@ def build_strategy_advice(
 ) -> dict:
     """Build a prioritized, explainable weekly decision brief."""
     next_market = _next_market(team)
-    lineup_source = team.lineup_squad if team.lineup_squad is not None else team.squad
-    lineup = optimal_lineup(lineup_source)
     known_events = (
         sorted(team.weekly_market["forecast_event"].astype(int).unique())
         if team.weekly_market is not None and "forecast_event" in team.weekly_market else
@@ -349,6 +355,7 @@ def build_strategy_advice(
         if prefer_roll:
             plan = roll_plan
     first = plan["weeks"][0]
+    lineup = lineup_after(team, first)
     outgoing = list(first.get("transfers_out", []))
     incoming = list(first.get("transfers_in", []))
     hit = int(first.get("hit", 0))

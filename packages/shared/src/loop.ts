@@ -23,6 +23,7 @@ export function loopBanner(status: LoopBannerInput): LoopBanner | null {
   const canLock = Boolean(status.event && status.window_open && !status.locked && !running);
   if (running) headline = `Locking GW${status.event}…`;
   else if (canLock) headline = `Lock window open for GW${status.event} – lock now`;
+  if (canLock) notes.push("Refresh forecast also locks the round.");
   if (status.job.state === "failed") notes.push(`Last lock attempt failed: ${status.job.error ?? "unknown error"}`);
   if (status.job.state === "complete" && status.locked) notes.push(`GW${status.event} is locked.`);
   if (status.missed_locks.length) {

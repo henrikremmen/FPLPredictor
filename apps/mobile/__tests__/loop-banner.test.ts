@@ -14,6 +14,7 @@ describe("lock banner", () => {
   it("offers the lock only when the window is open and the round is not locked", () => {
     const open = loopBanner({ ...base, window_open: true });
     expect(open).toMatchObject({ headline: "Lock window open for GW11 – lock now", canLock: true, tone: "warning" });
+    expect(open?.notes).toEqual(["Refresh forecast also locks the round."]);
     expect(loopBanner({ ...base, window_open: true, locked: true })).toBeNull();
     expect(loopBanner({ ...base, window_open: true, job: { state: "running", error: null } }))
       .toMatchObject({ headline: "Locking GW11…", canLock: false });
