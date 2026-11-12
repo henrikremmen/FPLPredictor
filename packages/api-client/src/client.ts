@@ -20,8 +20,12 @@ import type {
   StrategyAdvice,
   TeamResponse,
   TeamTimeline,
+  TopCohort,
+  TopManagers,
+  CopyCheck,
   PlayerComparison,
   PlayerConstraints,
+  RefreshStatus,
   TransferResponse,
 } from "./types";
 
@@ -43,9 +47,33 @@ export interface ApiClientOptions {
   baseUrl: string;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
+  /** FPL_API_TOKEN of the backend, sent as a bearer token when set. */
+  token?: string;
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+const JOB_POLL_FAILURES = 5;
+
+/**
+ * Polls a background job's status route (forecast refresh, top-manager update) until it stops
+ * running; throws the job's error if it failed. A few failed polls in a row (a network blip) are retried.
+ */
+export async function waitForJob<S extends { state: string; error: string | null }>(
+  poll: () => Promise<S>, onUpdate?: (status: S) => void, intervalMs = 2000,
+): Promise<S> {
+  for (let failures = 0; ;) {
+    try {
+      const status = await poll();
+      failures = 0;
+      onUpdate?.(status);
+      if (status.state === "failed") throw Object.assign(new Error(status.error ?? "The update failed."), { final: true });
+      if (status.state !== "running") return status;
+    } catch (error) {
+      if ((error as { final?: boolean }).final || ++failures >= JOB_POLL_FAILURES) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
 const REFRESH_TIMEOUT_MS = 120_000;
 
 /**
@@ -57,10 +85,12 @@ export class ApiClient {
   private baseUrl: string;
   private timeoutMs: number;
   private fetchImpl: typeof fetch;
+  private token?: string;
 
   constructor(options: ApiClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.token = options.token || undefined;
     // Browsers reject window.fetch called with another `this` ("Illegal invocation").
     this.fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init));
   }
@@ -74,7 +104,11 @@ export class ApiClient {
     try {
       response = await this.fetchImpl(`${this.baseUrl}${path}`, {
         ...options,
-        headers: { "Content-Type": "application/json", ...options?.headers },
+        headers: {
+          "Content-Type": "application/json",
+          ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+          ...options?.headers,
+        },
         signal: controller.signal,
       });
     } catch (error) {
@@ -224,6 +258,14 @@ export class ApiClient {
     return this.request<TeamTimeline>(`/api/team/${session}/timeline`);
   }
 
+  topManagers(session: string, cohort: TopCohort) {
+    return this.request<TopManagers>(`/api/team/${session}/top-managers?cohort=${cohort}`);
+  }
+
+  copyCheck(session: string, leagueId?: number) {
+    return this.request<CopyCheck>(`/api/team/${session}/copy-check${leagueId ? `?league_id=${leagueId}` : ""}`);
+  }
+
   market(session: string, position: "GK" | "DEF" | "MID" | "FWD" | "ALL", maxPrice: number) {
     const params = new URLSearchParams({ limit: "30", max_price: String(maxPrice) });
     if (position !== "ALL") params.set("position", position);
@@ -235,10 +277,7 @@ export class ApiClient {
   }
 
   refreshForecast() {
-    return this.request<{ status: string }>("/api/forecast/refresh", {
-      method: "POST",
-      timeoutMs: REFRESH_TIMEOUT_MS,
-    });
+    return this.request<{ status: string }>("/api/forecast/refresh", { method: "POST" });
   }
 
   loopStatus() {
@@ -257,10 +296,12 @@ export class ApiClient {
     return this.request<LoopStatus>("/api/loop/lock", { method: "POST" });
   }
 
+  /** Starts the forecast update and then reloads the team; follow with waitForJob(forecastStatus) and getTeam. */
   refreshTeam(session: string) {
-    return this.request<TeamResponse>(`/api/team/${session}/refresh`, {
-      method: "POST",
-      timeoutMs: REFRESH_TIMEOUT_MS,
-    });
+    return this.request<{ status: string }>(`/api/team/${session}/refresh`, { method: "POST" });
+  }
+
+  forecastStatus() {
+    return this.request<RefreshStatus>("/api/forecast/status");
   }
 }

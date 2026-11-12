@@ -1,95 +1,104 @@
-# Forhåndsregistrert kriterium for modellbytte (versjon 2)
+# Pre-registered criterion for a model switch (version 2)
 
-Registrert 6. november 2026 kl. 15:30 UTC. Det er før GW11 låses (vinduet åpner
-20.11 kl. 05:00 UTC) og før noe utfall finnes for rundene versjonen gjelder.
-[Versjon 1](prospective_criterion_2026-10-22.md) er uendret. Den beregnes og
-rapporteres fortsatt for alle løyperunder. Kriteriet ligger også i koden
-(`CRITERION_V2` i `src/criterion_v2.py`) og vises på ledertavlen.
-Endringer krever en ny, datert versjon.
+*Translated from Norwegian on 11 November 2026. The content is unchanged; the
+original text is in commit 78eb82c.*
 
-## Hvorfor en v2
+Registered on 6 November 2026 at 15:30 UTC. That is before GW11 is locked (the
+window opens 20 November at 05:00 UTC) and before any outcome exists for the
+rounds this version covers. [Version 1](prospective_criterion_2026-10-22.md) is
+unchanged. It is still computed and reported for every loop round. The
+criterion is also in the code (`CRITERION_V2` in `src/criterion_v2.py`) and is
+shown on the leaderboard. Changes require a new, dated version.
 
-v1 sammenligner lagpoeng for hver modells egen tropp. Differansen per runde har
-standardavvik på omtrent 13 poeng (66 runder backtest, se
-`production_market_0erysib7/settings.json`). For å påvise en gevinst på 2 lagpoeng
-per runde med 80 % styrke og 95 % konfidens trengs omtrent
-(2,80 × 13 / 2)² ≈ 330 runder. v1 vil derfor nesten aldri bli oppfylt, selv for
-en reell forbedring. v2 bruker hele kohorten av relevante spillere i hver runde.
+## Why a v2
 
-## Hva som teller
+v1 compares team points for each model's own squad. The difference per round
+has a standard deviation of about 13 points (66-round backtest, see
+`production_market_0erysib7/settings.json`). Detecting a gain of 2 team points
+per round with 80% power and 95% confidence needs about
+(2.80 × 13 / 2)² ≈ 330 rounds. v1 will therefore almost never be met, even for
+a real improvement. v2 uses the whole cohort of relevant players in each round.
 
-- Bare løypepakker (`loop-v1`) som er låst etter registreringstidspunktet.
-  Første mulige runde er GW11. GW8 og GW10 vises som diagnostikk og teller ikke.
-- Bare endelige utfall: FPL har markert runden `finished` og `data_checked`.
-  Låseregler, hasher og identiske kohorter er som i v1.
-- Referansen er `incumbent`, altså produksjonsmodellen på låsetidspunktet.
+## What counts
 
-## Kohort (fastsatt før deadline)
+- Only loop bundles (`loop-v1`) locked after the registration time. The first
+  possible round is GW11. GW8 and GW10 are shown as diagnostics and do not
+  count.
+- Only final outcomes: FPL has marked the round `finished` and `data_checked`.
+  Lock rules, hashes and identical cohorts are as in v1.
+- The reference is `incumbent`, the production model at the time of the lock.
 
-Kohorten bestemmes bare av det som er frosset i låsen. Det er referansens
-prognoser og sannsynligheter og troppene modellene valgte. En spiller er med
-hvis minst ett av punktene holder:
+## Cohort (fixed before the deadline)
 
-1. Spilleren er blant de 100 høyeste etter referansens prognose for runden.
-2. Referansens sannsynlighet for minst én opptreden i runden er minst 0,5.
-3. Spilleren er i minst én låst tropp (alle modeller, inkludert `fpl_ep_next`).
+The cohort is determined only by what is frozen in the lock: the reference's
+forecasts and probabilities and the squads the models chose. A player is
+included if at least one of these holds:
 
-I GW8 ga dette 314 spillere. Faktiske minutter brukes aldri til å velge kohort.
+1. The player is among the top 100 by the reference's forecast for the round.
+2. The reference's probability of at least one appearance in the round is at
+   least 0.5.
+3. The player is in at least one locked squad (all models, including
+   `fpl_ep_next`).
 
-## Primærmål og regel
+In GW8 this gave 314 players. Actual minutes are never used to select the
+cohort.
 
-For hver runde *r* og hver kohortspiller regnes absolutt feil i ukepoeng.
-d_r er gjennomsnittet i kohorten av (utfordrerens feil − referansens feil).
-Negativ verdi betyr at utfordreren er bedre.
+## Primary measure and rule
 
-**Primær utfordrer:** `features_v2_20261106` (plan M11). Den låses fra første
-mulige runde etter registreringen. Primærutfordreren er **kvalifisert for en
-bytte-vurdering** bare når alle tre punktene holder:
+For each round *r* and each cohort player, the absolute error in weekly points
+is computed. d_r is the cohort mean of (challenger's error − reference's
+error). A negative value means the challenger is better.
 
-1. Minst **8** tellende runder.
-2. Hele 95 %-intervallet for gjennomsnittet av d_r ligger **under 0**. Det er
-   en blokk-bootstrap der hele runder trekkes med tilbakelegging, med 10 000
-   trekk og seed 20261106.
-3. Vernet: gjennomsnittlig differanse i pinball-tap (Q10/Q50/Q90, en
-   trepunkts tilnærming til CRPS) er **≤ 0** når begge modellene har kvantiler.
+**Primary challenger:** `features_v2_20261106` (plan M11). It is locked from the
+first possible round after registration. The primary challenger is **eligible
+for a switch review** only when all three points hold:
 
-**Andre utfordrere** er utforskende. Deres ensidige bootstrap-p-verdier
-(andelen trekk med gjennomsnitt ≥ 0) korrigeres med Holm. En utforskende
-utfordrer er kvalifisert bare med Holm-p < 0,05, minst 8 runder og vernet
-oppfylt. Det hindrer at vi velger en tilfeldig vinner blant mange.
+1. At least **8** counting rounds.
+2. The whole 95% interval for the mean of d_r lies **below 0**. It is a block
+   bootstrap in which whole rounds are drawn with replacement, with 10,000
+   draws and seed 20261106.
+3. The guard: the mean difference in pinball loss (Q10/Q50/Q90, a three-point
+   approximation to CRPS) is **≤ 0** when both models have quantiles.
 
-## Sekundære mål (rapporteres, avgjør ikke)
+**Other challengers** are exploratory. Their one-sided bootstrap p-values (the
+share of draws with a mean ≥ 0) are Holm-corrected. An exploratory challenger
+is eligible only with Holm p < 0.05, at least 8 rounds and the guard met. This
+prevents picking a random winner among many.
 
-- v1-lagpoeng for modellens egen tropp.
-- **Syntetiske tropper:** 300 lovlige tropper (2/5/5/3, høyst tre per klubb,
-  høyst £100m) trekkes i forhold til eierandel fra den låste bootstrap-fila,
-  med seed 20261106. Hver modell velger XI og kaptein i hver tropp
-  (`fpl_app.optimal_lineup`). Tallet er faktiske poeng med kaptein × 2, uten
-  autosubs.
-- Skyggesesongen (E2) med bank, gratisbytter og autosubs/VC, når den har runder.
-- E3-målene: Brier, kalibrering, intervalltreff og -bredde, og bias per
-  posisjon og DC-gruppe.
+## Secondary measures (reported, not deciding)
 
-## Styrkeberegning
+- v1 team points for the model's own squad.
+- **Synthetic squads:** 300 legal squads (2/5/5/3, at most three per club, at
+  most £100m) drawn in proportion to ownership from the locked bootstrap file,
+  with seed 20261106. Each model picks XI and captain in each squad
+  (`fpl_app.optimal_lineup`). The number is actual points with captain × 2,
+  without autosubs.
+- The shadow season (E2) with bank, free transfers and autosubs/VC, once it has
+  rounds.
+- The E3 measures: Brier, calibration, interval hit rate and width, and bias by
+  position and DC group.
 
-d_r har standardavvik σ per runde. Det er estimert fra 2025-26 (38 runder, top
-100-kohort, `artifacts/models/market_1sny_8dq/test_predictions.csv`) for to
-modellpar: 0,020 og 0,044, median **0,032**. Antall runder for 80 % styrke
-(tosidig 95 %) er n = ((1,96 + 0,84) · σ / δ)² (`criterion_v2.rounds_needed`):
+## Power calculation
 
-| Reell gevinst δ i MAE per kohortspiller | Omtrent i % av MAE (≈ 2,0) | Runder |
+d_r has a standard deviation σ per round. It is estimated from 2025-26 (38
+rounds, top 100 cohort, `artifacts/models/market_1sny_8dq/test_predictions.csv`)
+for two model pairs: 0.020 and 0.044, median **0.032**. The number of rounds for
+80% power (two-sided 95%) is n = ((1.96 + 0.84) · σ / δ)²
+(`criterion_v2.rounds_needed`):
+
+| Real gain δ in MAE per cohort player | About % of MAE (≈ 2.0) | Rounds |
 |---:|---:|---:|
-| 0,10 | 5 % | 1 (minimum 8 gjelder) |
-| 0,05 | 2,5 % | 4 (minimum 8 gjelder) |
-| 0,032 | 1,6 % | 8 |
-| 0,02 | 1 % | 20 |
+| 0.10 | 5% | 1 (minimum of 8 applies) |
+| 0.05 | 2.5% | 4 (minimum of 8 applies) |
+| 0.032 | 1.6% | 8 |
+| 0.02 | 1% | 20 |
 
-Med 8 runder kan vi forvente å påvise omtrent δ ≥ 0,03. Til sammenligning
-skilte `refit_20261022` seg fra referansen med +0,016 i GW8 (dårligere). σ er
-estimert på én sesong og to modellpar, så tallene er grove.
+With 8 rounds we can expect to detect about δ ≥ 0.03. For comparison,
+`refit_20261022` differed from the reference by +0.016 in GW8 (worse). σ is
+estimated on one season and two model pairs, so the numbers are rough.
 
-## Hva kriteriet ikke gjør
+## What the criterion does not do
 
-Som i v1 bytter løypa aldri produksjonsmodell. Et bytte er en manuell
-beslutning. Den dokumenteres datert med ledertavlen som grunnlag og bygges med
-den vanlige refit-koden. Utfordrere har `production_eligible: false`.
+As in v1, the loop never switches the production model. A switch is a manual
+decision. It is documented, dated, with the leaderboard as its basis, and built
+with the usual refit code. Challengers have `production_eligible: false`.

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+import hmac
 import json
 import os
 import time
@@ -14,8 +17,11 @@ import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse
+from dotenv import dotenv_values
 from pydantic import BaseModel, Field
 
+import chat
 import prospective_loop
 from autosub_value import lineup_value
 from chip_strategy import recommend_chip_strategy
@@ -29,6 +35,8 @@ import decision_journal
 from session_store import SessionRegistry
 from squad_recommendations import recommend_squads
 from strategy_advisor import build_strategy_advice
+import copy_check
+import top_managers
 from fpl_app import (
     AppError,
     ImportedTeam,
@@ -37,6 +45,7 @@ from fpl_app import (
     import_team,
     load_team_override,
     optimal_lineup,
+    override_mtime,
     recommend_transfers,
     refresh_forecast,
     save_team_override,
@@ -48,6 +57,18 @@ from fpl_app import (
 from decision_workspace import constrained_team, context, fixture_ticker, player_detail, changes_since_previous, compare_players, change_horizon
 
 ROOT = Path(__file__).resolve().parents[1]
+# One shared secret for every route but the health check, from the environment or the root .env.
+API_TOKEN = (os.environ["FPL_API_TOKEN"] if "FPL_API_TOKEN" in os.environ
+             else dotenv_values(ROOT / ".env").get("FPL_API_TOKEN") or "").strip()
+
+
+def _require_token_when_exposed(host: str | None, token: str) -> None:
+    if host == "0.0.0.0" and not token:
+        raise RuntimeError("FPL_API_HOST=0.0.0.0 opens the API to the whole network. "
+                           "Set FPL_API_TOKEN in .env first (see docs/deploy.md).")
+
+
+_require_token_when_exposed(os.environ.get("FPL_API_HOST"), API_TOKEN)
 
 
 class TeamImportRequest(BaseModel):
@@ -128,30 +149,66 @@ class PlanRequest(ConstraintsRequest):
     requirements: list[PlanRequirement] = Field(default_factory=list, max_length=6)
 
 
+MAX_TEAMS = 32
+
+
 class TeamStore:
     """In-memory team cache backed by a durable session registry.
 
     A session survives an API restart: the registry keeps just enough (entry
     ID, horizon, risk profile) to rebuild the ``ImportedTeam`` on demand by
-    re-running ``import_team`` and reapplying any saved manual override.
+    re-running ``import_team`` and reapplying any saved manual override. The
+    same rebuild serves a team evicted when more than MAX_TEAMS are cached.
+
+    Saved corrections belong to the FPL entry, not the session: when another
+    session (the phone vs the web app) saved or cleared one since this team
+    was built, ``get`` picks it up before anything reads or overwrites it.
+    Stored teams are never changed in place; routes ``set`` a new copy.
     """
 
-    def __init__(self, registry: SessionRegistry) -> None:
-        self._teams: dict[str, ImportedTeam] = {}
+    def __init__(self, registry: SessionRegistry, max_teams: int = MAX_TEAMS) -> None:
+        self._teams: OrderedDict[str, tuple[ImportedTeam, int | None]] = OrderedDict()
         self._registry = registry
+        self._max = max_teams
         self._lock = RLock()
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._teams)
+
+    def _keep(self, session_id: str, team: ImportedTeam) -> None:
+        stamp = override_mtime(ROOT, team.entry_id)
+        with self._lock:
+            self._teams[session_id] = (team, stamp)
+            self._teams.move_to_end(session_id)
+            while len(self._teams) > self._max:
+                self._teams.popitem(last=False)
 
     def add(self, team: ImportedTeam) -> str:
         session_id = uuid4().hex
-        with self._lock:
-            self._teams[session_id] = team
+        self._keep(session_id, team)
         self._registry.put(session_id, team.entry_id, team.horizon, team.risk_profile)
         return session_id
 
     def get(self, session_id: str) -> ImportedTeam:
         with self._lock:
-            team = self._teams.get(session_id)
-        if team is not None:
+            cached = self._teams.get(session_id)
+            if cached is not None:
+                self._teams.move_to_end(session_id)
+        if cached is not None:
+            team, stamp = cached
+            current = override_mtime(ROOT, team.entry_id)
+            if current == stamp:
+                return team
+            try:  # another session saved (or cleared) this entry's correction
+                if current is None:
+                    team = import_team(str(team.entry_id), ROOT, horizon=team.horizon, risk_profile=team.risk_profile)
+                else:
+                    team = replace(team, manual_changes=[])
+                    load_team_override(ROOT, team)
+            except AppError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            self._keep(session_id, team)
             return team
         pointer = self._registry.get(session_id)
         if pointer is None:
@@ -163,13 +220,11 @@ class TeamStore:
             load_team_override(ROOT, team)
         except AppError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
-        with self._lock:
-            self._teams[session_id] = team
+        self._keep(session_id, team)
         return team
 
     def set(self, session_id: str, team: ImportedTeam) -> None:
-        with self._lock:
-            self._teams[session_id] = team
+        self._keep(session_id, team)
         self._registry.put(session_id, team.entry_id, team.horizon, team.risk_profile)
 
 
@@ -184,16 +239,40 @@ def _cors_origins() -> list[str]:
 
 
 STORE = TeamStore(SessionRegistry(ROOT))
-ANALYTICS = AnalyticsService()
+ANALYTICS = AnalyticsService(top_root=ROOT)
 _STARTED_AT = time.time()
 app = FastAPI(title="FPL Model API", version="1.0.0")
+
+
+class TokenAuth:
+    """Rejects requests without ``Authorization: Bearer <FPL_API_TOKEN>`` when a token is set.
+
+    Plain ASGI rather than ``@app.middleware`` so the chat's event stream passes straight through.
+    Added before CORS, so CORS wraps it and a 401 still carries CORS headers.
+    """
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if (scope["type"] == "http" and API_TOKEN and scope["method"] != "OPTIONS"
+                and scope["path"] != "/api/health"):
+            sent = dict(scope["headers"]).get(b"authorization", b"")
+            if not hmac.compare_digest(sent, f"Bearer {API_TOKEN}".encode()):
+                response = JSONResponse({"detail": "Missing or wrong API token (FPL_API_TOKEN)."}, status_code=401)
+                await response(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(TokenAuth)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins(),
     allow_origin_regex=os.environ.get("FPL_API_CORS_ORIGIN_REGEX"),
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 
@@ -282,7 +361,7 @@ def health() -> dict:
     return {
         "status": "ok",
         "uptime_seconds": round(time.time() - _STARTED_AT, 1),
-        "active_sessions": len(STORE._teams),
+        "active_sessions": len(STORE),
     }
 
 
@@ -309,12 +388,12 @@ def get_team(session_id: str) -> dict:
 
 @app.patch("/api/team/{session_id}/settings")
 def update_settings(session_id: str, request: TeamSettingsRequest) -> dict:
-    team = STORE.get(session_id)
-    team.bank = request.bank
-    team.free_transfers = request.free_transfers
-    team.team_value = int(team.squad["selling_price"].sum() + team.bank)
-    team.squad_source = "manual_override"
+    current = STORE.get(session_id)
+    team = replace(current, bank=request.bank, free_transfers=request.free_transfers,
+                   team_value=int(current.squad["selling_price"].sum() + request.bank),
+                   squad_source="manual_override")
     save_team_override(ROOT, team)
+    STORE.set(session_id, team)
     _warm(team)
     return _team_payload(session_id, team)
 
@@ -347,7 +426,8 @@ def squad_options(session_id: str) -> dict:
 
 @app.patch("/api/team/{session_id}/squad")
 def update_squad(session_id: str, request: SquadEditRequest) -> dict:
-    team = STORE.get(session_id)
+    current = STORE.get(session_id)
+    team = replace(current, manual_changes=list(current.manual_changes))  # changed below, stored only once saved
     try:
         result = apply_manual_squad_changes(
             team,
@@ -359,6 +439,7 @@ def update_squad(session_id: str, request: SquadEditRequest) -> dict:
         save_team_override(ROOT, team)
     except AppError as exc:
         raise _as_http_error(exc) from exc
+    STORE.set(session_id, team)
     _warm(team)
     payload = _team_payload(session_id, team)
     payload["squad_update"] = result
@@ -368,14 +449,14 @@ def update_squad(session_id: str, request: SquadEditRequest) -> dict:
 @app.post("/api/team/{session_id}/squad/reset")
 def reset_squad(session_id: str) -> dict:
     current = STORE.get(session_id)
-    clear_team_override(ROOT, current.entry_id)
-    try:
+    try:  # import first: if FPL is down, the correction stays
         team = import_team(
             str(current.entry_id), ROOT, horizon=current.horizon,
             risk_profile=current.risk_profile,
         )
     except AppError as exc:
         raise _as_http_error(exc) from exc
+    clear_team_override(ROOT, current.entry_id)
     STORE.set(session_id, team)
     _warm(team)
     return _team_payload(session_id, team)
@@ -489,6 +570,25 @@ def timeline(session_id: str) -> dict:
         raise _as_http_error(exc) from exc
 
 
+@app.get("/api/team/{session_id}/top-managers")
+def top_managers_view(
+    session_id: str,
+    cohort: str = Query(default="top100", pattern="^(top100|legacy|top1pct|youtubers)$"),
+) -> dict:
+    try:
+        return _json_safe(top_managers.compare(STORE.get(session_id), cohort, ROOT))
+    except AppError as exc:
+        raise _as_http_error(exc) from exc
+
+
+@app.get("/api/team/{session_id}/copy-check")
+def copy_check_view(session_id: str, league_id: int | None = Query(default=None, gt=0)) -> dict:
+    try:
+        return _json_safe(copy_check.report(ROOT, STORE.get(session_id).entry_id, league_id))
+    except AppError as exc:
+        raise _as_http_error(exc) from exc
+
+
 @app.get("/api/team/{session_id}/players/{player_id}")
 def inspect_player(session_id: str, player_id: int) -> dict:
     try:
@@ -511,59 +611,78 @@ def compare(session_id: str, request: CompareRequest) -> dict:
         raise _as_http_error(exc) from exc
 
 
-class RefreshGuard:
-    """Serializes and rate-limits the expensive, shared forecast refresh.
+class BackgroundJob:
+    """Runs one slow job at a time in a background thread; clients poll a status route.
 
-    The refresh hits the live FPL API (and optional paid sources) and takes
-    roughly a minute, and its output is a shared snapshot under
-    ``data/raw/live_fpl`` used by every session. Without this guard, several
-    mobile clients tapping refresh at once would run the fetch redundantly
-    and could trip external rate limits.
+    Used for the forecast refresh (live FPL API and optional paid sources, about
+    a minute, shared by every session), the top-manager update (5-7 minutes)
+    and the prospective loop. A start returns at once, so no HTTP request,
+    proxy or phone has to stay open for the whole run. At most one run at a
+    time, and ``min_interval`` seconds between starts so several clients
+    tapping refresh don't hit the external sources over and over.
     """
 
-    def __init__(self, min_interval_seconds: float = 30.0) -> None:
+    def __init__(self, job, label: str, min_interval: float = 30.0) -> None:
+        self._job, self._label, self._min_interval = job, label, min_interval
         self._lock = RLock()
-        self._busy = False
-        self._last_started: float | None = None
-        self._min_interval = min_interval_seconds
-        self._state = "idle"
-        self._error = None
+        self.state, self.error, self.result, self.started_at = "idle", None, None, None
 
-    def run(self) -> None:
+    def start(self, job=None) -> None:
         with self._lock:
-            if self._busy:
-                raise HTTPException(status_code=409, detail="A forecast update is already underway. Please try again.")
-            if self._last_started is not None and time.time() - self._last_started < self._min_interval:
-                wait = round(self._min_interval - (time.time() - self._last_started))
-                raise HTTPException(status_code=429, detail=f"Wait {wait} seconds before the next update.")
-            self._busy = True
-            self._last_started = time.time()
-            self._state = "running"
-            self._error = None
+            if self.state == "running":
+                raise HTTPException(status_code=409, detail=f"A {self._label} is already underway. Please try again.")
+            if self.started_at is not None and time.time() - self.started_at < self._min_interval:
+                wait = round(self._min_interval - (time.time() - self.started_at))
+                raise HTTPException(status_code=429, detail=f"Wait {wait} seconds before the next {self._label}.")
+            self.state, self.error, self.result, self.started_at = "running", None, None, time.time()
+        Thread(target=self._work, args=(job or self._job,), daemon=True).start()
+
+    def _work(self, job) -> None:
         try:
-            refresh_forecast(ROOT)
+            result = job()
             with self._lock:
-                self._state = "complete"
-        except Exception as exc:
+                self.state, self.result = "complete", json.loads(json.dumps(result, default=str))
+        except Exception as exc:  # reported through the status route
             with self._lock:
-                self._state = "failed"
-                self._error = str(exc)
-            raise
-        finally:
-            with self._lock:
-                self._busy = False
+                self.state, self.error = "failed", str(exc)
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            return {"state": self.state, "error": self.error, "result": self.result, "started_at": self.started_at,
+                    "elapsed_seconds": round(time.time() - self.started_at) if self.started_at else 0}
 
 
-REFRESH_GUARD = RefreshGuard()
+REFRESH_JOB = BackgroundJob(lambda: refresh_forecast(ROOT), "forecast update")
+TOP_JOB = BackgroundJob(lambda: top_managers.collect(ROOT), "top-manager update")
+# Still manual: nothing schedules it. The loop itself refuses a second lock of the same round (plan O2).
+LOOP_JOB = BackgroundJob(lambda: prospective_loop.auto(ROOT), "prospective loop run", min_interval=0)
+
+
+@app.get("/api/top-managers/status")
+def top_managers_status() -> dict:
+    job = TOP_JOB.snapshot()
+    return {"state": job["state"], "error": job["error"], **top_managers.PROGRESS}
+
+
+@app.post("/api/team/{session_id}/top-managers/refresh", status_code=202)
+def top_managers_refresh(session_id: str) -> dict:
+    """Starts the update; progress and failures come from GET /api/top-managers/status."""
+    entry = STORE.get(session_id).entry_id
+
+    def job():
+        top_managers.collect(ROOT)
+        copy_check.collect(ROOT, entry)
+
+    TOP_JOB.start(job)
+    return {"status": "started"}
 
 
 @app.get("/api/forecast/status")
 def forecast_status() -> dict:
-    with REFRESH_GUARD._lock:
-        started = REFRESH_GUARD._last_started
-        result = {"state": REFRESH_GUARD._state, "error": REFRESH_GUARD._error,
-                  "elapsed_seconds": round(time.time() - started) if started else 0,
-                  "stage": "Waiting for update", "captured": 0, "total": None}
+    job = REFRESH_JOB.snapshot()
+    started = job["started_at"]
+    result = {"state": job["state"], "error": job["error"], "elapsed_seconds": job["elapsed_seconds"],
+              "stage": "Waiting for update", "captured": 0, "total": None}
     if result["state"] == "running":
         result["stage"] = "Downloading fixtures and source updates"
         paths = list((ROOT / 'data/raw/live_fpl').glob('capture_*/manifest.json'))
@@ -587,67 +706,27 @@ def forecast_status() -> dict:
     return result
 
 
-@app.post("/api/forecast/refresh")
+@app.post("/api/forecast/refresh", status_code=202)
 def refresh() -> dict:
-    try:
-        REFRESH_GUARD.run()
-    except AppError as exc:
-        raise _as_http_error(exc) from exc
-    return {"status": "complete"}
+    """Starts the forecast update; poll GET /api/forecast/status."""
+    REFRESH_JOB.start()
+    return {"status": "started"}
 
 
-@app.post("/api/team/{session_id}/refresh")
+@app.post("/api/team/{session_id}/refresh", status_code=202)
 def refresh_team(session_id: str) -> dict:
+    """Starts the forecast update and then reloads this team; poll GET /api/forecast/status, then GET the team."""
     current = STORE.get(session_id)
-    try:
-        REFRESH_GUARD.run()
-        team = import_team(
-            str(current.entry_id), ROOT, horizon=current.horizon,
-            risk_profile=current.risk_profile,
-        )
+
+    def job():
+        refresh_forecast(ROOT)
+        team = import_team(str(current.entry_id), ROOT, horizon=current.horizon, risk_profile=current.risk_profile)
         load_team_override(ROOT, team)
-    except AppError as exc:
-        raise _as_http_error(exc) from exc
-    STORE.set(session_id, team)
-    _warm(team)
-    return _team_payload(session_id, team)
+        STORE.set(session_id, team)
+        _warm(team)
 
-
-class LoopJob:
-    """Runs ``prospective_loop.auto`` once in the background (plan O2).
-
-    Still manual: nothing schedules it. The loop itself refuses a second lock
-    of the same round; this guard only stops two runs from overlapping.
-    """
-
-    def __init__(self, run=None) -> None:
-        self._lock = RLock()
-        self._run = run or (lambda: prospective_loop.auto(ROOT))
-        self.state, self.error, self.result, self.started_at = "idle", None, None, None
-
-    def start(self) -> None:
-        with self._lock:
-            if self.state == "running":
-                raise HTTPException(status_code=409, detail="The prospective loop is already running.")
-            self.state, self.error, self.result, self.started_at = "running", None, None, time.time()
-        Thread(target=self._work, daemon=True).start()
-
-    def _work(self) -> None:
-        try:
-            result = self._run()
-            with self._lock:
-                self.state, self.result = "complete", json.loads(json.dumps(result, default=str))
-        except Exception as exc:  # reported through the status endpoint
-            with self._lock:
-                self.state, self.error = "failed", str(exc)
-
-    def snapshot(self) -> dict:
-        with self._lock:
-            return {"state": self.state, "error": self.error, "result": self.result,
-                    "elapsed_seconds": round(time.time() - self.started_at) if self.started_at else 0}
-
-
-LOOP_JOB = LoopJob()
+    REFRESH_JOB.start(job)
+    return {"status": "started"}
 
 
 def _loop_events() -> list[dict]:
@@ -764,3 +843,172 @@ def journal_entries(session_id: str) -> dict:
     team = STORE.get(session_id)
     return _json_safe({"entries": decision_journal.entries(ROOT, decision_journal.season_of(team), team.entry_id)})
 
+
+
+# Context-aware chat (src/chat.py): Claude sees the forecast, the team, the page and calls these read-only tools.
+CHATS = chat.ChatStore()
+_CONSTRAINT_KEYS = ("locked_ids", "excluded_ids", "bench_weights", "overrides")
+
+
+class ChatRequest(ConstraintsRequest):
+    message: str = Field(min_length=1, max_length=4000)
+    # {view, label, calls: [{tool, args}], saved_plans: [...]} from the web page; summarised, never trusted as instructions.
+    page: dict = Field(default_factory=dict)
+
+
+_CHAT_SQUAD_COLUMNS = [
+    "id", "name", "position", "team", "price", "selling_price", "purchase_price", "status", "news", "news_added",
+    "availability", "opponent", "recommended_points", "recommended_q10", "recommended_q90", "decision_points",
+    "expected_60plus_appearances", "form", "total_points", "selected_by_percent", "penalties_order",
+    "price_change_projected_percent", "transfers_in_event", "transfers_out_event",
+    "is_captain", "is_vice_captain", "multiplier",
+]
+
+
+def _chat_team_summary(session_id: str) -> dict:
+    """The team payload without the columns the snapshot already has, and the lineup as ids and roles."""
+    payload = get_team(session_id)
+    payload["squad"] = [{k: row[k] for k in _CHAT_SQUAD_COLUMNS if k in row} for row in payload["squad"]]
+    lineup = payload["lineup"]
+    for part in ("starters", "bench"):
+        lineup[part] = [{k: row.get(k) for k in ("id", "name", "position", "role", "is_captain", "is_vice_captain",
+                                                  "recommended_points")} for row in lineup[part]]
+    payload.pop("forecast_path", None)
+    return payload
+
+
+def _chat_tools(session_id: str, base: dict) -> dict:
+    """The same route functions the pages call, with the user's preferences; nothing here writes."""
+    def merged(args: dict) -> dict:
+        result = dict(base)
+        for key in ("locked_ids", "excluded_ids"):  # Claude's extra locks/exclusions add to the user's own
+            if key in args:
+                result[key] = sorted(set(base.get(key, [])) | set(args[key]))
+        for key in ("overrides", "bench_weights"):  # a what-if replaces the user's own assumptions
+            if key in args:
+                result[key] = args[key]
+        return result
+
+    def own(args: dict) -> dict:
+        return {key: value for key, value in args.items() if key not in _CONSTRAINT_KEYS}
+
+    def ids(args: dict) -> dict:
+        constraints = merged(args)
+        return {"locked_ids": constraints.get("locked_ids", []), "excluded_ids": constraints.get("excluded_ids", [])}
+
+    return {
+        "team": lambda a: _chat_team_summary(session_id),
+        "strategy": lambda a: strategy(session_id, ConstraintsRequest(**merged(a))),
+        "transfers": lambda a: transfers(session_id, TransferRequest(**merged(a), **own(a))),
+        "plan": lambda a: multiweek_plan(session_id, PlanRequest(**merged(a), **own(a))),
+        "compare_players": lambda a: compare(session_id, CompareRequest(**merged(a), **own(a))),
+        "player": lambda a: inspect_player(session_id, int(a["player_id"])),
+        "market": lambda a: market(session_id, position=a.get("position"), max_price=a.get("max_price"),
+                                   limit=a.get("limit", 20), **ids(a)),
+        "sells": lambda a: sells(session_id, limit=15, **ids(a)),
+        "chips": lambda a: chips(session_id, ConstraintsRequest(**merged(a))),
+        "recommended_squads": lambda a: recommended_squads(session_id, ConstraintsRequest(**merged(a))),
+        "scenarios": lambda a: scenarios(session_id, ScenarioRequest(**merged(a), **own(a))),
+        "breakpoint": lambda a: scenario_breakpoint(session_id, BreakpointRequest(**merged(a), **own(a))),
+        "fixtures": lambda a: fixtures(session_id, scope=a.get("scope", "squad"), limit=a.get("limit", 30)),
+        "analytics": lambda a: analytics(session_id, event=a.get("event"), league_id=a.get("league_id")),
+        "timeline": lambda a: timeline(session_id),
+        "lineup_value": lambda a: lineup_autosub_value(session_id),
+        "changes": lambda a: recent_changes(session_id),
+        "journal": lambda a: journal_entries(session_id),
+    }
+
+
+def _chat_executor(tools: dict):
+    def execute(name: str, args: dict) -> tuple[str, bool]:
+        if name not in tools:
+            return f"Unknown tool {name}.", True
+        try:
+            result = tools[name](args)
+        except HTTPException as exc:
+            return str(exc.detail), True
+        except Exception as exc:  # invalid arguments or a failed calculation: Claude sees why
+            return f"{type(exc).__name__}: {exc}", True
+        if isinstance(result, dict):
+            result = {key: value for key, value in result.items() if key != "cache"}
+        return chat._dumps(result), False
+    return execute
+
+
+def _chat_sections(items: list[tuple[str, str, dict]], execute) -> str:
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        results = list(pool.map(lambda item: execute(item[1], item[2]), items))
+    return "\n\n".join(f"## {title} [{name} {chat._dumps(args)}]\n{'ERROR: ' if failed else ''}{content}"
+                       for (title, name, args), (content, failed) in zip(items, results))
+
+
+def _chat_team_block(team, base: dict, saved_plans: list, execute) -> str:
+    weeks = team.horizon
+    items = [
+        ("Team: squad, lineup, captain, chips and finances", "team", {}),
+        ("Strategy centre", "strategy", {}),
+        ("Transfer search (the Transfers page default)", "transfers", {"number": min(2, max(1, team.free_transfers))}),
+        (f"Multiweek plan, {weeks} GW", "plan", {"weeks": weeks}),
+        (f"Multiweek plan with chips, {weeks} GW", "plan", {"weeks": weeks, "chips": True}),
+        ("Chip strategy", "chips", {}),
+        ("Scenarios: hold vs plan A vs plan B", "scenarios", {}),
+        ("Lineup value with autosubs", "lineup_value", {}),
+        ("Changes since the previous snapshot", "changes", {}),
+        ("Manager and mini-league analysis", "analytics", {}),
+        ("Decision journal", "journal", {}),
+    ]
+    return ("<team_state>\nThe user's team, preferences and everything the app has computed for them now. "
+            "This replaces any earlier <team_state>.\n"
+            f"Preferences (locks, exclusions, own chance-of-playing assumptions, bench weights): {chat._dumps(base)}\n"
+            f"Risk profile: {team.risk_profile}. Planning horizon: {weeks} GW. Target gameweek: GW{team.target_event}.\n"
+            f"Saved plans: {chat._dumps(saved_plans)}\n\n{_chat_sections(items, execute)}\n</team_state>")
+
+
+def _chat_page_block(view, label, calls: list[dict], execute) -> str:
+    items = [(f"On the page: {call['tool']}", call["tool"], call.get("args") or {}) for call in calls]
+    body = _chat_sections(items, execute) if items else "Nothing beyond the team state above."
+    return f"<page>\nThe user is now looking at: {label or view} (page '{view}').\n{body}\n</page>"
+
+
+@app.get("/api/team/{session_id}/chat")
+def chat_history(session_id: str) -> dict:
+    return {"messages": chat.transcript(CHATS.peek(session_id)), "enabled": chat.client(ROOT) is not None}
+
+
+@app.post("/api/team/{session_id}/chat/reset")
+def chat_reset(session_id: str) -> dict:
+    CHATS.reset(session_id)
+    return {"messages": []}
+
+
+@app.post("/api/team/{session_id}/chat")
+def chat_message(session_id: str, request: ChatRequest):
+    """Streams the answer as server-sent events: status, text, notice, done or error."""
+    api_client = chat.client(ROOT)
+    if api_client is None:
+        raise HTTPException(status_code=503, detail="Add ANTHROPIC_API_KEY to the .env file in the project folder to use the chat.")
+    team = STORE.get(session_id)
+    _constrained(team, request)  # reject invalid preferences before anything is sent
+    base = request.model_dump(include=set(_CONSTRAINT_KEYS), exclude_none=True)
+    page = request.page
+    saved = page.get("saved_plans") if isinstance(page.get("saved_plans"), list) else []
+    calls = [c for c in page.get("calls") or [] if isinstance(c, dict) and c.get("tool") in chat.TOOL_NAMES
+             and isinstance(c.get("args", {}), dict)][:6]
+    execute = _chat_executor(_chat_tools(session_id, base))
+    conversation, replaced = CHATS.get(session_id, team, ROOT)
+    team_sig = chat.signature(context(team)["revision"], base, saved)
+    page_sig = chat.signature(page.get("view"), calls)
+
+    def events():
+        if replaced:
+            yield chat.sse({"type": "notice", "text": "The forecast was updated, so a new chat started."})
+        for event in chat.respond(
+            conversation, api_client, request.message,
+            team_sig, lambda: _chat_team_block(team, base, saved, execute),
+            page_sig, lambda: _chat_page_block(page.get("view"), page.get("label"), calls, execute),
+            execute,
+        ):
+            yield chat.sse(event)
+
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

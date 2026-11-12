@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Position } from "@fplmodell/shared";
+import { waitForJob, type TopCohort } from "@fplmodell/api-client";
 import { api } from "../lib/api";
 import { useSession } from "../context/session-context";
 import { useWorkspace } from "../context/workspace-context";
@@ -92,6 +93,24 @@ export function useAnalytics(event?: number, leagueId?: number | null) {
   });
 }
 
+export function useTopManagers(cohort: TopCohort) {
+  const { sessionId } = useSession();
+  return useQuery({
+    queryKey: ["top-managers", sessionId, cohort],
+    queryFn: () => api.topManagers(sessionId as string, cohort),
+    enabled: Boolean(sessionId),
+  });
+}
+
+export function useCopyCheck(leagueId?: number) {
+  const { sessionId } = useSession();
+  return useQuery({
+    queryKey: ["copy-check", sessionId, leagueId],
+    queryFn: () => api.copyCheck(sessionId as string, leagueId),
+    enabled: Boolean(sessionId),
+  });
+}
+
 export function useTimeline() {
   const { sessionId } = useSession();
   return useQuery({
@@ -104,7 +123,10 @@ export function useTimeline() {
 export function useRefreshForecast() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api.refreshForecast(),
+    mutationFn: async () => {
+      await api.refreshForecast();
+      return waitForJob(() => api.forecastStatus());
+    },
     onSuccess: () => {
       queryClient.invalidateQueries();
     },

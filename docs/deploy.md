@@ -8,17 +8,23 @@ Configuration is controlled by environment variables.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `FPL_API_HOST` | `127.0.0.1` | Set to `0.0.0.0` to listen on all interfaces, including LAN connections. |
+| `FPL_API_HOST` | `127.0.0.1` | Set to `0.0.0.0` to listen on all interfaces, including LAN connections. Requires `FPL_API_TOKEN`. |
+| `FPL_API_TOKEN` | Unset | Shared secret. When set, every route except `/api/health` needs `Authorization: Bearer <token>`. The API refuses to start on `0.0.0.0` without it. Read from the environment or the root `.env`. The web dev proxy adds it; the mobile app sends `EXPO_PUBLIC_API_TOKEN`. |
 | `FPL_API_PORT` | `8000` | Port used by uvicorn. |
 | `FPL_API_CORS_ORIGINS` | localhost and 127.0.0.1 on ports 5173/4173 | Comma-separated permitted browser origins. Native mobile clients are not subject to browser CORS. |
 | `FPL_API_CORS_ORIGIN_REGEX` | Unset | Optional origin regex, for example for preview deployments. |
-| `DATABASE_URL` | Unset; local SQLite | A `postgresql://` URL enables shared session storage. Requires `pip install psycopg2-binary`. |
 | `FPL_SESSIONS_DB_PATH` | `data/local/sessions.db` | SQLite path override; tests may use `:memory:`. |
+| `ANTHROPIC_API_KEY` | Unset | Enables the web app chat (`POST /api/team/{id}/chat`). Read from the root `.env` on every message. Only someone with `FPL_API_TOKEN` can use it once the API listens on the network. |
 
 The root `.env`, copied from `.env.example`, configures optional odds and
 football-data.org sources. Those keys stay on the server.
 
 ## Physical iPhone on the same Wi-Fi
+
+First put a long random `FPL_API_TOKEN` in the root `.env` (for example from
+`openssl rand -hex 24`) and the same value as `EXPO_PUBLIC_API_TOKEN` in
+`apps/mobile/.env`. The API refuses to start on `0.0.0.0` without it, and
+every request except `/api/health` must then carry it.
 
 ```bash
 FPL_API_HOST=0.0.0.0 .venv/bin/python run_app.py
@@ -41,19 +47,21 @@ the macOS firewall requests permission.
 restart, a missing in-memory team is imported again and saved manual corrections
 from `data/local/team_overrides/` are reapplied.
 
-SQLite is the default. Use `DATABASE_URL` with PostgreSQL for shared storage
-across instances; the registry supports both backends.
+Run one API process. The registry is a local SQLite file, and the team cache,
+results, chats and background jobs live in that process's memory.
 
 All sessions read shared frozen forecasts from
 `data/raw/live_fpl/capture_*/forecast.csv`. Refreshing through
 `POST /api/forecast/refresh` or `POST /api/team/{id}/refresh` changes the shared
-forecast data. `RefreshGuard` serialises refreshes and enforces at least 30
-seconds between starts, preventing duplicate expensive requests in one process.
+forecast data.
 
-A refresh normally takes around a minute. Set reverse-proxy timeouts to at
-least 120 seconds for `/api/forecast/refresh` and `/api/team/*/refresh`.
-The guard returns `409` if a refresh is in progress and `429` if the previous
-one started too recently.
+A refresh takes around a minute and the top-manager update
+(`POST /api/team/{id}/top-managers/refresh`) 5–7 minutes, so both run as
+background jobs (`BackgroundJob` in `src/api.py`). The POST returns `202` at
+once; clients poll `GET /api/forecast/status` or `GET /api/top-managers/status`
+until `state` is `complete` or `failed`, then reload the team. No request stays
+open, so no proxy timeout needs raising. A start returns `409` while a run is
+in progress and `429` within 30 seconds of the previous start.
 
 ## Docker
 

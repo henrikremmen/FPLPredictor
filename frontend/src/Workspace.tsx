@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { api } from './api';
+import { api, type PageCall } from './api';
 import type { Player, PlayerConstraints, PlayerDetail, PlayerComparison, SnapshotChanges, TeamResponse, RefreshStatus, LoopStatus } from '@fplmodell/api-client';
 import { BENCH_SLOT_LABELS, BENCH_WEIGHTS, loopBanner } from '@fplmodell/shared';
 
@@ -34,12 +34,21 @@ interface WorkspaceState {
   rename: (id: string, name: string) => void;
   options: Player[];
   optionsError: string;
+  /** What each page shows, as the chat tool calls that reproduce it (keyed by view). */
+  pageCalls: { current: Record<string, PageCall[]> };
+  inspected: number | null;
 }
 const WorkspaceContext = createContext<WorkspaceState | null>(null);
 export function useWorkspace() {
   const state = useContext(WorkspaceContext);
   if (!state) throw new Error('Decision workspace is not available.');
   return state;
+}
+/** Tells the chat what this page shows: the tool calls (with this page's settings) that reproduce it. */
+export function usePageContext(view: string, calls: PageCall[]) {
+  const { pageCalls } = useWorkspace();
+  const key = JSON.stringify(calls);
+  useEffect(() => { pageCalls.current[view] = calls; }, [view, key]);
 }
 export function PlayerName({ id, children }: { id: number; children: ReactNode }) {
   const { inspect } = useWorkspace();
@@ -61,6 +70,7 @@ export function WorkspaceProvider({ team, children }: { team: TeamResponse; chil
   const [inspected, inspect] = useState<number | null>(null);
   const [options, setOptions] = useState<Player[]>([]);
   const [optionsError, setOptionsError] = useState('');
+  const pageCalls = useRef<Record<string, PageCall[]>>({});
   const signature = JSON.stringify([teamRevision(team), constraints]);
   useEffect(() => {
     let active = true;
@@ -86,7 +96,7 @@ export function WorkspaceProvider({ team, children }: { team: TeamResponse; chil
   return <WorkspaceContext.Provider value={{ riskProfile: team.risk_profile, constraints, setConstraints, signature, inspect, save, plans,
     remove: id => updatePlans(plans.filter(p => p.id !== id)),
     rename: (id, name) => updatePlans(plans.map(p => p.id === id ? { ...p, name: name.trim() || p.name } : p)),
-    options, optionsError }}>
+    options, optionsError, pageCalls, inspected }}>
     {storageError && <p className="workspace-warning" role="alert">{storageError}</p>}
     {notice && <div className="workspace-notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Dismiss saved plan notice">×</button></div>}
     {(constraints.locked_ids.length > 0 || constraints.excluded_ids.length > 0) && <p className="workspace-context">Player preferences active: {constraints.locked_ids.length} locked · {constraints.excluded_ids.length} excluded. Manage them in Player preferences.</p>}
@@ -208,6 +218,7 @@ export function PlayerComparisonView({ team }: { team: TeamResponse }) {
   const outgoing = team.squad.find(p => p.id === outId);
   const owned = new Set(team.squad.map(p => p.id));
   const incoming = workspace.options.filter(p => p.position === outgoing?.position && !owned.has(p.id));
+  usePageContext('comparison', outId && inId ? [{ tool: 'compare_players', args: { out_id: outId, in_id: inId } }] : []);
   const calculate = async () => {
     const signature = workspace.signature;
     setLoading(true); setError('');

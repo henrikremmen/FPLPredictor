@@ -35,9 +35,11 @@ def _rounded(value, digits=1):
 class AnalyticsService:
     """Build manager analysis while caching immutable public FPL responses."""
 
-    def __init__(self, client: FPLClient | None = None, ttl_seconds: int = 300) -> None:
+    def __init__(self, client: FPLClient | None = None, ttl_seconds: int = 300,
+                 top_root: Path | None = None) -> None:
         self.client = client or FPLClient()
         self.ttl_seconds = ttl_seconds
+        self.top_root = top_root  # project root holding top-manager snapshots
         self._cache: dict[str, tuple[float, object]] = {}
         self._lock = RLock()
 
@@ -150,24 +152,10 @@ class AnalyticsService:
         if league_id is not None and int(league_id) not in {row["id"] for row in mini_leagues}:
             raise AppError("The selected mini-league does not belong to this public FPL team.")
 
-        overall_league = next(
-            (row for row in classic if row.get("short_name") == "overall"), None
-        )
-        top_sample_rows: list[dict] = []
-        if overall_league is not None:
-            for page in [1, 50, 100, 150, 200]:
-                try:
-                    payload = self.get(
-                        f"leagues-classic/{int(overall_league['id'])}/standings/"
-                        f"?page_standings={page}"
-                    )
-                except AppError:
-                    continue
-                page_rows = payload.get("standings", {}).get("results", [])
-                top_sample_rows.extend(page_rows[index] for index in range(
-                    0, len(page_rows), max(1, len(page_rows) // 5)
-                ) if len(top_sample_rows) < 25)
-        top_sample_rows = list({int(row["entry"]): row for row in top_sample_rows}.values())[:25]
+        top_snapshot = None
+        if self.top_root is not None:
+            from top_managers import latest  # top_managers imports this module
+            top_snapshot = latest(self.top_root)
 
         league = None
         standings: list[dict] = []
@@ -189,10 +177,6 @@ class AnalyticsService:
             rival_endpoints.append(f"entry/{member}/event/{selected_event}/picks/")
             if benchmark_event != selected_event:
                 rival_endpoints.append(f"entry/{member}/event/{benchmark_event}/picks/")
-        for row in top_sample_rows:
-            rival_endpoints.append(
-                f"entry/{int(row['entry'])}/event/{benchmark_event}/picks/"
-            )
         fetched.update(self.many_optional(rival_endpoints))
 
         live_by_event = {
@@ -312,14 +296,9 @@ class AnalyticsService:
             if f"entry/{member}/event/{benchmark_event}/picks/" in fetched
         }
         benchmark_field = self._field_metrics(benchmark_picks, len(benchmark_picks))
-        top_picks = {
-            int(row["entry"]): fetched[
-                f"entry/{int(row['entry'])}/event/{benchmark_event}/picks/"
-            ]
-            for row in top_sample_rows
-            if f"entry/{int(row['entry'])}/event/{benchmark_event}/picks/" in fetched
-        }
-        top_field = self._field_metrics(top_picks, len(top_picks))
+        top_cohort = top_snapshot["cohorts"]["top1pct"] if top_snapshot else None
+        top_field = ({int(pid): row for pid, row in top_cohort["field"].items()}
+                     if top_cohort else {})
         league_payload = self._league_analysis(
             standings, members, fetched, entry_id, selected_event,
             history_rows, sampled, league, benchmark_field, player_meta,
@@ -357,9 +336,7 @@ class AnalyticsService:
             "captain_opportunity_loss": _rounded(captain_opportunity_total),
             "team_value": latest["team_value"],
         }
-        top_average = (_rounded(np.mean([
-            _number(row.get("total")) for row in top_sample_rows
-        ])) if top_sample_rows else None)
+        top_average = top_cohort["average_total"] if top_cohort else None
         top_ownership = [{
             "id": player_id,
             "name": player_meta.get(player_id, {}).get("web_name", str(player_id)),
@@ -383,13 +360,13 @@ class AnalyticsService:
             "selected_league_id": int(league_id) if league_id is not None else None,
             "summary": summary,
             "global_benchmark": {
-                "sample_label": "Stratified sample from ranks 1–10,000",
-                "sample_size": len(top_picks),
+                "sample_label": f"Random sample of the top 1% · GW{top_snapshot['event']}",
+                "sample_size": top_cohort["size"],
                 "sample_average_total": top_average,
                 "points_gap": (_rounded(total_points - top_average)
                                if top_average is not None else None),
                 "ownership": top_ownership[:30],
-            },
+            } if top_cohort else None,
             "timeline": timeline,
             "position_points": {
                 "GK": _rounded(position_points.get("1", 0)),
@@ -424,7 +401,7 @@ class AnalyticsService:
                 "Public FPL squads only become visible after the deadline.",
                 "The global comparison uses overall FPL ownership and official Gameweek averages.",
                 "League EO is exact for small leagues; leagues with over 100 members use a clearly labelled sample.",
-                "Top-rank EO uses a stratified public sample, not a full census of the top 10,000.",
+                "Top 1% EO comes from the latest top-manager update: a random sample of about 2,000 managers.",
             ],
         }
 
@@ -675,11 +652,8 @@ class AnalyticsService:
         }
 
     @staticmethod
-    def _decision_support(team: ImportedTeam, field: dict[int, dict],
-                          top_field: dict[int, dict], players: dict[int, dict]) -> dict:
-        market = team.market.drop_duplicates("id").copy()
-        score = "decision_points" if "decision_points" in market else "recommended_points"
-        owned = set(team.squad["id"].astype(int))
+    def _projected_multipliers(team: ImportedTeam) -> dict[int, int]:
+        """Squad id -> multiplier the model's next lineup gives (bench 0, XI 1, captain 2)."""
         lineup = team.lineup_squad if team.lineup_squad is not None else team.squad
         projected_multipliers = {int(row.id): 0 for row in team.squad.itertuples()}
         try:
@@ -694,6 +668,15 @@ class AnalyticsService:
                 projected_multipliers[int(captain.id)] = 2
         except (AppError, KeyError, ValueError):
             pass
+        return projected_multipliers
+
+    @staticmethod
+    def _decision_support(team: ImportedTeam, field: dict[int, dict],
+                          top_field: dict[int, dict], players: dict[int, dict]) -> dict:
+        market = team.market.drop_duplicates("id").copy()
+        score = "decision_points" if "decision_points" in market else "recommended_points"
+        owned = set(team.squad["id"].astype(int))
+        projected_multipliers = AnalyticsService._projected_multipliers(team)
 
         rows = []
         for row in market.itertuples():
@@ -709,7 +692,7 @@ class AnalyticsService:
                 "projection": _rounded(projection, 2),
                 "league_effective_ownership": _rounded(eo),
                 "league_ownership": _rounded(field.get(player_id, {}).get("ownership", 0)),
-                "top10k_effective_ownership": _rounded(top_eo),
+                "top1pct_effective_ownership": _rounded(top_eo),
                 "global_ownership": _rounded(global_ownership),
                 "owned": player_id in owned,
                 "projected_multiplier": multiplier,

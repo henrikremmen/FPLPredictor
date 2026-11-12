@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { waitForJob } from "@fplmodell/api-client";
 import { api } from "./api";
 import { Icon } from "./icons";
 import { CHIP_LABELS, type Chip, decisionCard, RISK_PROFILE_LABELS, RISK_PROFILE_SCORE, formatDeadline, teamIdFromReference } from "@fplmodell/shared";
 import { Timeline } from "./Timeline";
+import { TopManagers } from "./TopManagers";
 import { ModelCardView } from "./ModelCard";
 import { FixtureTickerView } from "./FixtureTicker";
 import { JournalView, RecordDecision, ScenariosView } from "./Scenarios";
-import { WorkspaceProvider, useWorkspace, PlayerName, SinceLastTime, PlayerComparisonView, Preferences, SavedPlans, ForecastStatus, ResultStatus, SavePlan, LockBanner, AssumptionsNotice } from "./Workspace";
+import { Chat } from "./Chat";
+import { WorkspaceProvider, useWorkspace, usePageContext, PlayerName, SinceLastTime, PlayerComparisonView, Preferences, SavedPlans, ForecastStatus, ResultStatus, SavePlan, LockBanner, AssumptionsNotice } from "./Workspace";
 import type {
   ChipCandidate,
   ChipStrategy,
@@ -28,13 +31,14 @@ import type {
   TransferResponse,
 } from "@fplmodell/api-client";
 
-type View = "scenarios" | "journal" | "fixtures" | "comparison" | "preferences" | "saved" | "overview" | "analysis" | "timeline" | "model" | "squad" | "strategy" | "lineup" | "transfers" | "plan" | "squads" | "chips" | "market";
+type View = "topmanagers" | "scenarios" | "journal" | "fixtures" | "comparison" | "preferences" | "saved" | "overview" | "analysis" | "timeline" | "model" | "squad" | "strategy" | "lineup" | "transfers" | "plan" | "squads" | "chips" | "market";
 
 const TEAM_ID_KEY = "fplmodell.fplId";
 const storedTeamId = () => { try { return localStorage.getItem(TEAM_ID_KEY) ?? ""; } catch { return ""; } };
 const VIEWS: Array<{ id: View; label: string; icon: typeof Icon.Home }> = [
   { id: "overview", label: "Overview", icon: Icon.Home },
   { id: "analysis", label: "Analysis", icon: Icon.Chart },
+  { id: "topmanagers", label: "Top managers", icon: Icon.Users },
   { id: "timeline", label: "Timeline", icon: Icon.Calendar },
   { id: "model", label: "Model and data", icon: Icon.Chart },
   { id: "journal", label: "Decision journal", icon: Icon.Star },
@@ -58,7 +62,7 @@ const GROUPS: Array<{ id: string; label: string; short: string; icon: typeof Ico
   { id: "round", label: "This round", short: "Round", icon: Icon.Home, views: ["overview", "lineup"] },
   { id: "plan", label: "Transfers & plan", short: "Plan", icon: Icon.Swap, views: ["strategy", "transfers", "plan", "scenarios", "chips", "squads"] },
   { id: "players", label: "Players", short: "Players", icon: Icon.Users, views: ["market", "fixtures", "comparison", "preferences"] },
-  { id: "history", label: "History", short: "History", icon: Icon.Calendar, views: ["analysis", "timeline", "journal", "model"] },
+  { id: "history", label: "History", short: "History", icon: Icon.Calendar, views: ["analysis", "topmanagers", "timeline", "journal", "model"] },
   { id: "team", label: "My team", short: "Team", icon: Icon.Shield, views: ["squad", "saved"] },
 ];
 const groupOf = (view: View) => GROUPS.find(group => group.views.includes(view)) ?? GROUPS[0];
@@ -283,6 +287,7 @@ function Transfers({ team }: { team: TeamResponse }) {
   const [error, setError] = useState("");
   const selectedPlayers = team.squad.filter(player => selectedOut.includes(player.id));
   const transferCount = mode === "targeted" ? selectedOut.length : number;
+  usePageContext("transfers", transferCount ? [{ tool: "transfers", args: { number: transferCount, outgoing_ids: mode === "targeted" ? selectedOut : [] } }] : []);
   const chooseMode = (next: "open" | "targeted") => {
     setMode(next);
     setResult(null);
@@ -385,6 +390,7 @@ function Multiweek({ team }: { team: TeamResponse }) {
   const [error, setError] = useState("");
   const [withChips, setWithChips] = useState(false);
   const [requirements, setRequirements] = useState<PlanRequirement[]>([]);
+  usePageContext("plan", [{ tool: "plan", args: { weeks: team.horizon, chips: withChips, requirements } }]);
   const calculate = async () => {
     const calculationSignature = JSON.stringify([workspace.signature, withChips, requirements]);
     setLoading(true); setError("");
@@ -516,6 +522,7 @@ function RecommendedTeams({ team }: { team: TeamResponse }) {
   const [resultSignature, setResultSignature] = useState("");
   const [result, setResult] = useState<RecommendedSquads | null>(null);
   const [selectedEvent, setSelectedEvent] = useState(team.target_event);
+  usePageContext("squads", [{ tool: "recommended_squads", args: {} }]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const calculate = async () => {
@@ -660,6 +667,7 @@ function Market({ team }: { team: TeamResponse }) {
   const [resultSignature, setResultSignature] = useState("");
   const [position, setPosition] = useState<Position | "ALL">("ALL");
   const [maxPrice, setMaxPrice] = useState(100);
+  usePageContext("market", [{ tool: "market", args: { ...(position === "ALL" ? {} : { position }), max_price: maxPrice, limit: 30 } }, { tool: "sells", args: {} }]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [sells, setSells] = useState<Player[]>([]);
   const [loading, setLoading] = useState(false);
@@ -736,12 +744,13 @@ function ImpactList({ title, rows, tone }: { title: string; rows: RelativeImpact
 
 function DecisionRows({ rows, kind }: { rows: AnalyticsDecisionPlayer[]; kind: "differential" | "threat" | "leverage" }) {
   const metric = (row: AnalyticsDecisionPlayer) => kind === "differential" ? row.differential_value : kind === "threat" ? row.threat_value : row.rank_exposure;
-  return <div className="decision-rows">{rows.length ? rows.map((row, index) => <div className="decision-row" key={row.id}><span className="decision-rank">{index + 1}</span><div><strong>{row.name}</strong><small>{row.team} · {row.opponent} · {money(row.price)} · top selection {row.top10k_effective_ownership.toFixed(0)}% EO</small></div><span><small>Model</small><b>{row.projection.toFixed(1)}</b></span><span><small>League EO</small><b>{row.league_effective_ownership.toFixed(0)}%</b></span><span><small>{kind === "differential" ? "Upside" : kind === "threat" ? "Risk" : "Edge"}</small><b className={metric(row) > 0 ? "positive" : "negative"}>{metric(row).toFixed(1)}</b></span></div>) : <p className="empty-copy">No players meet the criteria right now.</p>}</div>;
+  return <div className="decision-rows">{rows.length ? rows.map((row, index) => <div className="decision-row" key={row.id}><span className="decision-rank">{index + 1}</span><div><strong>{row.name}</strong><small>{row.team} · {row.opponent} · {money(row.price)} · top 1% {row.top1pct_effective_ownership.toFixed(0)}% EO</small></div><span><small>Model</small><b>{row.projection.toFixed(1)}</b></span><span><small>League EO</small><b>{row.league_effective_ownership.toFixed(0)}%</b></span><span><small>{kind === "differential" ? "Upside" : kind === "threat" ? "Risk" : "Edge"}</small><b className={metric(row) > 0 ? "positive" : "negative"}>{metric(row).toFixed(1)}</b></span></div>) : <p className="empty-copy">No players meet the criteria right now.</p>}</div>;
 }
 
 function ManagerAnalysis({ team }: { team: TeamResponse }) {
   const [data, setData] = useState<ManagerAnalytics | null>(null);
   const [tab, setTab] = useState<AnalysisTab>("season");
+  usePageContext("analysis", data ? [{ tool: "analytics", args: { event: data.selected_event, ...(data.selected_league_id ? { league_id: data.selected_league_id } : {}) } }] : []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -772,7 +781,7 @@ function ManagerAnalysis({ team }: { team: TeamResponse }) {
           <article><small>Best gameweek</small><strong>{data.summary.best_week.points}</strong><span>GW {data.summary.best_week.event}</span></article>
           <article><small>Team value</small><strong>£{data.summary.team_value.toFixed(1)}m</strong><span>{data.summary.average_points.toFixed(1)} points per GW</span></article>
         </section>
-        <section className="panel global-benchmark"><div><span className="eyebrow">Global benchmark</span><h2>Top-manager sample</h2><p>{data.global_benchmark.sample_label} · {data.global_benchmark.sample_size} public teams. This provides a more relevant template signal than overall global ownership.</p></div><div className="global-gap"><small>Vs sample average</small><strong>{data.global_benchmark.points_gap == null ? "–" : <SignedValue value={data.global_benchmark.points_gap} suffix=" pts" />}</strong><span>average {data.global_benchmark.sample_average_total ?? "–"}</span></div><div className="top-eo-strip">{data.global_benchmark.ownership.slice(0, 5).map(row => <span key={row.id}><strong>{row.name}</strong><small>{row.effective_ownership.toFixed(0)}% EO · {row.captain_rate.toFixed(0)}% C</small></span>)}</div></section>
+        {data.global_benchmark && <section className="panel global-benchmark"><div><span className="eyebrow">Global benchmark</span><h2>Top 1% sample</h2><p>{data.global_benchmark.sample_label} · {data.global_benchmark.sample_size} public teams. This provides a more relevant template signal than overall global ownership.</p></div><div className="global-gap"><small>Vs sample average</small><strong>{data.global_benchmark.points_gap == null ? "–" : <SignedValue value={data.global_benchmark.points_gap} suffix=" pts" />}</strong><span>average {data.global_benchmark.sample_average_total ?? "–"}</span></div><div className="top-eo-strip">{data.global_benchmark.ownership.slice(0, 5).map(row => <span key={row.id}><strong>{row.name}</strong><small>{row.effective_ownership.toFixed(0)}% EO · {row.captain_rate.toFixed(0)}% C</small></span>)}</div></section>}
         <section className="panel analysis-section"><div className="section-title"><div><span className="eyebrow">Season performance</span><h2>Points vs global average</h2></div><span className="legend">Bars = you · line = average</span></div><PerformanceChart rows={data.timeline} /></section>
         <div className="analysis-two-col"><section className="panel analysis-section"><span className="eyebrow">Decision breakdown</span><h2>Where you gained or lost points</h2><div className="audit-grid"><div><small>Captain bonus</small><strong className="positive">+{data.summary.captain_bonus.toFixed(0)}</strong></div><div><small>Missed captain points</small><strong className="negative">−{data.summary.captain_opportunity_loss.toFixed(0)}</strong></div><div><small>Bench points</small><strong>{data.summary.bench_points}</strong></div><div><small>Transfer cost</small><strong className={data.summary.transfer_cost ? "negative" : ""}>{data.summary.transfer_cost ? `−${data.summary.transfer_cost}` : "0"}</strong></div><div><small>Gross transfer swing</small><strong><SignedValue value={data.summary.transfer_swing} /></strong></div><div><small>Worst GW</small><strong>{data.summary.worst_week.points}</strong><span>GW{data.summary.worst_week.event}</span></div></div></section><section className="panel analysis-section"><span className="eyebrow">Points breakdown</span><h2>Points by position</h2><div className="position-bars">{(["GK", "DEF", "MID", "FWD"] as Position[]).map(position => { const max = Math.max(...Object.values(data.position_points), 1); return <div key={position}><span>{position}</span><i><b style={{ width: `${data.position_points[position] / max * 100}%` }} /></i><strong>{data.position_points[position].toFixed(0)}</strong></div>; })}</div></section></div>
         <section className="panel analysis-section table-panel"><span className="eyebrow">All Rounds</span><h2>Gameweek log</h2><div className="analytics-table-wrap"><table className="analytics-table"><thead><tr><th>GW</th><th>Points</th><th>Average</th><th>Δ average</th><th>OR</th><th>Rank change</th><th>Bench</th><th>Transfers/hit</th><th>Captain</th></tr></thead><tbody>{data.timeline.map(row => <tr key={row.event} className={!row.finished ? "live-row" : ""}><td>GW{row.event}{!row.finished && <small> LIVE</small>}</td><td><strong>{row.points}</strong></td><td>{row.global_average.toFixed(0)}</td><td><SignedValue value={row.vs_average} /></td><td>{rankNumber(row.overall_rank)}</td><td>{row.rank_change == null ? "–" : <SignedRank value={row.rank_change} />}</td><td>{row.bench_points}</td><td>{row.transfers} / {row.transfer_cost ? `−${row.transfer_cost}` : "0"}</td><td>{row.captain ?? "–"} <small>+{row.captain_bonus}</small></td></tr>)}</tbody></table></div></section>
@@ -792,7 +801,7 @@ function ManagerAnalysis({ team }: { team: TeamResponse }) {
 
       {tab === "risk" && <>
         <section className="risk-intro panel"><div><span className="eyebrow">GW{data.decisions.forecast_events.join("–")}</span><h2>Rank risk with model support</h2><p>Low ownership alone is not a reason to buy. Here, model points are combined with effective ownership in {data.league?.name ?? "the selected league"}.</p></div><div><small>Horizon</small><strong>{data.decisions.horizon} GW</strong></div></section>
-        <section className="panel analysis-section"><span className="eyebrow">Captain matrix</span><h2>Expected points vs league EO</h2><p className="section-copy">Rank by expected points first. Captain advantage measures isolated rank upside against the field, not the gain over your second-best captain.</p><div className="captain-matrix">{data.decisions.captain_matrix.map((row, index) => <div key={row.id}><span>{index === 0 ? "C" : index + 1}</span><div><strong>{row.name}</strong><small>{row.opponent}</small></div><p><small>Model</small><b>{row.projection.toFixed(1)}</b></p><p><small>League / top EO</small><b>{row.league_effective_ownership.toFixed(0)}% / {row.top10k_effective_ownership.toFixed(0)}%</b></p><p><small>Isolated rank advantage</small><b className="positive">{row.captain_rank_edge?.toFixed(1)}</b></p></div>)}</div></section>
+        <section className="panel analysis-section"><span className="eyebrow">Captain matrix</span><h2>Expected points vs league EO</h2><p className="section-copy">Rank by expected points first. Captain advantage measures isolated rank upside against the field, not the gain over your second-best captain.</p><div className="captain-matrix">{data.decisions.captain_matrix.map((row, index) => <div key={row.id}><span>{index === 0 ? "C" : index + 1}</span><div><strong>{row.name}</strong><small>{row.opponent}</small></div><p><small>Model</small><b>{row.projection.toFixed(1)}</b></p><p><small>League / top 1% EO</small><b>{row.league_effective_ownership.toFixed(0)}% / {row.top1pct_effective_ownership.toFixed(0)}%</b></p><p><small>Isolated rank advantage</small><b className="positive">{row.captain_rank_edge?.toFixed(1)}</b></p></div>)}</div></section>
         <div className="risk-grid"><section className="panel analysis-section"><span className="eyebrow">Attack</span><h2>Model-backed differentials</h2><p className="section-copy">Not owned by you, under 35% league EO and ranked on projected differential value.</p><DecisionRows rows={data.decisions.differentials} kind="differential" /></section><section className="panel analysis-section"><span className="eyebrow">Protect</span><h2>Biggest rank threats</h2><p className="section-copy">Not owned by you; risk = model score × league-EO.</p><DecisionRows rows={data.decisions.threats} kind="threat" /></section></div>
         <section className="panel analysis-section"><span className="eyebrow">Your leverage</span><h2>Players who can move your rank</h2><DecisionRows rows={data.decisions.leverage} kind="leverage" /></section>
       </>}
@@ -921,7 +930,7 @@ function TeamViews({ team, view, onNavigate, onUpdated }: { team: TeamResponse; 
   const [visited, setVisited] = useState<View[]>([view]);
   useEffect(() => { setVisited(current => current.includes(view) ? current : [...current, view]); }, [view]);
   return <>{[...new Set([...visited, view])].map(id => <div key={id} hidden={id !== view}>
-    {id === "overview" ? <Overview team={team} onNavigate={onNavigate} /> : id === "analysis" ? <ManagerAnalysis team={team} /> : id === "timeline" ? <Timeline sessionId={team.session_id} /> : id === "model" ? <ModelCardView /> : id === "scenarios" ? <ScenariosView team={team} /> : id === "journal" ? <JournalView team={team} /> : id === "fixtures" ? <FixtureTickerView sessionId={team.session_id} revision={team.forecast_context?.revision ?? team.forecast_path} /> : id === "squad" ? <SquadEditor team={team} onUpdated={onUpdated} /> : id === "strategy" ? <StrategyCenter team={team} onNavigate={onNavigate} /> : id === "lineup" ? <Lineup team={team} /> : id === "transfers" ? <Transfers team={team} /> : id === "plan" ? <Multiweek team={team} /> : id === "squads" ? <RecommendedTeams team={team} /> : id === "chips" ? <Chips team={team} /> : id === "comparison" ? <PlayerComparisonView team={team} /> : id === "preferences" ? <Preferences team={team} /> : id === "saved" ? <SavedPlans team={team} /> : <Market team={team} />}
+    {id === "overview" ? <Overview team={team} onNavigate={onNavigate} /> : id === "analysis" ? <ManagerAnalysis team={team} /> : id === "topmanagers" ? <TopManagers team={team} /> : id === "timeline" ? <Timeline sessionId={team.session_id} /> : id === "model" ? <ModelCardView /> : id === "scenarios" ? <ScenariosView team={team} /> : id === "journal" ? <JournalView team={team} /> : id === "fixtures" ? <FixtureTickerView sessionId={team.session_id} revision={team.forecast_context?.revision ?? team.forecast_path} /> : id === "squad" ? <SquadEditor team={team} onUpdated={onUpdated} /> : id === "strategy" ? <StrategyCenter team={team} onNavigate={onNavigate} /> : id === "lineup" ? <Lineup team={team} /> : id === "transfers" ? <Transfers team={team} /> : id === "plan" ? <Multiweek team={team} /> : id === "squads" ? <RecommendedTeams team={team} /> : id === "chips" ? <Chips team={team} /> : id === "comparison" ? <PlayerComparisonView team={team} /> : id === "preferences" ? <Preferences team={team} /> : id === "saved" ? <SavedPlans team={team} /> : <Market team={team} />}
   </div>)}</>;
 }
 
@@ -960,8 +969,8 @@ export default function App() {
     if (!session) return;
     api.team(session).then(restored => {
       setTeam(current => current ?? restored);
-      setBank(restored.bank); setFreeTransfers(restored.free_transfers); setHorizon(restored.horizon);
-    }).catch(() => remember(SESSION_KEY, null));
+      setBank(restored.bank); setFreeTransfers(restored.free_transfers); setHorizon(restored.horizon); setRisk(restored.risk_profile);
+    }).catch(err => { if ((err as { status?: number }).status === 404) remember(SESSION_KEY, null); }); // not when the API is just down
   }, []);
   const changeHorizon = async (value: number) => {
     if (!team) { setHorizon(value); return; }
@@ -996,12 +1005,9 @@ export default function App() {
   const refresh = async () => {
     setRefreshing(true); setError("");
     try {
-      const updated = team
-        ? await api.refreshTeam(team.session_id)
-        : await (async () => {
-            await api.refreshForecast();
-            return api.importTeam(reference, horizon, risk);
-          })();
+      await (team ? api.refreshTeam(team.session_id) : api.refreshForecast());
+      await waitForJob(api.refreshStatus);  // the update runs on the server; ForecastStatus shows its progress
+      const updated = team ? await api.team(team.session_id) : await api.importTeam(reference, horizon, risk);
       setTeam(updated); setBank(updated.bank); setFreeTransfers(updated.free_transfers);
     }
     catch (err) { setError(err instanceof Error ? err.message : "Could not update the forecast."); }
@@ -1026,7 +1032,7 @@ export default function App() {
         </div>)}</nav>
         {team && <div className="team-settings"><div><small>{team.squad_source === "manual_override" ? "Manual squad" : "Finances"}</small><button onClick={() => setEditing(!editing)}>{editing ? "Cancel" : "Edit"}</button></div>{editing ? <><label>Bank (£m)<input type="number" min="0" max="20" step="0.1" value={bank / 10} onChange={event => setBank(Math.round(Number(event.target.value) * 10))} /></label><label>Free transfers<input type="number" min="0" max="5" value={freeTransfers} onChange={event => setFreeTransfers(Number(event.target.value))} /></label><button className="secondary full" onClick={saveSettings}>Save</button></> : <p><strong>{money(team.bank)}</strong><span>{team.free_transfers} FT</span></p>}</div>}
         <button className="refresh" onClick={refresh} disabled={refreshing || loading || !reference}><Icon.Refresh size={14} />{refreshing ? "Refreshing…" : "Refresh forecast"}</button>
-        <p className="privacy">Public data · no login · no automatic transfers</p>
+        <p className="privacy">Public data · no login · no automatic transfers · the chat sends your team data to Anthropic</p>
       </aside>
       <main>
         <div className="mobile-bar">
@@ -1040,7 +1046,7 @@ export default function App() {
         <ForecastStatus team={team} refreshing={refreshing}>
           {team && <label className="horizon-inline" title="Applies across all planning pages">Horizon <select aria-label="Planning horizon" value={team.horizon} disabled={loading || refreshing} onChange={event => void changeHorizon(Number(event.target.value))}>{[1, 2, 3, 4, 5, 6, 7, 8].map(value => <option key={value} value={value}>{value} GW</option>)}</select>{loading && <span className="sr-only">Updating planning horizon…</span>}</label>}
         </ForecastStatus>
-        {!team ? <EmptyState /> : <WorkspaceProvider key={team.entry_id} team={team}><AssumptionsNotice onOpen={() => setView("scenarios")} /><TeamViews team={team} view={view} onNavigate={setView} onUpdated={updated => { setTeam(updated); setBank(updated.bank); setFreeTransfers(updated.free_transfers); }} /></WorkspaceProvider>}
+        {!team ? <EmptyState /> : <WorkspaceProvider key={team.entry_id} team={team}><AssumptionsNotice onOpen={() => setView("scenarios")} /><TeamViews team={team} view={view} onNavigate={setView} onUpdated={updated => { setTeam(updated); setBank(updated.bank); setFreeTransfers(updated.free_transfers); }} /><Chat team={team} view={view} label={activeLabel} /></WorkspaceProvider>}
       </main>
       {/* U17: one navigation on a phone. A section with several pages opens a sheet of them above the bar. */}
       {sheet && team && <nav className="group-sheet" aria-label={GROUPS.find(g => g.id === sheet)?.label} onKeyDown={event => { if (event.key === "Escape") setSheet(null); }}>{GROUPS.find(g => g.id === sheet)?.views.map(id => <button key={id} className={view === id ? "active" : ""} aria-current={view === id ? "page" : undefined} onClick={() => { setView(id); setSheet(null); }}>{VIEW_BY_ID[id].label}</button>)}</nav>}

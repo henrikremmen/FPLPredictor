@@ -22,6 +22,7 @@ export default function History() {
     <Screen onRefresh={pull.onRefresh} refreshing={pull.refreshing}>
       <Text style={typography.title}>History</Text>
       <Button label="Season timeline: squad per Gameweek" variant="secondary" onPress={() => router.push("/timeline")} />
+      <Button label="Top managers: top 100, legacy, top 1%" variant="secondary" onPress={() => router.push("/top-managers")} />
       <Button label="Model and data quality" variant="secondary" onPress={() => router.push("/model")} />
       <Segmented
         value={tab}
@@ -94,19 +95,21 @@ function ManagerTab({ data }: { data: ManagerAnalytics }) {
           <Stat label="Vs global average" value={data.summary.points_vs_global_average.toFixed(1)} tone={data.summary.points_vs_global_average >= 0 ? "positive" : "negative"} />
         </View>
       </Card>
-      <Section title="Global benchmark" subtitle={data.global_benchmark.sample_label}>
-        <Card>
-          <Text style={styles.caption}>
-            {data.global_benchmark.sample_size} teams in sample · average {data.global_benchmark.sample_average_total ?? "–"}
-          </Text>
-          {data.global_benchmark.ownership.slice(0, 6).map((row) => (
-            <View key={row.id} style={styles.watchRow}>
-              <Text style={styles.body}>{row.name}</Text>
-              <Text style={styles.caption}>{formatPercent(row.effective_ownership)} EO</Text>
-            </View>
-          ))}
-        </Card>
-      </Section>
+      {data.global_benchmark ? (
+        <Section title="Global benchmark" subtitle={data.global_benchmark.sample_label}>
+          <Card>
+            <Text style={styles.caption}>
+              {data.global_benchmark.sample_size} teams in sample · average {data.global_benchmark.sample_average_total ?? "–"}
+            </Text>
+            {data.global_benchmark.ownership.slice(0, 6).map((row) => (
+              <View key={row.id} style={styles.watchRow}>
+                <Text style={styles.body}>{row.name}</Text>
+                <Text style={styles.caption}>{formatPercent(row.effective_ownership)} EO</Text>
+              </View>
+            ))}
+          </Card>
+        </Section>
+      ) : null}
       <Section title="Gameweek-logg">
         <Card>
           {data.timeline.slice(-8).map((row) => (
@@ -205,7 +208,7 @@ function DecisionRow({ player }: { player: AnalyticsDecisionPlayer }) {
     <View style={styles.watchRow}>
       <Text style={styles.body}>{player.name}</Text>
       <Text style={styles.caption}>
-        Liga-EO {formatPercent(player.league_effective_ownership)} · Top EO {formatPercent(player.top10k_effective_ownership)}
+        Liga-EO {formatPercent(player.league_effective_ownership)} · Top 1% EO {formatPercent(player.top1pct_effective_ownership)}
       </Text>
     </View>
   );

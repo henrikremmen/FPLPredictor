@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -13,8 +15,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 os.environ.setdefault("FPL_SESSIONS_DB_PATH", ":memory:")
 
+os.environ["FPL_API_TOKEN"] = ""  # the tests run without the API token, whatever .env says
+os.environ["FPL_SESSIONS_DB_PATH"] = ":memory:"  # and never write test sessions into data/local/sessions.db
 import api
-from fpl_app import ImportedTeam
+from fpl_app import AppError, ImportedTeam
+from session_store import SessionRegistry
 
 
 def player(player_id, position, points):
@@ -45,6 +50,26 @@ def fake_team() -> ImportedTeam:
         "2026-09-19T10:00:00Z", Path("forecast.csv"), horizon=1,
         lineup_squad=squad, weekly_market=weekly, chip_status=status,
     )
+
+
+def team_with_spare_mid() -> ImportedTeam:
+    """fake_team() plus an unowned midfielder (99) to swap in for player 12."""
+    team = fake_team()
+    incoming = pd.DataFrame([player(99, "MID", 12)])
+    team.market = pd.concat([team.market, incoming], ignore_index=True)
+    team.weekly_market = pd.concat([team.weekly_market, incoming.assign(forecast_event=5)], ignore_index=True)
+    return team
+
+
+def settle(job):
+    """Waits for a BackgroundJob's thread to finish."""
+    for _ in range(250):
+        if job.snapshot()["state"] != "running":
+            return
+        time.sleep(.02)
+
+
+SWAP = {"mode": "synchronize", "changes": [{"out_id": 12, "in_id": 99}], "bank": 7, "free_transfers": 0}
 
 
 class ApiTests(unittest.TestCase):
@@ -82,9 +107,9 @@ class ApiTests(unittest.TestCase):
             updated = self.client.patch(f"/api/team/{session}/settings", json={
                 "bank": 17, "free_transfers": 5,
             }).json()
+            self.assertEqual(self.client.get(f"/api/team/{session}").status_code, 200)
         self.assertEqual(updated["bank"], 17)
         self.assertEqual(updated["free_transfers"], 5)
-        self.assertEqual(self.client.get(f"/api/team/{session}").status_code, 200)
 
     def test_session_survives_in_memory_eviction(self):
         """A session dropped from the in-memory cache (e.g. an API restart)
@@ -108,13 +133,51 @@ class ApiTests(unittest.TestCase):
             )
             self.assertIn(session, api.STORE._teams)
 
-    def test_refresh_guard_rejects_rapid_repeat_calls(self):
-        guard = api.RefreshGuard(min_interval_seconds=60)
-        with patch("api.refresh_forecast"):
-            guard.run()
-            with self.assertRaises(api.HTTPException) as failure:
-                guard.run()
-        self.assertEqual(failure.exception.status_code, 429)
+    def test_background_job_rejects_overlap_and_rapid_repeats(self):
+        release = threading.Event()
+        job = api.BackgroundJob(lambda: release.wait(5), "forecast update", min_interval=60)
+        job.start()
+        with self.assertRaises(api.HTTPException) as busy:
+            job.start()
+        release.set()
+        settle(job)
+        with self.assertRaises(api.HTTPException) as early:
+            job.start()
+        self.assertEqual((busy.exception.status_code, early.exception.status_code), (409, 429))
+
+    def test_team_refresh_runs_in_background_then_reloads_the_team(self):
+        session = api.STORE.add(fake_team())
+        fresh = fake_team()
+        job = api.BackgroundJob(lambda: None, "forecast update", min_interval=0)
+        with patch("api.REFRESH_JOB", job), patch("api.refresh_forecast") as refresh, \
+                patch("api.import_team", return_value=fresh), patch("api.load_team_override"):
+            response = self.client.post(f"/api/team/{session}/refresh")
+            settle(job)
+            status = self.client.get("/api/forecast/status").json()
+        self.assertEqual((response.status_code, response.json()), (202, {"status": "started"}))
+        self.assertEqual(status["state"], "complete")
+        refresh.assert_called_once()
+        self.assertIs(api.STORE.get(session), fresh)
+
+    def test_top_manager_endpoints(self):
+        session = api.STORE.add(fake_team())
+        client = TestClient(api.app)
+        with tempfile.TemporaryDirectory() as temporary, patch("api.ROOT", Path(temporary)):
+            response = client.get(f"/api/team/{session}/top-managers?cohort=legacy")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), {"available": False, "cohort": "legacy"})
+        self.assertEqual(client.get(f"/api/team/{session}/top-managers?cohort=top10").status_code, 422)
+        with tempfile.TemporaryDirectory() as temporary, patch("api.ROOT", Path(temporary)):
+            self.assertEqual(client.get(f"/api/team/{session}/copy-check").json(), {"available": False})
+        job = api.BackgroundJob(lambda: None, "top-manager update", min_interval=0)
+        with patch("api.TOP_JOB", job), patch("api.top_managers.collect") as top, \
+                patch("api.copy_check.collect") as copies:
+            response = client.post(f"/api/team/{session}/top-managers/refresh")
+            self.assertEqual((response.status_code, response.json()), (202, {"status": "started"}))
+            settle(job)
+            self.assertEqual(client.get("/api/top-managers/status").json()["state"], "complete")
+        top.assert_called_once()
+        copies.assert_called_once_with(api.ROOT, api.STORE.get(session).entry_id)
 
     def test_manual_squad_endpoint_updates_every_team_view(self):
         team = fake_team()
@@ -146,6 +209,40 @@ class ApiTests(unittest.TestCase):
         lineup_ids = {row["id"] for row in body["lineup"]["starters"] + body["lineup"]["bench"]}
         self.assertIn(99, lineup_ids)
         self.assertNotIn(12, lineup_ids)
+
+    def test_a_correction_from_another_session_is_not_overwritten(self):
+        team = team_with_spare_mid()
+        with tempfile.TemporaryDirectory() as temporary, patch("api.ROOT", Path(temporary)):
+            phone, web = api.STORE.add(team), api.STORE.add(team)
+            self.assertEqual(self.client.patch(f"/api/team/{phone}/squad", json=SWAP).status_code, 200)
+            body = self.client.patch(f"/api/team/{web}/settings", json={"bank": 9, "free_transfers": 1}).json()
+            again = self.client.get(f"/api/team/{phone}").json()
+        for payload in (body, again):
+            self.assertIn(99, {row["id"] for row in payload["squad"]})
+            self.assertEqual(payload["bank"], 9)
+        self.assertNotIn(99, set(team.squad["id"]))  # the stored team itself was never changed
+
+    def test_reset_keeps_the_correction_when_fpl_is_down(self):
+        team = team_with_spare_mid()
+        with tempfile.TemporaryDirectory() as temporary, patch("api.ROOT", Path(temporary)):
+            session = api.STORE.add(team)
+            self.client.patch(f"/api/team/{session}/squad", json=SWAP)
+            with patch("api.import_team", side_effect=AppError("FPL is down")):
+                response = self.client.post(f"/api/team/{session}/squad/reset")
+            self.assertEqual(response.status_code, 400)
+            self.assertIsNotNone(api.override_mtime(Path(temporary), team.entry_id))
+
+    def test_only_the_newest_teams_stay_in_memory(self):
+        registry = SessionRegistry(Path("."), db_path=":memory:")
+        self.addCleanup(registry.close)
+        store = api.TeamStore(registry, max_teams=2)
+        first = store.add(fake_team())
+        store.add(fake_team())
+        store.add(fake_team())
+        self.assertEqual(len(store), 2)
+        with patch("api.import_team", return_value=fake_team()) as rebuild:
+            store.get(first)  # evicted, so rebuilt from the registry
+        rebuild.assert_called_once()
 
     def test_analytics_endpoint_passes_event_and_league(self):
         session = api.STORE.add(fake_team())
@@ -277,7 +374,7 @@ class LoopEndpointTests(unittest.TestCase):
     def test_lock_runs_in_background_and_rejects_locked_or_closed_window(self):
         import threading
         release = threading.Event()
-        job = api.LoopJob(run=lambda: release.wait(5) and {"locked": "loop_gw10_x"})
+        job = api.BackgroundJob(lambda: release.wait(5) and {"locked": "loop_gw10_x"}, "loop run", min_interval=0)
         base = {"event": 10, "window_open": True, "locked": False}
         with patch.object(api, "LOOP_JOB", job), patch.object(api.prospective_loop, "status", return_value=base), \
                 patch.object(api, "fpl_data_freshness", return_value={}):
@@ -300,7 +397,7 @@ class LoopEndpointTests(unittest.TestCase):
     def test_failed_loop_is_reported(self):
         def boom():
             raise ValueError("No capture with frozen GW10 forecasts before the deadline")
-        job = api.LoopJob(run=boom)
+        job = api.BackgroundJob(boom, "loop run", min_interval=0)
         job.start()
         for _ in range(100):
             if job.snapshot()["state"] != "running":
@@ -336,6 +433,24 @@ class ResultCacheTests(unittest.TestCase):
         self.assertEqual(cache.get("d")["result"], {"x": 9})
         self.assertIsNone(cache.get("e"))  # failures are left for the page to report
 
+    def test_a_key_being_computed_is_not_computed_again(self):
+        from result_cache import ResultCache
+        cache, calls, started, release = ResultCache(), [], threading.Event(), threading.Event()
+
+        def slow():
+            calls.append(1)
+            started.set()
+            release.wait(5)
+            return {"plan": 1}
+
+        warming = cache.warm([("plan", slow)])
+        started.wait(5)
+        page = threading.Thread(target=lambda: cache.compute("plan", slow))
+        page.start()
+        release.set()
+        warming.join(), page.join()
+        self.assertEqual(len(calls), 1)
+
 
 
 class FixtureTickerTests(unittest.TestCase):
@@ -357,3 +472,22 @@ class FixtureTickerTests(unittest.TestCase):
         self.assertEqual(one["weeks"][1]["fixtures"], 2)
         self.assertTrue(all(p["owned"] for p in result["players"]))
         self.assertEqual(fixture_ticker(team, "market")["players"], [])  # everyone in this market is owned
+
+
+class TokenAuthTests(unittest.TestCase):
+    def test_a_set_token_guards_every_route_but_health(self):
+        client = TestClient(api.app)
+        with patch("api.API_TOKEN", "s3cret"):
+            self.assertEqual(client.get("/api/health").status_code, 200)
+            self.assertEqual(client.get("/api/team/missing").status_code, 401)
+            self.assertEqual(client.get("/api/team/missing", headers={"Authorization": "Bearer wrong"}).status_code, 401)
+            self.assertEqual(client.get("/api/team/missing", headers={"Authorization": "Bearer s3cret"}).status_code, 404)
+
+    def test_no_token_leaves_the_local_api_open(self):
+        self.assertEqual(TestClient(api.app).get("/api/team/missing").status_code, 404)
+
+    def test_listening_on_every_network_needs_a_token(self):
+        with self.assertRaises(RuntimeError):
+            api._require_token_when_exposed("0.0.0.0", "")
+        api._require_token_when_exposed("0.0.0.0", "s3cret")
+        api._require_token_when_exposed("127.0.0.1", "")

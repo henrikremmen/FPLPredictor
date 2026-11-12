@@ -117,6 +117,7 @@ def main() -> int:
                 f"From an iPhone on the same Wi-Fi, set apps/mobile/.env to "
                 f"EXPO_PUBLIC_API_URL=http://{ip}:{BACKEND_PORT}"
             )
+        print("The phone also needs EXPO_PUBLIC_API_TOKEN set to the FPL_API_TOKEN from .env.")
         else:
             print("Local IP not found automatically; run `ipconfig getifaddr en0` to find it.")
     processes: list[subprocess.Popen] = []

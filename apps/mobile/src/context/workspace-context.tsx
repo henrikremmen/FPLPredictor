@@ -40,6 +40,10 @@ async function read<T>(key: string, fallback: T): Promise<T> {
   }
 }
 
+function write(key: string, value: unknown) {
+  AsyncStorage.setItem(key, JSON.stringify(value)).catch(() => undefined); // full storage: the change lasts this session
+}
+
 const WorkspaceContext = createContext<WorkspaceValue | null>(null);
 
 /** Player preferences and saved plans per FPL team ID; they reach every optimiser call. */
@@ -52,21 +56,23 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setConstraints(EMPTY);
     setPlans([]);
     if (!fplId) return;
-    read(keys(fplId).constraints, EMPTY).then(setConstraints);
-    read<SavedPlan[]>(keys(fplId).plans, []).then(setPlans);
+    let active = true; // a slow read for the previous team must not land on this one
+    read(keys(fplId).constraints, EMPTY).then((value) => { if (active) setConstraints(value); });
+    read<SavedPlan[]>(keys(fplId).plans, []).then((value) => { if (active) setPlans(value); });
+    return () => { active = false; };
   }, [fplId]);
 
   const updateConstraints = useCallback((change: (current: PlayerConstraints) => PlayerConstraints) => {
     setConstraints((current) => {
       const next = change(current);
-      if (fplId) AsyncStorage.setItem(keys(fplId).constraints, JSON.stringify(next));
+      if (fplId) write(keys(fplId).constraints, next);
       return next;
     });
   }, [fplId]);
   const updatePlans = useCallback((change: (current: SavedPlan[]) => SavedPlan[]) => {
     setPlans((current) => {
       const next = change(current);
-      if (fplId) AsyncStorage.setItem(keys(fplId).plans, JSON.stringify(next));
+      if (fplId) write(keys(fplId).plans, next);
       return next;
     });
   }, [fplId]);

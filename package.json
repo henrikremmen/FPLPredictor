@@ -16,7 +16,9 @@
     "mobile": "npm --prefix apps/mobile run start",
     "mobile:ios": "npm --prefix apps/mobile run ios",
     "typecheck:shared": "npm --prefix packages/shared run typecheck",
+    "typecheck:web": "cd frontend && npx tsc --noEmit",
     "typecheck:mobile": "npm --prefix apps/mobile run typecheck",
-    "test:mobile": "npm --prefix apps/mobile test"
+    "test:mobile": "npm --prefix apps/mobile test",
+    "test:all": "npm run test:backend && npm run typecheck:web && npm run typecheck:shared && npm run typecheck:mobile && npm run test:mobile"
   }
 }

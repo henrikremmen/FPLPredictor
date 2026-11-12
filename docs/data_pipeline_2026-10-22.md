@@ -1,110 +1,108 @@
-# Egen datainnhenting og skriptet datasett (fase 1)
+# Own data collection and scripted dataset (phase 1)
 
-22. oktober 2026. Gjelder fase 1 i [forbedringsplanen](archive/forbedringsplan_2026-10-22.md):
-D1 (automatisk innhenting), D2 (skriptet datasett), D3 (datakontrakt) og
-backfill av 2026-27. Beslutning: GitHub Actions i privat repo
-`henrikremmen/fpl-data`; FPL-Core-Insights brukes bare til forskning/validering;
-spillerprops er ikke aktivert.
+22 October 2026. Covers phase 1 of the [improvement plan](archive/forbedringsplan_2026-10-22.md):
+D1 (automatic collection), D2 (scripted dataset), D3 (data contract) and the
+backfill of 2026-27. Decision: GitHub Actions in the private repository
+`henrikremmen/fpl-data`; FPL-Core-Insights is used only for research/validation;
+player props are not enabled.
 
-## Resultat mot akseptkriteriene
+## Result against the acceptance criteria
 
-| Kriterium | Status | Bevis |
+| Criterion | Status | Evidence |
 |---|---|---|
-| Workflow har kjørt grønt manuelt | Oppfylt | `workflow_dispatch` (light) 22.10 kl. 15:42 UTC. Botcommit `4253bba` med snapshot der alle fire kall ga HTTP 200. FPL blokkerer ikke Actions-IP-er. |
-| Vaastav-kompatible CSV-er for GW1–7 består D3 | Oppfylt | `fpl-data/data/2026-27/gws/gw1–7.csv` og `merged_gw.csv`, 4 551 rader. Kontrakten kjøres før skriving og på nytt fra filene. GW1 er identisk med vaastavs `gw1.csv` i alle 610 rader og alle kolonner unntatt `xP`. |
-| `build_dataset.py` gir samme resultat som notebooken | Oppfylt | På notebookens input (vaastav 2016-17 til 2026-27 GW1) er filen byte-identisk med notebookens fil fra 21.09: SHA-256 `be3d0b74…0c56`, 254 441 rader. En enhetstest kjører notebookens egne celler på syntetiske data og sammenligner byte for byte. |
+| The workflow has run green manually | Met | `workflow_dispatch` (light) on 22 October at 15:42 UTC. Bot commit `4253bba` with a snapshot where all four calls returned HTTP 200. FPL does not block Actions IPs. |
+| Vaastav-compatible CSVs for GW1–7 pass D3 | Met | `fpl-data/data/2026-27/gws/gw1–7.csv` and `merged_gw.csv`, 4,551 rows. The contract runs before writing and again from the files. GW1 is identical to vaastav's `gw1.csv` in all 610 rows and every column except `xP`. |
+| `build_dataset.py` gives the same result as the notebook | Met | On the notebook's input (vaastav 2016-17 to 2026-27 GW1) the file is byte-identical to the notebook's file from 21 September: SHA-256 `be3d0b74…0c56`, 254,441 rows. A unit test runs the notebook's own cells on synthetic data and compares byte for byte. |
 
-Treningstabellen har nå 2026-27 GW1–7: 258 382 rader, hvorav 4 551 fra
-`fpl-data` (F2 løst). Den ligger i `data/processed/`, ikke i tredjeparts-
-checkouten, og er ignorert i Git.
+The training table now has 2026-27 GW1–7: 258,382 rows, of which 4,551 come from
+`fpl-data` (F2 resolved). It lives in `data/processed/`, not in the third-party
+checkout, and is ignored by Git.
 
-## Hva som er laget
+## What was built
 
-- `src/fpl_collect.py`: innhenting for `fpl-data`.
-  - `auto` kjøres hver time. Den tar lett snapshot daglig etter 02:30 UTC og i
-    T-24t/6t/1t-vinduene, og full rundeeksport når en runde er `finished` og
-    `data_checked`.
-  - Tilstanden leses fra filene som allerede finnes, så kjøringen er idempotent.
-  - `capture_endpoint`/`digest`/`now` (fra `capture_fpl.py`) og
-    `checkpoint_for` (fra `deadline_collector.py`) er flyttet hit uendret og
-    re-eksporteres der. Modulen bruker bare stdlib, requests, pandas og
+- `src/fpl_collect.py`: collection for `fpl-data`.
+  - `auto` runs every hour. It takes a light snapshot daily after 02:30 UTC and
+    in the T-24h/6h/1h windows, and a full round export when a round is
+    `finished` and `data_checked`.
+  - State is read from the files that already exist, so runs are idempotent.
+  - `capture_endpoint`/`digest`/`now` (from `capture_fpl.py`) and
+    `checkpoint_for` (from `deadline_collector.py`) were moved here unchanged
+    and are re-exported there. The module uses only stdlib, requests, pandas and
     `data_contract.py`.
-  - Forespørslene går sekvensielt med 0,5 s mellomrom, retry/backoff og
+  - Requests run sequentially 0.5 s apart, with retry/backoff and the
     User-Agent `fplmodell-snapshot/1.0`.
-  - Formatet følger vaastav (MIT, attribusjon i `fpl-data/README.md` og
-    `collector/LICENSE-vaastav`). Tillegg: `code`, `history_past.csv`,
-    `corrections.csv` og rådata med SHA-256 i manifestet.
-  - `xP` er FPLs `ep_next` fra siste snapshot før rundens deadline. Allerede
-    skrevne verdier beholdes. GW1–3 mangler snapshot og står tomme. GW4–7 er
-    hentet fra lokale `data/raw/live_fpl/capture_*`.
-- `src/data_contract.py`: datakontrakten D3.
-  - Grensevalidering av `bootstrap-static`, `fixtures`, `element-summary` og
+  - The format follows vaastav (MIT, attribution in `fpl-data/README.md` and
+    `collector/LICENSE-vaastav`). Additions: `code`, `history_past.csv`,
+    `corrections.csv` and raw data with SHA-256 in the manifest.
+  - `xP` is FPL's `ep_next` from the last snapshot before the round's deadline.
+    Values already written are kept. GW1–3 have no snapshot and are left empty.
+    GW4–7 are taken from the local `data/raw/live_fpl/capture_*`.
+- `src/data_contract.py`: the D3 data contract.
+  - Boundary validation of `bootstrap-static`, `fixtures`, `element-summary` and
     `event/{gw}/live`.
-  - Radsjekker: ingen duplikat `(element, fixture)`, ingen manglende kickoff,
-    spillerantall i forventet område, sum av `starts` = 11 per lag og kamp,
-    mål = egne mål + motstanders selvmål, minutter 0–120, pris 3,0–20,0 og
-    maks 0,1 i endring per døgn, samt rader for begge lag i hver ferdige kamp.
-  - `diff_rows` logger FPL-korreksjoner per celle. `map_codes` feiler ved
-    tvetydig `code`. Nye spillere midt i sesongen er gyldige.
-- `src/build_dataset.py`: erstatter `notebooks/build_expanded_dataset.ipynb`.
-  Egne sesonger erstatter vaastavs kopi av samme sesong og må bestå D3 først.
-  `src/build_features.py` leser nå fra `data/processed/`.
-- `fpl-data`: workflow `.github/workflows/collect.yml` (cron `17 * * * *` og
-  `workflow_dispatch`, `contents: write`, ingen secrets), kopier av de to
-  modulene, låste versjoner av pandas og requests, og README.
-- Tester:
-  - `tests/test_fpl_collect.py`: alle D3-regler feiler hver for seg, en ny
-    spiller midt i sesongen godtas, og prisgrensen holder.
-  - Samme fil: `code`-mapping, korreksjonslogg, planlegging av
-    daglig/sjekkpunkt, eksport og `auto` ende til ende med falskt API, at
-    ingenting skrives når kontrakten feiler, valg av xP og at kopiene i
-    `fpl-data` er like kildene.
-  - `tests/test_build_dataset.py`: notebook-ekvivalens og at egen sesong
-    erstatter vaastavs og må bestå kontrakten.
+  - Row checks: no duplicate `(element, fixture)`, no missing kickoff, player
+    count in the expected range, sum of `starts` = 11 per team and match,
+    goals = own goals + opponents' own goals, minutes 0–120, price 3.0–20.0 and
+    at most 0.1 change per day, and rows for both teams in every finished match.
+  - `diff_rows` logs FPL corrections per cell. `map_codes` fails on an ambiguous
+    `code`. New players mid-season are valid.
+- `src/build_dataset.py`: replaces `notebooks/build_expanded_dataset.ipynb`.
+  Own seasons replace vaastav's copy of the same season and must pass D3 first.
+  `src/build_features.py` now reads from `data/processed/`.
+- `fpl-data`: workflow `.github/workflows/collect.yml` (cron `17 * * * *` and
+  `workflow_dispatch`, `contents: write`, no secrets), copies of the two
+  modules, pinned versions of pandas and requests, and a README.
+- Tests:
+  - `tests/test_fpl_collect.py`: every D3 rule fails on its own, a new player
+    mid-season is accepted, and the price limit holds.
+  - Same file: `code` mapping, correction log, daily/checkpoint scheduling,
+    export and `auto` end to end with a fake API, that nothing is written when
+    the contract fails, the choice of xP and that the copies in `fpl-data` match
+    the sources.
+  - `tests/test_build_dataset.py`: notebook equivalence and that an own season
+    replaces vaastav's and must pass the contract.
 
-## Målt størrelse
+## Measured size
 
-| Del | Per enhet | Per sesong (anslag) |
+| Part | Per unit | Per season (estimate) |
 |---|---|---|
-| Lett snapshot (fire endepunkter) | ca. 190 kB | ca. 480 snapshots, ca. 92 MB |
-| Full eksport, rådata (`element_summaries.tar` 2,4 MB, live, bootstrap, manifest) | ca. 3,0 MB | 38 eksporter, ca. 115 MB |
-| CSV-er | `merged_gw.csv` 0,85 MB etter GW7 | Små git-deltaer |
+| Light snapshot (four endpoints) | about 190 kB | about 480 snapshots, about 92 MB |
+| Full export, raw data (`element_summaries.tar` 2.4 MB, live, bootstrap, manifest) | about 3.0 MB | 38 exports, about 115 MB |
+| CSVs | `merged_gw.csv` 0.85 MB after GW7 | Small git deltas |
 
-Summen er rundt 200 MB per sesong, altså på planens grense. Alt ligger i git
-foreløpig. Blir repoet tungt, kan `element_summaries.tar` flyttes til
-Release-assets per runde uten at CSV-formatet endres.
+The total is around 200 MB per season, which is at the plan's limit. Everything
+is in git for now. If the repository gets heavy, `element_summaries.tar` can move
+to Release assets per round without changing the CSV format.
 
-Actions-forbruk: rundt 1 minutt per timekjøring pluss 10–20 minutter per
-ukentlig eksport, altså rundt 800 av 2 000 gratis minutter per måned i et
-privat repo.
+Actions usage: around 1 minute per hourly run plus 10–20 minutes per weekly
+export, so around 800 of 2,000 free minutes per month in a private repository.
 
-## Verifisering
+## Verification
 
 ```
 .venv/bin/python -m unittest discover -s tests   -> Ran 169 tests in 2.3s, OK
 npm run build --prefix frontend                  -> ✓ built
-npm run test:e2e:workspace --prefix frontend     -> 10 passed, 2 skipped (skjermbildetester)
+npm run test:e2e:workspace --prefix frontend     -> 10 passed, 2 skipped (screenshot tests)
 npm run typecheck:mobile                         -> exit 0
 npm run test:mobile                              -> 6 suites, 19 tests passed
 ```
 
-Kjørt etter fase 2, med fase 1-koden på plass.
+Run after phase 2, with the phase 1 code in place.
 
-`auto` er kjørt to ganger lokalt mot ekte API. Første kjøring tok daglig
-snapshot. Andre kjøring samme time gjorde ingenting.
+`auto` has been run twice locally against the real API. The first run took a
+daily snapshot. The second run in the same hour did nothing.
 
-## Gjenstår og hvorfor
+## Remaining and why
 
-- **launchd-fallback:** ikke laget. Actions når FPL (første kjøring var grønn).
-  Lages hvis FPL senere blokkerer Actions.
-- **Moduler som fortsatt leser bare `data-source/data`:** `elo_features.py` og
-  `understat_*.py` ser fortsatt bare
-  vaastavs 2026-27 (kun GW1-resultater). Dette tas i fase 4 (M1) sammen med
-  refit.
-- **`player_fixture_features.csv`:** ikke bygget på nytt. Det hører til en
-  refit-kandidat i fase 4. Produksjonsmodellen er uendret.
-- **FPL-Core-Insights:** kryssvalidering av egne CSV-er er ikke kjørt ennå.
-  Ifølge beslutningen er kilden kun til forskning.
-- **Rådata fra før 22.10 i `fpl-data`:** finnes bare for eksporten, ikke som
-  daglige snapshots bakover. Lokale `capture_*` er urørt og brukes som
-  xP-kilde.
+- **launchd fallback:** not built. Actions reaches FPL (the first run was
+  green). To be built if FPL later blocks Actions.
+- **Modules that still read only `data-source/data`:** `elo_features.py` and
+  `understat_*.py` still see only vaastav's 2026-27 (GW1 results only). This is
+  handled in phase 4 (M1) together with the refit.
+- **`player_fixture_features.csv`:** not rebuilt. It belongs to a refit
+  candidate in phase 4. The production model is unchanged.
+- **FPL-Core-Insights:** cross-validation of our own CSVs has not been run yet.
+  Per the decision, the source is for research only.
+- **Raw data from before 22 October in `fpl-data`:** exists only for the export,
+  not as daily snapshots backwards. Local `capture_*` is untouched and is used as
+  the xP source.

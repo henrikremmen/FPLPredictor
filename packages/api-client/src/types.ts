@@ -160,7 +160,7 @@ export interface AnalyticsDecisionPlayer {
   projection: number;
   league_effective_ownership: number;
   league_ownership: number;
-  top10k_effective_ownership: number;
+  top1pct_effective_ownership: number;
   global_ownership: number;
   owned: boolean;
   projected_multiplier: number;
@@ -170,6 +170,125 @@ export interface AnalyticsDecisionPlayer {
   captain_rank_edge?: number;
   status: string;
   opponent: string;
+}
+
+export type TopCohort = "top100" | "legacy" | "top1pct" | "youtubers";
+
+export interface TopPlayer {
+  id: number;
+  name: string;
+  team: string;
+  position: string;
+  price?: number;
+  projection?: number;
+}
+
+export interface TopManagerRow {
+  entry: number;
+  name: string;
+  team_name: string;
+  rank?: number;
+  legacy_score?: number;
+  typical_rank?: number;
+  seasons?: number;
+  top10k_seasons?: number;
+  best_rank?: number;
+  total: number;
+  event_points: number;
+  overall_rank: number | null;
+  captain: number | null;
+  captain_name: string | null;
+  chip: string | null;
+  hits: number;
+  bank: number;
+  value: number;
+  match: number;
+  shared: number;
+  transfers: Array<{ out: string; in: string }>;
+  chips_used: string[];
+  fpl_url: string;
+}
+
+export interface TopManagers {
+  available: boolean;
+  cohort: TopCohort;
+  meta?: {
+    event: number;
+    season: string;
+    collected_at: string;
+    event_finished: boolean;
+    stale: boolean;
+    size: number;
+    total_players: number;
+    population: number;
+    sample_pages: number;
+    margin_pp: number | null;
+  };
+  catch_up?: {
+    your_total: number | null;
+    your_rank: number | null;
+    threshold: number | null;
+    cutoff_rank: number | null;
+    gap: number | null;
+    per_gameweek: number | null;
+    remaining_gameweeks: number;
+    average_total: number | null;
+    trend: Array<{ event: number; threshold: number | null }>;
+  };
+  match?: { cohort: number };
+  moves?: {
+    basis: string | null;
+    bought: Array<TopPlayer & { share: number }>;
+    sold: Array<TopPlayer & { share: number }>;
+    captains: Array<TopPlayer & { share: number }>;
+    chips: Record<string, number>;
+    average_hits: number;
+  };
+  template?: Array<TopPlayer & {
+    effective_ownership: number; ownership: number; captain_rate: number; your_multiplier: number | null;
+  }>;
+  decisions?: { threats: AnalyticsDecisionPlayer[]; differentials: AnalyticsDecisionPlayer[]; leverage: AnalyticsDecisionPlayer[] };
+  managers?: TopManagerRow[];
+}
+
+export interface CopyCheckMember {
+  entry: number;
+  name: string;
+  team_name: string;
+  is_you?: boolean;
+  closest: { entry: number; name: string };
+  signal: { label: "Strong" | "Some" | "Normal"; percentile: number; score: number };
+  overlap: number;
+  overlap_typical: number | null;
+  overlap_percentile: number;
+  same_buys: number;
+  buys_percentile: number;
+  follows: number;
+  same_chips: Array<{ event: number; chip: string }>;
+  evidence: Array<{ event: number; player: string; share: number }>;
+  series: Array<{ event: number; overlap: number; typical: number | null }>;
+  closest_friend: { entry: number; name: string; score: number; same_buys: number; follows: number } | null;
+}
+
+export interface CopyCheck {
+  available: boolean;
+  league?: { id: number; name: string };
+  leagues?: Array<{ id: number; name: string }>;
+  season?: string;
+  event_through?: number;
+  collected_at?: string;
+  baseline_size?: number;
+  creators?: Array<{ entry: number; name: string }>;
+  members?: CopyCheckMember[];
+  friends?: { members: Array<{ entry: number; name: string }>; scores: Array<Array<number | null>> };
+}
+
+export interface TopManagersStatus {
+  state: "idle" | "running" | "complete" | "failed";
+  error: string | null;
+  phase: string;
+  done: number;
+  total: number;
 }
 
 export interface ManagerAnalytics {
@@ -206,7 +325,7 @@ export interface ManagerAnalytics {
       id: number; name: string; effective_ownership: number; ownership: number;
       captain_rate: number; global_ownership: number;
     }>;
-  };
+  } | null;
   timeline: AnalyticsTimelineRow[];
   position_points: Record<Position, number>;
   gameweek: {

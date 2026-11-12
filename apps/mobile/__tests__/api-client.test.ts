@@ -1,4 +1,4 @@
-import { ApiClient, ApiError } from "@fplmodell/api-client";
+import { ApiClient, ApiError, waitForJob } from "@fplmodell/api-client";
 
 function jsonResponse(status: number, body: unknown): Response {
   return {
@@ -75,5 +75,23 @@ describe("ApiClient", () => {
     const client = new ApiClient({ baseUrl: "http://example.test", timeoutMs: 20, fetchImpl });
 
     await expect(client.health()).rejects.toMatchObject({ kind: "timeout" });
+  });
+});
+
+describe("token and background jobs", () => {
+  it("sends the API token as a bearer header when one is set", async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, {}));
+    await new ApiClient({ baseUrl: "http://example.test", fetchImpl, token: "s3cret" }).health();
+    await new ApiClient({ baseUrl: "http://example.test", fetchImpl }).health();
+    expect(fetchImpl.mock.calls[0][1].headers.Authorization).toBe("Bearer s3cret");
+    expect(fetchImpl.mock.calls[1][1].headers.Authorization).toBeUndefined();
+  });
+
+  it("waits for a job to finish, rides out a failed poll and reports a failed job", async () => {
+    const statuses = [{ state: "running", error: null }, new Error("blip"), { state: "complete", error: null }];
+    const poll = jest.fn(async () => { const next = statuses.shift(); if (next instanceof Error) throw next; return next!; });
+    await expect(waitForJob(poll, undefined, 0)).resolves.toEqual({ state: "complete", error: null });
+    expect(poll).toHaveBeenCalledTimes(3);
+    await expect(waitForJob(async () => ({ state: "failed", error: "FPL is down" }), undefined, 0)).rejects.toThrow("FPL is down");
   });
 });
