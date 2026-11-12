@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { waitForJob } from "@fplmodell/api-client";
 import { api } from "./api";
 import { Icon } from "./icons";
-import { CHIP_LABELS, type Chip, decisionCard, RISK_PROFILE_LABELS, RISK_PROFILE_SCORE, formatDeadline, formatHoursRemaining, teamIdFromReference } from "@fplmodell/shared";
+import { CHIP_LABELS, type Chip, RISK_PROFILE_LABELS, RISK_PROFILE_SCORE, formatDeadline, formatHoursRemaining, teamIdFromReference } from "@fplmodell/shared";
 import { Timeline } from "./Timeline";
 import { TopManagers } from "./TopManagers";
 import { ModelCardView } from "./ModelCard";
 import { FixtureTickerView } from "./FixtureTicker";
-import { JournalView, RecordDecision, ScenariosView } from "./Scenarios";
+import { JournalView, ScenariosView } from "./Scenarios";
+import { ThisWeek } from "./ThisWeek";
 import { Chat } from "./Chat";
 import { WorkspaceProvider, useWorkspace, usePageContext, PlayerName, SinceLastTime, PlayerComparisonView, Preferences, SavedPlans, ForecastStatus, ResultStatus, SavePlan, LockBanner, AssumptionsNotice } from "./Workspace";
 import type {
@@ -31,11 +32,12 @@ import type {
   TransferResponse,
 } from "@fplmodell/api-client";
 
-type View = "topmanagers" | "scenarios" | "journal" | "fixtures" | "comparison" | "preferences" | "saved" | "overview" | "analysis" | "timeline" | "model" | "squad" | "strategy" | "lineup" | "transfers" | "plan" | "squads" | "chips" | "market";
+type View = "week" | "topmanagers" | "scenarios" | "journal" | "fixtures" | "comparison" | "preferences" | "saved" | "overview" | "analysis" | "timeline" | "model" | "squad" | "strategy" | "lineup" | "transfers" | "plan" | "squads" | "chips" | "market";
 
 const TEAM_ID_KEY = "fplmodell.fplId";
 const storedTeamId = () => { try { return localStorage.getItem(TEAM_ID_KEY) ?? ""; } catch { return ""; } };
 const VIEWS: Array<{ id: View; label: string; icon: typeof Icon.Home }> = [
+  { id: "week", label: "This week", icon: Icon.Check },
   { id: "overview", label: "Overview", icon: Icon.Home },
   { id: "analysis", label: "Analysis", icon: Icon.Chart },
   { id: "topmanagers", label: "Top managers", icon: Icon.Users },
@@ -58,18 +60,19 @@ const VIEWS: Array<{ id: View; label: string; icon: typeof Icon.Home }> = [
 ];
 const VIEW_BY_ID = Object.fromEntries(VIEWS.map(item => [item.id, item])) as Record<View, (typeof VIEWS)[number]>;
 /** Five sections, the same on web (sidebar, bottom bar) and mobile (tabs). */
-const GROUPS: Array<{ id: string; label: string; short: string; icon: typeof Icon.Home; views: View[] }> = [
-  { id: "round", label: "This round", short: "Round", icon: Icon.Home, views: ["overview", "lineup"] },
-  { id: "plan", label: "Transfers & plan", short: "Plan", icon: Icon.Swap, views: ["strategy", "transfers", "plan", "scenarios", "chips", "squads"] },
-  { id: "players", label: "Players", short: "Players", icon: Icon.Users, views: ["market", "fixtures", "comparison", "preferences"] },
-  { id: "history", label: "History", short: "History", icon: Icon.Calendar, views: ["analysis", "topmanagers", "timeline", "journal", "model"] },
-  { id: "team", label: "My team", short: "Team", icon: Icon.Shield, views: ["squad", "saved"] },
+// U20: `more` pages sit under a folded "More" in each section; deep links are unchanged.
+const GROUPS: Array<{ id: string; label: string; short: string; icon: typeof Icon.Home; views: View[]; more: View[] }> = [
+  { id: "round", label: "This round", short: "Round", icon: Icon.Home, views: ["week", "overview", "lineup"], more: [] },
+  { id: "plan", label: "Transfers & plan", short: "Plan", icon: Icon.Swap, views: ["strategy", "transfers", "plan", "chips", "scenarios", "squads"], more: ["scenarios", "squads"] },
+  { id: "players", label: "Players", short: "Players", icon: Icon.Users, views: ["market", "fixtures", "comparison", "preferences"], more: ["comparison", "preferences"] },
+  { id: "history", label: "History", short: "History", icon: Icon.Calendar, views: ["analysis", "topmanagers", "timeline", "journal", "model"], more: ["model"] },
+  { id: "team", label: "My team", short: "Team", icon: Icon.Shield, views: ["squad", "saved"], more: ["saved"] },
 ];
 const groupOf = (view: View) => GROUPS.find(group => group.views.includes(view)) ?? GROUPS[0];
 /** Deep link: #/transfers. Back, forward and refresh keep the page. */
 const viewFromHash = (): View => {
   const id = window.location.hash.replace(/^#\/?/, "");
-  return id in VIEW_BY_ID ? id as View : "overview";
+  return id in VIEW_BY_ID ? id as View : "week";
 };
 const SESSION_KEY = "fplmodell.sessionId";
 const remember = (key: string, value: string | null) => {
@@ -81,7 +84,7 @@ function PageHeading({ view, eyebrow, title, subtitle, action, right }: {
 }) {
   const ViewIcon = VIEWS.find(item => item.id === view)?.icon ?? Icon.Home;
   return (
-    <header className={`page-heading ${view === "overview" ? "" : "compact"}`}>
+    <header className="page-heading compact">
       <div className="page-heading-main">
         <span className="page-icon"><ViewIcon size={22} /></span>
         <div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div>
@@ -155,46 +158,12 @@ function EmptyState() {
   );
 }
 
-/** U9: the week's answer first — move or roll, captain, the news that matters, chips. */
-function DecisionCardView({ team, onNavigate }: { team: TeamResponse; onNavigate: (view: View) => void }) {
-  const workspace = useWorkspace();
-  const [advice, setAdvice] = useState<StrategyAdvice | null>(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    let active = true;
-    setError("");
-    api.strategy(team.session_id, workspace.constraints).then(result => { if (active) setAdvice(result); })
-      .catch(err => { if (active) setError(err instanceof Error ? err.message : "Could not load the recommendation."); });
-    return () => { active = false; };
-  }, [workspace.signature]);
-  const card = advice ? decisionCard(advice, team.chip_status) : null;
-  return <section className="panel decision-card" aria-label="This week's decision" aria-busy={!card && !error}>
-    <span className="eyebrow">GW {team.target_event} · deadline {team.deadline ? formatDeadline(team.deadline) : "not published"}</span>
-    {error ? <p role="alert">{error}</p> : !card ? <p className="section-copy">Working out this week's recommendation…</p> : <>
-      <h2>{card.recommendation}</h2>
-      <p className="section-copy">{card.why}</p>
-      <dl className="fact-list">
-        <div><dt>Captain</dt><dd>{card.captain}{card.alternative ? ` · next best ${card.alternative}` : ""}</dd></div>
-        {card.news && <div><dt>News</dt><dd>{card.news}</dd></div>}
-        {card.chipHint && <div><dt>Chips</dt><dd>{card.chipHint}</dd></div>}
-      </dl>
-    </>}
-    <div className="decision-actions">
-      <button className="primary" onClick={() => onNavigate("strategy")}>Compare the options</button>
-      <button className="secondary" onClick={() => onNavigate("scenarios")}>Plan A / B and scenarios</button>
-      <button className="secondary" onClick={() => onNavigate("lineup")}>See the lineup</button>
-    </div>
-    {card && <RecordDecision team={team} />}
-  </section>;
-}
-
 function Overview({ team, onNavigate }: { team: TeamResponse; onNavigate: (view: View) => void }) {
   const best = [...team.squad].sort((a, b) => b.recommended_points - a.recommended_points)[0];
   return (
     <>
       <PageHeading view="overview" eyebrow={`GW ${team.target_event}`} title={team.team_name} subtitle={`${team.manager_name} · ${team.horizon} GW horizon`}
         right={<div className="deadline"><small>Deadline</small><strong>{team.deadline ? formatDeadline(team.deadline) : "Not published"}</strong></div>} />
-      <DecisionCardView team={team} onNavigate={onNavigate} />
       <p className="import-note">{team.squad_source === "manual_override"
         ? "You corrected this squad by hand."
         : `Squad from your public FPL picks for GW${team.event}; FPL shows them only after that deadline, so transfers since then are missing.`}
@@ -930,7 +899,7 @@ function TeamViews({ team, view, onNavigate, onUpdated }: { team: TeamResponse; 
   const [visited, setVisited] = useState<View[]>([view]);
   useEffect(() => { setVisited(current => current.includes(view) ? current : [...current, view]); }, [view]);
   return <>{[...new Set([...visited, view])].map(id => <div key={id} hidden={id !== view}>
-    {id === "overview" ? <Overview team={team} onNavigate={onNavigate} /> : id === "analysis" ? <ManagerAnalysis team={team} /> : id === "topmanagers" ? <TopManagers team={team} /> : id === "timeline" ? <Timeline sessionId={team.session_id} /> : id === "model" ? <ModelCardView /> : id === "scenarios" ? <ScenariosView team={team} /> : id === "journal" ? <JournalView team={team} /> : id === "fixtures" ? <FixtureTickerView sessionId={team.session_id} revision={team.forecast_context?.revision ?? team.forecast_path} /> : id === "squad" ? <SquadEditor team={team} onUpdated={onUpdated} /> : id === "strategy" ? <StrategyCenter team={team} onNavigate={onNavigate} /> : id === "lineup" ? <Lineup team={team} /> : id === "transfers" ? <Transfers team={team} /> : id === "plan" ? <Multiweek team={team} /> : id === "squads" ? <RecommendedTeams team={team} /> : id === "chips" ? <Chips team={team} /> : id === "comparison" ? <PlayerComparisonView team={team} /> : id === "preferences" ? <Preferences team={team} /> : id === "saved" ? <SavedPlans team={team} /> : <Market team={team} />}
+    {id === "week" ? <ThisWeek key={`${team.entry_id}-${team.target_event}`} team={team} onNavigate={onNavigate} /> : id === "overview" ? <Overview team={team} onNavigate={onNavigate} /> : id === "analysis" ? <ManagerAnalysis team={team} /> : id === "topmanagers" ? <TopManagers team={team} /> : id === "timeline" ? <Timeline sessionId={team.session_id} /> : id === "model" ? <ModelCardView /> : id === "scenarios" ? <ScenariosView team={team} /> : id === "journal" ? <JournalView team={team} /> : id === "fixtures" ? <FixtureTickerView sessionId={team.session_id} revision={team.forecast_context?.revision ?? team.forecast_path} /> : id === "squad" ? <SquadEditor team={team} onUpdated={onUpdated} /> : id === "strategy" ? <StrategyCenter team={team} onNavigate={onNavigate} /> : id === "lineup" ? <Lineup team={team} /> : id === "transfers" ? <Transfers team={team} /> : id === "plan" ? <Multiweek team={team} /> : id === "squads" ? <RecommendedTeams team={team} /> : id === "chips" ? <Chips team={team} /> : id === "comparison" ? <PlayerComparisonView team={team} /> : id === "preferences" ? <Preferences team={team} /> : id === "saved" ? <SavedPlans team={team} /> : <Market team={team} />}
   </div>)}</>;
 }
 
@@ -957,6 +926,7 @@ export default function App() {
     setMobileMenuOpen(false);
     if (window.location.hash !== `#/${next}`) window.location.hash = `/${next}`;
   };
+  const navButton = (id: View) => { const item = VIEW_BY_ID[id]; return <button key={id} className={view === id ? "active" : ""} aria-current={view === id ? "page" : undefined} disabled={!team} onClick={() => setView(id)}><item.icon size={17} />{item.label}</button>; };
   useEffect(() => { lastInGroup.current[groupOf(view).id] = view; }, [view]);
   useEffect(() => {
     const sync = () => setViewState(viewFromHash());
@@ -1028,7 +998,8 @@ export default function App() {
         </div>}
         <nav aria-label="Pages">{GROUPS.map(group => <div className="nav-group" key={group.id} role="group" aria-labelledby={`nav-${group.id}`}>
           <span className="nav-group-label" id={`nav-${group.id}`}>{group.label}</span>
-          {group.views.map(id => { const item = VIEW_BY_ID[id]; return <button key={id} className={view === id ? "active" : ""} aria-current={view === id ? "page" : undefined} disabled={!team} onClick={() => setView(id)}><item.icon size={17} />{item.label}</button>; })}
+          {group.views.filter(id => !group.more.includes(id)).map(navButton)}
+          {group.more.length > 0 && <details className="nav-more" open={group.more.includes(view) || undefined}><summary>More</summary>{group.more.map(navButton)}</details>}
         </div>)}</nav>
         {team && <div className="team-settings"><div><small>{team.squad_source === "manual_override" ? "Manual squad" : "Finances"}</small><button onClick={() => setEditing(!editing)}>{editing ? "Cancel" : "Edit"}</button></div>{editing ? <><label>Bank (£m)<input type="number" min="0" max="20" step="0.1" value={bank / 10} onChange={event => setBank(Math.round(Number(event.target.value) * 10))} /></label><label>Free transfers<input type="number" min="0" max="5" value={freeTransfers} onChange={event => setFreeTransfers(Number(event.target.value))} /></label><button className="secondary full" onClick={saveSettings}>Save</button></> : <p><strong>{money(team.bank)}</strong><span>{team.free_transfers} FT</span></p>}</div>}
         <button className="refresh" onClick={refresh} disabled={refreshing || loading || !reference}><Icon.Refresh size={14} />{refreshing ? "Refreshing…" : "Refresh forecast"}</button>
@@ -1049,7 +1020,7 @@ export default function App() {
         {!team ? <EmptyState /> : <WorkspaceProvider key={team.entry_id} team={team}><AssumptionsNotice onOpen={() => setView("scenarios")} /><TeamViews team={team} view={view} onNavigate={setView} onUpdated={updated => { setTeam(updated); setBank(updated.bank); setFreeTransfers(updated.free_transfers); }} /><Chat team={team} view={view} label={activeLabel} /></WorkspaceProvider>}
       </main>
       {/* U17: one navigation on a phone. A section with several pages opens a sheet of them above the bar. */}
-      {sheet && team && <nav className="group-sheet" aria-label={GROUPS.find(g => g.id === sheet)?.label} onKeyDown={event => { if (event.key === "Escape") setSheet(null); }}>{GROUPS.find(g => g.id === sheet)?.views.map(id => <button key={id} className={view === id ? "active" : ""} aria-current={view === id ? "page" : undefined} onClick={() => { setView(id); setSheet(null); }}>{VIEW_BY_ID[id].label}</button>)}</nav>}
+      {sheet && team && <nav className="group-sheet" aria-label={GROUPS.find(g => g.id === sheet)?.label} onKeyDown={event => { if (event.key === "Escape") setSheet(null); }}>{GROUPS.find(g => g.id === sheet)?.views.map(id => <button key={id} data-more={GROUPS.find(g => g.id === sheet)?.more.includes(id) || undefined} className={view === id ? "active" : ""} aria-current={view === id ? "page" : undefined} onClick={() => { setView(id); setSheet(null); }}>{VIEW_BY_ID[id].label}</button>)}</nav>}
       <nav className="mobile-nav" aria-label="Sections">{GROUPS.map(group => <button key={group.id} className={activeGroup.id === group.id ? "active" : ""} aria-current={activeGroup.id === group.id ? "true" : undefined} aria-expanded={group.views.length > 1 ? sheet === group.id : undefined} disabled={!team} onClick={() => { setView(lastInGroup.current[group.id] ?? group.views[0]); setSheet(group.views.length > 1 && sheet !== group.id ? group.id : null); }}><group.icon size={20} /><small aria-hidden="true">{group.short}</small><span className="sr-only">{group.label}</span></button>)}</nav>
     </div>
   );

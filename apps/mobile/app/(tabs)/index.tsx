@@ -2,14 +2,14 @@ import { useState } from "react";
 import { RefreshControl, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { ApiError, type TeamResponse } from "@fplmodell/api-client";
-import { decisionCard, formatDeadline, formatMoney, formatPoints, formatRank } from "@fplmodell/shared";
+import { formatDeadline, formatMoney, formatPoints, formatRank } from "@fplmodell/shared";
 import { Screen } from "../../src/components/Screen";
 import { QueryState } from "../../src/components/QueryState";
 import { Badge, Button, Card, Section, Stat } from "../../src/components/ui";
 import { PlayerRow } from "../../src/components/PlayerRow";
 import { LockBanner } from "../../src/components/LockBanner";
 import { useRefreshTeam, useTeam } from "../../src/hooks/useTeam";
-import { useStrategyAdvice } from "../../src/hooks/useFeatures";
+import { ThisWeekPanel } from "../../src/panels/ThisWeek";
 import { colors, spacing, typography } from "../../src/theme";
 
 export default function Overview() {
@@ -61,7 +61,7 @@ function OverviewContent({
       </View>
 
       <LockBanner />
-      <DecisionCardView team={team} />
+      <ThisWeekPanel team={team} />
       <Text style={styles.caption}>
         {team.squad_source === "manual_override"
           ? "You corrected this squad by hand."
@@ -104,30 +104,6 @@ function OverviewContent({
 
       <Button label="Edit squad, bank or transfers" variant="secondary" onPress={() => router.push("/correction")} />
     </>
-  );
-}
-
-/** U9: same decision card as the web Overview. */
-function DecisionCardView({ team }: { team: TeamResponse }) {
-  const advice = useStrategyAdvice();
-  const card = advice.data ? decisionCard(advice.data, team.chip_status) : null;
-  return (
-    <Card>
-      <Text style={typography.eyebrow}>This week · GW{team.target_event}</Text>
-      {advice.isError ? <Text style={styles.error}>Could not load the recommendation.</Text> : !card ? (
-        <Text style={styles.caption}>Working out this week's recommendation…</Text>
-      ) : (
-        <>
-          <Text style={typography.heading}>{card.recommendation}</Text>
-          <Text style={styles.caption}>{card.why}</Text>
-          <Text style={styles.caption}>Captain {card.captain}{card.alternative ? ` · next best ${card.alternative}` : ""}</Text>
-          {card.news ? <Text style={styles.caption}>News: {card.news}</Text> : null}
-          {card.chipHint ? <Text style={styles.caption}>{card.chipHint}</Text> : null}
-        </>
-      )}
-      <Button label="Compare the options" onPress={() => router.push("/plan")} />
-      <Button label="Plan A / B, scenarios and journal" variant="secondary" onPress={() => router.push("/scenarios")} />
-    </Card>
   );
 }
 

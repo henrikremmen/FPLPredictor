@@ -41,9 +41,11 @@ When to run what, and what in the app needs it: [Updating](docs/updating.md).
 
 ## What it does
 
+- **This week** (the start page): the round's steps in the order you do them in
+  FPL: transfers with prices, the XI and bench after the transfer, captain and
+  vice-captain, chip, what would change the plan, and a checklist to copy. The
+  app never makes the transfers for you.
 - **This round:** overview, recommended XI, captain and bench.
-- **This round** opens with this week's decision: move or roll, captain,
-  important news and chips.
 - **Transfers & plan:** strategy centre (roll or move), exact transfer search,
   a multiweek plan with chips, bench weights and requirements, plan A/B and
   scenarios with your own assumptions, chips, Free Hit and Wildcard squads.

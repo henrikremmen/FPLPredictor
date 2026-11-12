@@ -1,40 +1,29 @@
 import { CHIP_LABELS, type Chip } from "./constants";
-import { formatPoints } from "./format";
+import { formatMoney } from "./format";
 
-/** Fields of the strategy and team payloads the decision card reads (U9). */
-export interface DecisionCardInput {
-  transfer: { decision: string; title: string; reason: string; transfers_out: string[]; transfers_in: string[] };
-  captain: { captain: { name: string }; alternatives?: Array<{ name: string }>; margin: number };
-  squad_health?: { flagged_players?: Array<{ name: string; news: string; availability: number }> };
+/** Fields of the this-week payload the FPL checklist reads (W1). */
+export interface ChecklistInput {
+  strategy: { target_event: number; transfer: { hit: number } };
+  sell: Array<{ name: string; price: number }>;
+  buy: Array<{ name: string; price: number }>;
+  lineup: { formation: string; starters: Array<{ name: string; role?: string }>; bench: Array<{ name: string; bench_order?: string }> };
+  chips: { best_by_chip: Array<{ chip: string; event: number; decision: string }> };
 }
 
-export interface DecisionCard {
-  recommendation: string;
-  why: string;
-  captain: string;
-  alternative: string | null;
-  news: string | null;
-  chipHint: string | null;
-}
-
-/** The answer to "what should I do this week?", same words on web and mobile. */
-export function decisionCard(strategy: DecisionCardInput,
-                             chipStatus: Record<string, { available?: boolean; expires_after_gw?: number | null }> = {}): DecisionCard {
-  const move = strategy.transfer.transfers_out.length
-    ? `${strategy.transfer.transfers_out.join(", ")} → ${strategy.transfer.transfers_in.join(", ")}` : "";
-  const flagged = (strategy.squad_health?.flagged_players ?? []).find(player => player.news) ?? null;
-  // The strategy's alternatives can start with the captain himself.
-  const next = (strategy.captain.alternatives ?? []).find(player => player.name !== strategy.captain.captain.name);
-  const available = Object.entries(chipStatus).filter(([, status]) => status?.available);
-  const expiry = available.map(([, status]) => status.expires_after_gw).find(value => value != null);
-  return {
-    recommendation: move ? `${strategy.transfer.title}: ${move}` : strategy.transfer.title,
-    why: strategy.transfer.reason,
-    captain: strategy.captain.captain.name,
-    alternative: next ? `${next.name} (${formatPoints(strategy.captain.margin)} behind)` : null,
-    news: flagged ? `${flagged.name}: ${flagged.news}` : null,
-    chipHint: available.length
-      ? `${available.map(([chip]) => CHIP_LABELS[chip as Chip] ?? chip).join(", ")} available${expiry ? ` until GW${expiry}` : ""}. Plan them in the multiweek plan.`
-      : null,
-  };
+/** W1: what to click in FPL, in that order. Same text on web and mobile. */
+export function fplChecklist(week: ChecklistInput): string[] {
+  const list = (players: Array<{ name: string; price: number }>) => players.map(p => `${p.name} (${formatMoney(p.price)})`).join(", ");
+  const role = (tag: string) => week.lineup.starters.find(p => p.role === tag)?.name ?? "–";
+  const keeper = week.lineup.bench.find(p => p.bench_order === "GK");
+  const bench = week.lineup.bench.filter(p => p !== keeper).map((p, i) => `${i + 1}. ${p.name}`).join(", ");
+  const chip = week.chips.best_by_chip.find(c => c.decision === "PLAY" && c.event === week.strategy.target_event);
+  return [
+    week.sell.length ? `Sell: ${list(week.sell)}` : "Transfers: none",
+    ...(week.buy.length ? [`Buy: ${list(week.buy)}`] : []),
+    ...(week.strategy.transfer.hit ? [`Points hit: −${week.strategy.transfer.hit}`] : []),
+    `Starting XI (${week.lineup.formation}): ${week.lineup.starters.map(p => p.name).join(", ")}`,
+    `Captain: ${role("C")} · Vice-captain: ${role("VC")}`,
+    `Bench: ${bench}${keeper ? ` · reserve GK ${keeper.name}` : ""}`,
+    `Chip: ${chip ? CHIP_LABELS[chip.chip as Chip] ?? chip.chip : "none"}`,
+  ];
 }

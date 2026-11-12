@@ -34,7 +34,7 @@ from scenarios import apply_overrides, breakpoint, compare_plans, robustness
 import decision_journal
 from session_store import SessionRegistry
 from squad_recommendations import recommend_squads
-from strategy_advisor import build_strategy_advice
+from strategy_advisor import build_strategy_advice, lineup_after
 import copy_check
 import top_managers
 from fpl_app import (
@@ -290,9 +290,7 @@ def _json_safe(payload: dict) -> dict:
     return json.loads(json.dumps(payload, default=convert))
 
 
-def _lineup_payload(team: ImportedTeam) -> dict:
-    source = team.lineup_squad if team.lineup_squad is not None else team.squad
-    lineup = optimal_lineup(source)
+def _lineup_payload(lineup: dict) -> dict:
     return {
         "formation": lineup["formation"],
         "projected_total": round(float(lineup["projected_total"]), 4),
@@ -325,7 +323,7 @@ def _team_payload(session_id: str, team: ImportedTeam) -> dict:
         "forecast_context": context(team),
         "chip_status": team.chip_status,
         "squad": _records(team.squad),
-        "lineup": _lineup_payload(team),
+        "lineup": _lineup_payload(optimal_lineup(team.lineup_squad if team.lineup_squad is not None else team.squad)),
     }
 
 
@@ -353,6 +351,9 @@ def _warm(team) -> None:
          lambda: _transfers_payload(team, min(2, max(1, team.free_transfers)), [])),
         (cache_key(team, "plan", weeks=team.horizon, discount=.9, chips=False, requirements=requirements),
          lambda: _json_safe(plan_with_context(team, weeks=team.horizon, discount=.9))),
+        # W2: This week also shows chips and robustness.
+        (cache_key(team, "chips"), lambda: _json_safe(recommend_chip_strategy(team))),
+        (cache_key(team, "scenarios", scenarios=SCENARIOS), _scenarios_work(team, SCENARIOS)),
     ])
 
 
@@ -525,7 +526,7 @@ def sells(session_id: str, limit: int = Query(default=15, ge=1, le=15),
 def chips(session_id: str, request: ConstraintsRequest = Body(default=ConstraintsRequest())) -> dict:
     team = _constrained(STORE.get(session_id), request)
     try:
-        return _json_safe(recommend_chip_strategy(team))
+        return _cached(team, "chips", lambda: _json_safe(recommend_chip_strategy(team)))
     except AppError as exc:
         raise _as_http_error(exc) from exc
 
@@ -804,8 +805,11 @@ def fixtures(session_id: str, scope: str = Query(default="squad", pattern="^(squ
         raise _as_http_error(exc) from exc
 
 
+SCENARIOS = 50
+
+
 class ScenarioRequest(ConstraintsRequest):
-    scenarios: int = Field(default=50, ge=20, le=100)
+    scenarios: int = Field(default=SCENARIOS, ge=20, le=100)
 
 
 class BreakpointRequest(ConstraintsRequest):
@@ -816,14 +820,42 @@ class BreakpointRequest(ConstraintsRequest):
 def scenarios(session_id: str, request: ScenarioRequest) -> dict:
     """P5: hold vs plan A vs plan B on the same inputs, and how often each wins across sampled scenarios."""
     team = _constrained(STORE.get(session_id), request)
-    def work():
-        plans = compare_plans(team)
-        return _json_safe({"plans": plans, "robustness": robustness(team, plans, request.scenarios),
-                           "assumptions": team.scenario_overrides})
     try:
-        return _cached(team, "scenarios", work, scenarios=request.scenarios)
+        return _cached(team, "scenarios", _scenarios_work(team, request.scenarios), scenarios=request.scenarios)
     except AppError as exc:
         raise _as_http_error(exc) from exc
+
+
+def _scenarios_work(team, count: int):
+    def work():
+        plans = compare_plans(team)
+        return _json_safe({"plans": plans, "robustness": robustness(team, plans, count),
+                           "assumptions": team.scenario_overrides})
+    return work
+
+
+@app.post("/api/team/{session_id}/this-week")
+def this_week(session_id: str, request: ConstraintsRequest = Body(default=ConstraintsRequest())) -> dict:
+    """W1: the week's steps on one page, from the same cached results as Strategy, Chips and Scenarios."""
+    team = _constrained(STORE.get(session_id), request)
+    try:
+        strategy = _cached(team, "strategy", lambda: _json_safe(build_strategy_advice(team)))
+        lineup = lineup_after(team, strategy["plan"]["weeks"][0])
+        chips = _cached(team, "chips", lambda: _json_safe(recommend_chip_strategy(team)))
+    except AppError as exc:
+        raise _as_http_error(exc) from exc
+    try:
+        robust = _cached(team, "scenarios", _scenarios_work(team, SCENARIOS), scenarios=SCENARIOS)["robustness"]
+    except AppError:  # the week's plan still stands without the robustness share
+        robust = None
+    week = strategy["plan"]["weeks"][0]
+    owned, market = team.squad.set_index("id"), team.market.drop_duplicates("id").set_index("id")
+    sell = [{"id": i, "name": owned.at[i, "name"], "price": int(owned.at[i, "selling_price"])}
+            for i in week.get("transfers_out_ids", [])]
+    buy = [{"id": i, "name": market.at[i, "name"], "price": int(market.at[i, "price"])}
+           for i in week.get("transfers_in_ids", [])]
+    return _json_safe({"strategy": strategy, "lineup": _lineup_payload(lineup), "lineup_value": lineup_value(lineup),
+                       "chips": chips, "robustness": robust, "sell": sell, "buy": buy})
 
 
 @app.post("/api/team/{session_id}/scenarios/breakpoint")

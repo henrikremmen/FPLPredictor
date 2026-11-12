@@ -362,6 +362,31 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json()["headline"], "Roll the free transfer")
         self.assertEqual(response.json()["target_event"], 5)
 
+    def test_this_week_shows_the_xi_after_the_transfer_and_reuses_the_cache(self):
+        team = team_with_spare_mid()
+        for frame in (team.market, team.weekly_market):
+            frame.loc[frame.id.eq(99), ["recommended_points", "decision_points"]] = 30.0
+        session = api.STORE.add(team)
+        after = [i for i in range(1, 16) if i != 12] + [99]
+        advice = {"headline": "Player 12 → Player 99", "plan": {"weeks": [
+            {"transfers_in_ids": [99], "transfers_out_ids": [12], "squad_ids": after}]}}
+        robust = {"robustness": {"scenarios": 50, "chosen_share": {"Plan A": .8}}}
+        with patch("api.build_strategy_advice", return_value=advice) as strategy, \
+                patch("api.recommend_chip_strategy", return_value={"recommendation": "Hold"}), \
+                patch("api._scenarios_work", return_value=lambda: robust):
+            first = self.client.post(f"/api/team/{session}/this-week").json()
+            second = self.client.post(f"/api/team/{session}/this-week").json()
+        starters = {row["id"]: row["role"] for row in first["lineup"]["starters"]}
+        self.assertEqual(starters.get(99), "C")
+        self.assertNotIn(12, starters)
+        self.assertEqual(first["robustness"]["chosen_share"], {"Plan A": .8})
+        self.assertEqual(first["chips"]["recommendation"], "Hold")
+        self.assertEqual((first["sell"], first["buy"]), ([{"id": 12, "name": "P12", "price": 50}],
+                                                         [{"id": 99, "name": "P99", "price": 50}]))
+        self.assertIn("expected_with_autosubs", first["lineup_value"])
+        self.assertTrue(second["strategy"]["cache"]["hit"])
+        strategy.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

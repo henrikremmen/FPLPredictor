@@ -59,11 +59,35 @@ separate from forward-looking forecasts. See
 [manager analytics research](archive/manager_analytics_research_2026.md) for methods
 and limitations.
 
+## This week (W1, 12 November 2026)
+
+- **This week** is the start page (first in **This round**; mobile: top of the
+  Round tab). It lists the round's steps in the order you do them in FPL:
+  1. transfers: what to sell and buy with prices, bank afterwards, hit, the gain
+     over rolling and how often each plan won across the sampled scenarios, plus
+     a warning when a player you buy is close to a price rise;
+  2. the XI and bench order **after** the transfer, with the expectation
+     including autosubs and the vice-captain;
+  3. captain and vice-captain; 4. chip.
+  Then what would change the plan (flagged starters and the tipping point for
+  the player you buy and the captain) and the weeks after.
+- **Copy to FPL** (mobile: **Share as text**) gives the same checklist on both
+  (`fplChecklist` in `packages/shared`). Steps you tick stay in the browser or
+  on the phone for that team and Gameweek. Nothing is sent to FPL.
+- `POST /api/team/{id}/this-week` builds it from the same cached results as
+  Strategy, Chips and Scenarios, so the numbers match those pages. Import and
+  refresh precompute chips and scenarios as well.
+- Strategy now takes captain, vice-captain and squad health from the squad
+  **after** the plan's first transfers (`lineup_after` in
+  `src/strategy_advisor.py`, finding F31).
+- Advanced pages (Scenarios, FH/WC squads, Compare players, Player preferences,
+  Model and data, Saved plans) sit under a folded **More** in each sidebar
+  section (U20). Deep links are unchanged.
+
 ## Decision-first layout (plan phase F, November 2026)
 
-- **Overview** opens with this week's decision: roll or move and why, captain
-  and the next best, the news that matters and chip availability. A note says
-  which public picks the squad comes from, with a link to correct it.
+- **Overview** shows the squad, key numbers and what changed since last time.
+  (Until 12 November it opened with a decision card; **This week** replaced it.)
 - **Strategy, transfers and the multiweek plan** calculate as soon as you open
   them. The API also precomputes the default answers after an import or
   refresh. Results are cached under a key that covers the forecast, squad,
@@ -254,7 +278,7 @@ run in the shared backend. The app stores the FPL ID, horizon, risk profile and
 market preferences locally with `AsyncStorage`; this version has no user accounts.
 
 Web and mobile share one structure and one palette. The five sections are
-**This round** (overview, lineup), **Transfers & plan** (strategy, transfers,
+**This round** (this week, overview, lineup), **Transfers & plan** (strategy, transfers,
 multiweek plan, chips, FH/WC squads), **Players** (market, compare, player
 preferences), **History** (analysis, timeline) and **My team** (edit squad,
 saved plans). The web app shows them as sidebar groups and, below 760 px, as a

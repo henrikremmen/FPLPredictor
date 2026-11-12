@@ -18,6 +18,7 @@ import type {
   SquadChange,
   SquadUpdateResponse,
   StrategyAdvice,
+  ThisWeek,
   TeamResponse,
   TeamTimeline,
   TopCohort,
@@ -237,6 +238,10 @@ export class ApiClient {
 
   strategy(session: string, constraints?: PlayerConstraints) {
     return this.request<StrategyAdvice>(`/api/team/${session}/strategy`, { method: "POST", body: JSON.stringify(constraints ?? {}) });
+  }
+
+  thisWeek(session: string, constraints?: PlayerConstraints) {
+    return this.request<ThisWeek>(`/api/team/${session}/this-week`, { method: "POST", body: JSON.stringify(constraints ?? {}) });
   }
 
   /** Hold one player versus buying another, after selling price, bank and hits. */

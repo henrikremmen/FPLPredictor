@@ -449,6 +449,18 @@ export interface JournalEntry {
 /** P3: XI forecast versus the expectation with autosubs and vice-captain. */
 export interface LineupValue { xi_expected: number; expected_with_autosubs: number; bench_and_vice_value: number; draws: number; note: string }
 
+/** POST /api/team/{session}/this-week — W1: the week's steps, from the same cached results as the other pages. */
+export interface ThisWeek {
+  strategy: StrategyAdvice;
+  /** XI, C/VC and bench order after the plan's first-week transfers. */
+  lineup: Lineup;
+  lineup_value: LineupValue;
+  chips: ChipStrategy;
+  robustness: ScenarioComparison["robustness"] | null;
+  sell: Array<{ id: number; name: string; price: number }>;
+  buy: Array<{ id: number; name: string; price: number }>;
+}
+
 /** P4: a hard plan requirement. */
 export interface PlanRequirement { kind: "own_by" | "sell_in" | "max_club" | "max_position"; player_id?: number; event?: number; team_id?: number; position?: string; limit?: number }
 

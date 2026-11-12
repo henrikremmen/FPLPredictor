@@ -34,27 +34,28 @@ describe("lock banner", () => {
   });
 });
 
-import { decisionCard } from "@fplmodell/shared";
+import { fplChecklist } from "@fplmodell/shared";
 
-describe("decision card (U9)", () => {
-  const strategy = {
-    transfer: { decision: "ROLL", title: "Roll the free transfer", reason: "Best move gains 0.3 over 3 GW.", transfers_out: [], transfers_in: [] },
-    captain: { captain: { name: "Haaland" }, alternatives: [{ name: "Salah" }], margin: 1.24 },
-    squad_health: { flagged_players: [{ name: "Saka", news: "Knock - 75% chance of playing", availability: 0.75 }] },
+describe("FPL checklist (W1)", () => {
+  const week = {
+    strategy: { target_event: 12, transfer: { hit: 0 } },
+    sell: [{ name: "Saka", price: 98 }], buy: [{ name: "Palmer", price: 105 }],
+    lineup: {
+      formation: "3-4-3",
+      starters: [{ name: "Raya" }, { name: "Haaland", role: "C" }, { name: "Palmer", role: "VC" }],
+      bench: [{ name: "Kelleher", bench_order: "GK" }, { name: "Gvardiol", bench_order: "1" }, { name: "Wood", bench_order: "2" }],
+    },
+    chips: { best_by_chip: [{ chip: "bench_boost", event: 16, decision: "PLAY" }] },
   };
-  it("answers the week in one card", () => {
-    expect(decisionCard(strategy, { bench_boost: { available: true, expires_after_gw: 19 }, wildcard: { available: false } })).toEqual({
-      recommendation: "Roll the free transfer", why: "Best move gains 0.3 over 3 GW.", captain: "Haaland",
-      alternative: "Salah (1.2 behind)", news: "Saka: Knock - 75% chance of playing",
-      chipHint: "Bench Boost available until GW19. Plan them in the multiweek plan.",
-    });
+  it("lists the clicks in FPL order", () => {
+    expect(fplChecklist(week)).toEqual([
+      "Sell: Saka (£9.8m)", "Buy: Palmer (£10.5m)", "Starting XI (3-4-3): Raya, Haaland, Palmer",
+      "Captain: Haaland · Vice-captain: Palmer", "Bench: 1. Gvardiol, 2. Wood · reserve GK Kelleher", "Chip: none",
+    ]);
   });
-  it("names the move and stays quiet without news or chips", () => {
-    const card = decisionCard({ ...strategy, transfer: { ...strategy.transfer, title: "Make one transfer", transfers_out: ["A"], transfers_in: ["B"] },
-      squad_health: { flagged_players: [] } });
-    expect(card.recommendation).toBe("Make one transfer: A → B");
-    expect([card.news, card.chipHint]).toEqual([null, null]);
-    const self = decisionCard({ ...strategy, captain: { ...strategy.captain, alternatives: [{ name: "Haaland" }, { name: "Salah" }] } });
-    expect(self.alternative).toBe("Salah (1.2 behind)");
+  it("names a hit and a chip played this week", () => {
+    const lines = fplChecklist({ ...week, strategy: { target_event: 16, transfer: { hit: 4 } }, sell: [], buy: [] });
+    expect(lines.slice(0, 2)).toEqual(["Transfers: none", "Points hit: −4"]);
+    expect(lines.at(-1)).toBe("Chip: Bench Boost");
   });
 });

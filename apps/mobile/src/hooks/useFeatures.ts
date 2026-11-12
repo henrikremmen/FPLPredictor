@@ -46,6 +46,17 @@ export function useRecommendedSquads() {
   });
 }
 
+/** W1: the week's steps, same payload as the web This week page. */
+export function useThisWeek() {
+  const { sessionId } = useSession();
+  const { constraints } = useWorkspace();
+  return useQuery({
+    queryKey: ["this-week", sessionId, constraints],
+    queryFn: () => api.thisWeek(sessionId as string, constraints),
+    enabled: Boolean(sessionId),
+  });
+}
+
 export function useStrategyAdvice() {
   const { sessionId } = useSession();
   const { constraints } = useWorkspace();
